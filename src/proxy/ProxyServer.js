@@ -1,6 +1,11 @@
 const mc = require('minecraft-protocol');
 const { createLogger } = require('../utils/logger');
-const { wrapClientEnd, safeEndClient } = require('../utils/clientDisconnect');
+const {
+  wrapClientEnd,
+  safeEndClient,
+  disconnectServerClients,
+  closeServerListenSocket,
+} = require('../utils/clientDisconnect');
 const { disableInboundChatValidation } = require('../utils/chatRelay');
 const { replayConfigToClient } = require('../utils/configReplay');
 
@@ -109,14 +114,11 @@ class ProxyServer {
     }
   }
 
-  stop() {
-    if (this.activeClient) {
-      try { this.activeClient.end('Proxy shutting down'); } catch (e) {}
-      this.activeClient = null;
-    }
-    if (this.server) {
-      this.server.close();
-    }
+  async stop() {
+    await disconnectServerClients(this.server, 'Proxy shutting down');
+    closeServerListenSocket(this.server);
+    this.activeClient = null;
+    this.server = null;
   }
 }
 

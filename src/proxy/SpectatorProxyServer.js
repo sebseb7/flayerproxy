@@ -1,6 +1,11 @@
 const mc = require('minecraft-protocol');
 const { createLogger } = require('../utils/logger');
-const { wrapClientEnd } = require('../utils/clientDisconnect');
+const {
+  wrapClientEnd,
+  safeEndClient,
+  disconnectServerClients,
+  closeServerListenSocket,
+} = require('../utils/clientDisconnect');
 const { disableInboundChatValidation } = require('../utils/chatRelay');
 const { replayConfigToClient } = require('../utils/configReplay');
 
@@ -37,11 +42,7 @@ class SpectatorProxyServer {
       hideErrors: true,
       errorHandler: (client, err) => {
         log.error(`Spectator error (${client.username || '?'}):`, err.message);
-        try {
-          client.end(err.message);
-        } catch {
-          /* ignore */
-        }
+        safeEndClient(client, err);
       },
     });
 
@@ -87,11 +88,10 @@ class SpectatorProxyServer {
     this.server.options.registryCodec = codec;
   }
 
-  stop() {
-    if (this.server) {
-      this.server.close();
-      this.server = null;
-    }
+  async stop() {
+    await disconnectServerClients(this.server, 'Proxy shutting down');
+    closeServerListenSocket(this.server);
+    this.server = null;
   }
 }
 

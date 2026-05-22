@@ -14,6 +14,7 @@ const {
 } = require('../utils/positionSync');
 const { disableInboundChatValidation } = require('../utils/chatRelay');
 const { applySpectatorSneakYOffset } = require('../utils/playerVisualRelay');
+const { safeEndClient } = require('../utils/clientDisconnect');
 
 const log = createLogger('Spectator');
 
@@ -103,11 +104,7 @@ class SpectatorHub {
 
   kickAll(reason) {
     for (const client of [...this._spectators.keys()]) {
-      try {
-        client.end(reason);
-      } catch {
-        /* ignore */
-      }
+      safeEndClient(client, reason);
     }
     this._spectators.clear();
     this._detachServerFanout();
@@ -122,7 +119,9 @@ class SpectatorHub {
       this.serverConn.removeListener('spectatorSneakChange', this._sneakChangeHandler);
       this._sneakChangeHandler = null;
     }
-    this.kickAll('Proxy shutting down');
+    this._spectators.clear();
+    this._detachServerFanout();
+    this._stopSnapLoop();
   }
 
   _resnapAllSpectators() {

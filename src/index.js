@@ -33,14 +33,26 @@ const session = new SessionManager(config);
 session.start();
 
 // ─── Graceful shutdown ──────────────────────────────
-function shutdown(signal) {
+let shuttingDown = false;
+
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
   log.info(`Received ${signal}, shutting down...`);
-  session.stop();
-  setTimeout(() => process.exit(0), 2000);
+  try {
+    await session.stop();
+  } catch (err) {
+    log.error(`Shutdown error: ${err.message}`);
+  }
+  setTimeout(() => process.exit(0), 100);
 }
 
-process.on('SIGINT', () => shutdown('SIGINT'));
-process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => {
+  shutdown('SIGINT');
+});
+process.on('SIGTERM', () => {
+  shutdown('SIGTERM');
+});
 
 process.on('uncaughtException', (err) => {
   log.error(`Uncaught exception: ${err.message}`);

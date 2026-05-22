@@ -7,7 +7,7 @@ const { WorldStateCache } = require('../state/WorldStateCache');
 const { StateReplayer } = require('../replay/StateReplayer');
 const { performHandoff } = require('./handoffFlow');
 const { removeHandoffUpstreamRelay } = require('../utils/handoffSync');
-const { disconnectReasonText } = require('../utils/clientDisconnect');
+const { disconnectReasonText, gracefulEndClient, disconnectServerClients, closeServerListenSocket } = require('../utils/clientDisconnect');
 
 const log = createLogger('Session');
 
@@ -407,19 +407,44 @@ class SessionManager {
   }
 
   /**
-   * Gracefully shut down everything.
+   * Gracefully shut down everything (disconnect packets before closing listen sockets).
    */
-  stop() {
+  async stop() {
     this._shuttingDown = true;
     if (this._reconnectTimer) {
       clearTimeout(this._reconnectTimer);
       this._reconnectTimer = null;
     }
     log.info('Shutting down FlayerProxy...');
+
+    const shutdownReason = 'Proxy shutting down';
     this._cleanupClient();
-    this.spectatorHub?.stop();
-    this.spectatorProxy?.stop();
-    this.proxyServer.stop();
+
+    const disconnects = [];
+    if (this.currentClient) {
+      disconnects.push(gracefulEndClient(this.currentClient, shutdownReason));
+    }
+    if (this.spectatorHub) {
+      for (const client of this.spectatorHub._spectators.keys()) {
+        disconnects.push(gracefulEndClient(client, shutdownReason));
+      }
+      this.spectatorHub.stop();
+    }
+
+    await Promise.all(disconnects);
+
+    if (this.spectatorProxy?.server) {
+      await disconnectServerClients(this.spectatorProxy.server, shutdownReason);
+      closeServerListenSocket(this.spectatorProxy.server);
+      this.spectatorProxy.server = null;
+    }
+    if (this.proxyServer.server) {
+      await disconnectServerClients(this.proxyServer.server, shutdownReason);
+      closeServerListenSocket(this.proxyServer.server);
+      this.proxyServer.activeClient = null;
+      this.proxyServer.server = null;
+    }
+
     this.serverConn.disconnect();
   }
 }
