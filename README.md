@@ -1,3 +1,5 @@
+[![Demo](https://img.youtube.com/vi/SlVumVEK9vU/maxresdefault.jpg)](https://youtu.be/SlVumVEK9vU)
+
 # 🎮 FlayerProxy
 
 > **A seamless Minecraft Bot-to-Proxy handoff bridge.** Keep your Minecraft character online 24/7, take control from a standard client when you join, and let others watch on a separate spectator port.
