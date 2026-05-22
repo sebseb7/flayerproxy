@@ -11,12 +11,13 @@ class BotIdleBehavior {
   /**
    * @param {import('mineflayer').Bot} bot
    * @param {object} botConfig - config.bot
-   * @param {{ onSwing?: (hand: 'left'|'right') => void }} [hooks]
+   * @param {{ onSwing?: (hand: 'left'|'right') => void, onSneakChange?: (sneaking: boolean) => void }} [hooks]
    */
   constructor(bot, botConfig, hooks = {}) {
     this.bot = bot;
     this.config = botConfig;
     this.onSwing = hooks.onSwing;
+    this.onSneakChange = hooks.onSneakChange;
     this._enabled = false;
     this._timer = null;
     this._sneakReleaseTimer = null;
@@ -83,6 +84,7 @@ class BotIdleBehavior {
     }
     this.bot.setControlState('sneak', true);
     this._sneaking = true;
+    this.onSneakChange?.(true);
     const holdMs = 400 + Math.random() * 2000;
     this._sneakReleaseTimer = setTimeout(() => {
       this._sneakReleaseTimer = null;
@@ -98,6 +100,7 @@ class BotIdleBehavior {
       /* bot may be gone */
     }
     this._sneaking = false;
+    this.onSneakChange?.(false);
   }
 
   _randomSwing() {

@@ -5,6 +5,7 @@ const {
   SPECTATOR_BLOCKED_S2C,
   SPECTATOR_MOVEMENT_C2S,
 } = require('../constants/spectatorPackets');
+const { shouldForwardWaypointToClient } = require('../utils/waypointRelay');
 const {
   buildClientboundPositionPacket,
   chunkCoordsFromBlock,
@@ -68,7 +69,11 @@ class SpectatorHub {
 
     disableInboundChatValidation(client);
 
-    const state = { view: { chunkX: null, chunkZ: null }, teleportId: 0 };
+    const state = {
+      view: { chunkX: null, chunkZ: null },
+      teleportId: 0,
+      knownWaypointKeys: new Set(this.worldState.misc.getKnownWaypointKeys()),
+    };
     this._installClientGuard(client, state);
 
     await this.replayer.replaySpectator(client);
@@ -199,6 +204,9 @@ class SpectatorHub {
 
     for (const [client, state] of this._spectators) {
       if (client.ended || client.state !== 'play') continue;
+      if (name === 'tracked_waypoint' && !shouldForwardWaypointToClient(data, state.knownWaypointKeys)) {
+        continue;
+      }
 
       try {
         if (name === 'position' && data.x != null && data.z != null) {

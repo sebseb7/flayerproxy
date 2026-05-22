@@ -2,6 +2,7 @@ const mc = require('minecraft-protocol');
 const { createLogger } = require('../utils/logger');
 const { wrapClientEnd, safeEndClient } = require('../utils/clientDisconnect');
 const { disableInboundChatValidation } = require('../utils/chatRelay');
+const { replayConfigToClient } = require('../utils/configReplay');
 
 const log = createLogger('ProxyServer');
 
@@ -66,17 +67,7 @@ class ProxyServer {
       });
 
       client.prependOnceListener('login_acknowledged', () => {
-        const packets = this.worldState.getRawConfigPacketsForReplay();
-        if (packets.length === 0) return;
-
-        for (const { name, buffer } of packets) {
-          try {
-            client.writeRaw(buffer);
-          } catch (err) {
-            log.error(`Failed to write raw config packet '${name}':`, err.message);
-          }
-        }
-        log.info(`Sent ${packets.length} raw config packets to ${client.username}`);
+        replayConfigToClient(client, this.worldState, log);
       });
     });
 

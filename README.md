@@ -17,6 +17,7 @@
 
 - **Play** on port **25566** (one client at a time) — handoff without disconnecting from the server.
 - **Spectate** on port **25568** (many watchers) — watch-only view of the bot or the controlling player.
+  - Planned: coordinate offset to hide real coordinates.
 
 ---
 
@@ -40,7 +41,7 @@ stateDiagram-v2
 | **`INIT`** | Bot connecting; proxies may listen but play handoff waits for upstream. |
 | **`BOT_MODE`** | Bot holds the session, caches S2C packets, optional anti-AFK (look / sneak / swing). Spectators can watch on **25568**. |
 | **`HANDOFF`** | Play client connected on **25566**; bot physics off; [StateReplayer](src/replay/StateReplayer.js) replays cached state. |
-| **`CLIENT_MODE`** | [ClientBridge](src/proxy/ClientBridge.js) pipes packets between your client and the bot’s upstream connection. Cache still updates. |
+| **`CLIENT_MODE`** | [ClientBridge](src/proxy/ClientBridge.js) pipes packets between your client and the bot’s upstream connection. Cache still updates. Replays cached locator waypoints on handoff; live `tracked_waypoint` updates only after a matching `track`. |
 
 Deeper protocol detail: [protocol.md](protocol.md). Implementation map: [codebase_map.md](codebase_map.md).
 
@@ -68,7 +69,7 @@ Caches keep handoff and spectator join smooth. Chunks are stored only within the
 | **Entities** | `spawn_entity`, metadata, equipment, effects, movement, `entity_destroy` | Replay spawns for handoff / spectators. |
 | **Player** | `login`, `position`, health, XP, abilities, difficulty, respawn | Drives replay login and teleport. |
 | **Inventory** | `window_items`, `set_slot`, hotbar, cursor | Play handoff only (spectators skip inventory). |
-| **Misc** | time, weather, border, tab list, scoreboard, tags, boss bar | Level info and UI sync. |
+| **Misc** | time, weather, border, tab list, scoreboard, tags, boss bar, `tracked_waypoint` | Level info and UI sync; locator waypoints replayed on handoff. |
 
 **Replay vs live:** Handoff and spectator join send **in-view cached chunks** only. In `CLIENT_MODE`, the play bridge forwards **all** live `map_chunk` packets from the server (and may adjust `update_view_position` so the client accepts them).
 
@@ -79,8 +80,8 @@ Caches keep handoff and spectator join smooth. Chunks are stored only within the
 - Separate `minecraft-protocol` server on `config.spectator.port` (default **25568**).
 - [SpectatorHub](src/spectator/SpectatorHub.js) replays world state in **spectator gamemode**, locks **camera** to the bot entity, and fans out upstream S2C packets.
 - Movement and interaction C2S are not sent upstream; camera and position are re-locked if the client tries to move.
-- Idle bot arm swings are relayed as synthetic `animation` packets (the server does not echo the bot’s own swing).
-- Some session-ordered packets (e.g. `tracked_waypoint` / Journeys) are **not** forwarded to spectators — mid-join UPDATE without prior TRACK disconnects the client.
+- Idle bot arm swings and sneak/crouch are relayed synthetically (`animation`, `entity_metadata`) — the server does not echo the bot’s own swing or shift pose on its connection. The same applies when you play on **25566** (`player_input` shift).
+- Locator / Journeys (`tracked_waypoint`) are cached while the bot is online and replayed as `track` on join; orphan `update` packets are dropped so vanilla does not disconnect.
 
 Works in **`BOT_MODE`** (watch bot + idle behavior) and **`CLIENT_MODE`** (watch the human player’s stream).
 

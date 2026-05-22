@@ -1,5 +1,7 @@
 const { createLogger } = require('../utils/logger');
 const { RAW_FORWARD_PACKETS } = require('../constants/rawPackets');
+const { shouldForwardWaypointToClient } = require('../utils/waypointRelay');
+const { isSneakingFromPlayerInput } = require('../utils/playerPoseRelay');
 const {
   CHAT_SESSION_PACKETS,
   disableInboundChatValidation,
@@ -65,14 +67,17 @@ class ClientBridge {
       'paddle_boat',
     ]);
 
-    // Packets from server that should NOT be forwarded to client
-    // (these are internal to the bot)
-    this._blockedServerPackets = new Set([]);
+    this._blockedServerPackets = new Set();
+
+    /** Locator waypoints the play client has seen (replay + live track) */
+    this._knownWaypointKeys = new Set(worldState.misc.getKnownWaypointKeys());
 
     /** Proxy client view center — map_chunk outside this range is ignored by vanilla */
     this._clientView = { chunkX: null, chunkZ: null };
     /** Last block coords from client movement (for view center ahead of server) */
     this._lastClientBlock = { x: null, z: null };
+    /** Last sneak state relayed to spectators (player_input is not echoed S2C) */
+    this._lastRelayedSneak = null;
   }
 
   _getViewDistance() {
@@ -183,6 +188,16 @@ class ClientBridge {
           return;
         }
 
+        if (meta.name === 'player_input') {
+          const sneaking = isSneakingFromPlayerInput(data);
+          if (sneaking !== this._lastRelayedSneak) {
+            this._lastRelayedSneak = sneaking;
+            this.serverConn.emitPlayerPoseVisual(sneaking);
+          }
+          this.serverConn.writeToServer(meta.name, data);
+          return;
+        }
+
         if (this._priorityClientPackets.has(meta.name)) {
           this.serverConn.writeToServer(meta.name, data);
           return;
@@ -200,6 +215,9 @@ class ClientBridge {
     this._serverPacketHandler = (name, data, buffer) => {
       if (!this.active) return;
       if (this._blockedServerPackets.has(name)) return;
+      if (name === 'tracked_waypoint' && !shouldForwardWaypointToClient(data, this._knownWaypointKeys)) {
+        return;
+      }
       if (name === 'player_info' && !this._shouldForwardPlayerInfo(data)) return;
 
       if (name === 'position') {

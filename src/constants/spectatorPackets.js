@@ -15,11 +15,12 @@ const SPECTATOR_ALLOWED_C2S = new Set([
 ]);
 
 /**
- * S2C packets not forwarded to spectators.
- * tracked_waypoint (journeys/locator bar) is session-ordered (track → update);
- * mid-join spectators only see updates and disconnect.
+ * S2C packets dropped on spectator fan-out (not session-ordered waypoints — those use waypointRelay).
  */
-const SPECTATOR_BLOCKED_S2C = new Set(['tracked_waypoint']);
+const SPECTATOR_BLOCKED_S2C = new Set([]);
+
+/** @deprecated unused; waypoints use cache replay + shouldForwardWaypointToClient */
+const SESSION_ORDERED_BLOCKED_S2C = SPECTATOR_BLOCKED_S2C;
 
 /** Movement-ish C2S — trigger camera lock + position snap when received. */
 const SPECTATOR_MOVEMENT_C2S = new Set([
@@ -40,6 +41,7 @@ const SPECTATOR_MOVEMENT_C2S = new Set([
 module.exports = {
   SPECTATOR_GAMEMODE,
   SPECTATOR_ALLOWED_C2S,
+  SESSION_ORDERED_BLOCKED_S2C,
   SPECTATOR_BLOCKED_S2C,
   SPECTATOR_MOVEMENT_C2S,
   ANIMATION_SWING_MAIN_HAND,

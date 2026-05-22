@@ -156,6 +156,14 @@ class StateReplayer {
       }
     }
 
+    const waypointPackets = ws.misc.getWaypointReplayPackets();
+    if (waypointPackets.length > 0) {
+      log.info(`Replaying ${waypointPackets.length} tracked_waypoint (locator) packets...`);
+      for (const pkt of waypointPackets) {
+        write(pkt.name, pkt.data);
+      }
+    }
+
     // 8. sendLevelInfo — border, time, weather, spawn (PlayerList.sendLevelInfo)
     for (const pkt of miscLevelInfo) {
       write(pkt.name, pkt.data);

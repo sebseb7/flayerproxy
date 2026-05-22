@@ -10,7 +10,13 @@ const { JoinSyncCache } = require('./JoinSyncCache');
 const log = createLogger('WorldState');
 
 function cloneConfigData(data) {
-  return structuredClone(data);
+  if (data == null || typeof data !== 'object') return data;
+  const cloned = structuredClone(data);
+  // structuredClone turns Buffer into Uint8Array; custom_payload.data must stay Buffer
+  if (Buffer.isBuffer(data.data)) {
+    cloned.data = Buffer.from(data.data);
+  }
+  return cloned;
 }
 
 /**
@@ -35,31 +41,58 @@ class WorldStateCache {
     this.misc = new MiscCache();
     this.joinSync = new JoinSyncCache();
 
-    /** Parsed configuration-phase packets (fallback if raw capture unavailable) */
+    /** Parsed configuration-phase packets (fallback registry codec build) */
     this.configPackets = [];
 
-    /** Raw packet buffers from upstream server config phase, in receive order */
-    this.rawConfigPackets = [];
+    /** Upstream config packets in receive order for proxy replay */
+    this.configReplay = [];
+
+    /** Set when upstream sends finish_configuration */
+    this.configReady = false;
 
     /** Track whether we've received the login packet */
     this.initialized = false;
   }
 
   /**
-   * Store a configuration-phase packet for replay.
+   * Store a configuration-phase packet from the bot upstream connection.
+   * @param {string} name
+   * @param {object} data
+   * @param {Buffer} [buffer]
    */
-  handleConfigPacket(name, data) {
+  handleConfigReplayPacket(name, data, buffer) {
     const cloned = cloneConfigData(data);
-    // Replace existing packet of same name, or append
     const idx = this.configPackets.findIndex(p => p.name === name);
     if (name === 'registry_data') {
-      // Registry data can have multiple packets (one per registry)
       this.configPackets.push({ name, data: cloned });
     } else if (idx >= 0) {
       this.configPackets[idx] = { name, data: cloned };
     } else {
       this.configPackets.push({ name, data: cloned });
     }
+
+    if (name === 'finish_configuration') {
+      this.configReady = true;
+      return;
+    }
+
+    this.configReplay.push({
+      name,
+      data: cloned,
+      buffer: buffer?.length ? Buffer.from(buffer) : null,
+    });
+  }
+
+  isConfigReady() {
+    return this.configReady;
+  }
+
+  hasConfigReplay() {
+    return this.configReady && this.configReplay.length > 0;
+  }
+
+  getConfigReplayEntries() {
+    return this.configReplay;
   }
 
   /**
@@ -85,23 +118,9 @@ class WorldStateCache {
     return Object.keys(codec).length > 0 ? codec : null;
   }
 
-  /**
-   * Store a raw configuration packet buffer exactly as received from the server.
-   */
-  handleRawConfigPacket(name, buffer) {
-    this.rawConfigPackets.push({ name, buffer: Buffer.from(buffer) });
-  }
-
-  /**
-   * Raw config packets to replay to proxy clients (excludes finish_configuration).
-   * @returns {Array<{name: string, buffer: Buffer}>}
-   */
-  getRawConfigPacketsForReplay() {
-    return this.rawConfigPackets.filter(p => p.name !== 'finish_configuration');
-  }
-
+  /** @deprecated use hasConfigReplay */
   hasRawConfigPackets() {
-    return this.getRawConfigPacketsForReplay().length > 0;
+    return this.hasConfigReplay();
   }
 
   /**
@@ -311,6 +330,10 @@ class WorldStateCache {
         this.misc.handleBossBar(data);
         break;
 
+      case 'tracked_waypoint':
+        this.misc.handleTrackedWaypoint(data);
+        break;
+
       // Tags
       case 'tags':
         this.misc.handleTags(data);
@@ -376,7 +399,8 @@ class WorldStateCache {
     this.misc.clear();
     this.joinSync.clear();
     this.configPackets = [];
-    this.rawConfigPackets = [];
+    this.configReplay = [];
+    this.configReady = false;
     this.initialized = false;
   }
 }

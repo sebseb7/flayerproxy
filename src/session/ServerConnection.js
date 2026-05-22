@@ -8,6 +8,7 @@ const {
   ANIMATION_SWING_MAIN_HAND,
   ANIMATION_SWING_OFF_HAND,
 } = require('../constants/spectatorPackets');
+const { buildPlayerPoseMetadata } = require('../utils/playerPoseRelay');
 
 const log = createLogger('ServerConn');
 
@@ -66,18 +67,13 @@ class ServerConnection extends EventEmitter {
    * Capture configuration-phase packets for later replay.
    */
   _setupConfigCapture() {
-    const configPacketNames = new Set([
-      'registry_data', 'feature_flags', 'tags', 'finish_configuration',
-      'custom_payload', 'reset_chat',
-    ]);
+    const { CONFIG_CAPTURE_NAMES } = require('../utils/configReplay');
 
-    // Capture raw buffers so proxy clients get byte-identical registry data.
     this.rawClient.on('packet', (data, meta, buffer) => {
       if (meta.state !== 'configuration') return;
-      if (!configPacketNames.has(meta.name)) return;
+      if (!CONFIG_CAPTURE_NAMES.has(meta.name)) return;
 
-      this.worldState.handleRawConfigPacket(meta.name, buffer);
-      this.worldState.handleConfigPacket(meta.name, data);
+      this.worldState.handleConfigReplayPacket(meta.name, data, buffer);
     });
   }
 
@@ -106,6 +102,7 @@ class ServerConnection extends EventEmitter {
       if (!this._idleBehavior) {
         this._idleBehavior = new BotIdleBehavior(this.bot, this.config.bot, {
           onSwing: (hand) => this._emitBotSwingAnimation(hand),
+          onSneakChange: (sneaking) => this.emitPlayerPoseVisual(sneaking),
         });
       }
       if (this._botControlEnabled) {
@@ -181,6 +178,17 @@ class ServerConnection extends EventEmitter {
       entityId,
       animation: hand === 'left' ? ANIMATION_SWING_OFF_HAND : ANIMATION_SWING_MAIN_HAND,
     });
+  }
+
+  /**
+   * Sneak/crouch is not echoed on the bot connection; push entity_metadata for spectators.
+   * @param {boolean} sneaking
+   */
+  emitPlayerPoseVisual(sneaking) {
+    const packet = buildPlayerPoseMetadata(this.worldState, this, sneaking);
+    if (!packet) return;
+    this.worldState.entities.handleEntityMetadata(packet);
+    this.emit('botVisual', 'entity_metadata', packet);
   }
 
   /**

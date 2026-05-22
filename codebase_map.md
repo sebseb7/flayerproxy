@@ -367,7 +367,7 @@ Manages bidirectional packet pipelines when in `CLIENT_MODE`.
 | `_playerBlockCoordsForView()`                    | Returns coordinates representing the client player's view anchor.                                                                                                                                  |
 | `_ensureViewIncludesChunk(chunkX, chunkZ)`       | Ensures the client's view includes target coordinates prior to sending map chunks.                                                                                                                 |
 | `enableMovement()`                               | Authorizes client movement and syncs view center alignment.                                                                                                                                        |
-| `start()`                                        | Sets up packet intercept listeners to route packets between legs, excluding blocked elements (e.g. `keep_alive`, `teleport_confirm`, `message_acknowledgement`) and re-signing client chat events. |
+| `start()`                                        | Sets up packet intercept listeners; filters orphan `tracked_waypoint` updates via [waypointRelay.js](file:///home/seb/flayerproxy/src/utils/waypointRelay.js). |
 | `_shouldForwardPlayerInfo(data)`                 | Filters latency updates for unknown players.                                                                                                                                                       |
 | `stop()`                                         | Tears down the forwarding pipe.                                                                                                                                                                    |
 
@@ -410,7 +410,7 @@ Manages spectator clients: replay, S2C fan-out, movement block, camera lock.
 |---|---|
 | `SPECTATOR_GAMEMODE` | Gamemode id `3` for replay. |
 | `SPECTATOR_ALLOWED_C2S` | Whitelist: `chunk_batch_received`, `teleport_confirm`, `keep_alive`, etc. |
-| `SPECTATOR_BLOCKED_S2C` | Dropped S2C fan-out (e.g. `tracked_waypoint` — mid-join UPDATE without prior TRACK crashes clients). |
+| `WaypointCache` / `waypointRelay` | Cache locator waypoints on bot; replay `track` on join; drop orphan `update` on live fan-out. |
 | `SPECTATOR_MOVEMENT_C2S` | Movement packets that trigger camera re-lock. |
 | `ANIMATION_SWING_MAIN_HAND` / `ANIMATION_SWING_OFF_HAND` | Clientbound `animation` ids for idle swing relay. |
 
@@ -432,10 +432,10 @@ Master coordinator for world cache segments. Integrates and clears sub-caches on
 | Method | Description |
 |---|---|
 | `constructor(config)` | Initializes all sub-caches from configuration. |
-| `handleConfigPacket(name, data)` | Caches parsed config-phase packets. |
+| `handleConfigReplayPacket(name, data, buffer)` | Ordered config replay cache; sets `configReady` on `finish_configuration`. |
 | `buildRegistryCodec()` | Combines cached config packets to build a custom Minecraft registry codec. |
-| `handleRawConfigPacket(name, buffer)` | Appends raw configuration buffers. |
-| `getRawConfigPacketsForReplay()` | Filters and returns config-phase buffers for client replay. |
+| `getConfigReplayEntries()` / `isConfigReady()` | Config replay state for proxy clients. |
+| [configReplay.js](file:///home/seb/flayerproxy/src/utils/configReplay.js) | Replays config on `login_acknowledged` (`writeRaw` for registry only). |
 | `hasRawConfigPackets()` | Returns `true` if raw configuration buffers are cached. |
 | `handleServerPacket(name, data, buffer)` | Evaluates incoming play packets and routes them to sub-caches. |
 | `_getChunkViewContext()` | Resolves view center (`update_view_position` or player position) + view distance for cache retention. |

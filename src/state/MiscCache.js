@@ -1,6 +1,7 @@
 const { createLogger } = require('../utils/logger');
 const { ScoreboardCache } = require('./ScoreboardCache');
 const { WorldBorderCache } = require('./WorldBorderCache');
+const { WaypointCache } = require('./WaypointCache');
 
 const log = createLogger('MiscCache');
 
@@ -35,6 +36,8 @@ class MiscCache {
 
     // Boss bars
     this.bossBars = new Map();  // UUID -> boss_bar data
+
+    this._waypoints = new WaypointCache();
 
     // Tags
     this.tags = null;
@@ -132,6 +135,18 @@ class MiscCache {
       const existing = this.bossBars.get(data.entityUUID) || {};
       this.bossBars.set(data.entityUUID, { ...existing, ...data });
     }
+  }
+
+  handleTrackedWaypoint(data) {
+    this._waypoints.handleTrackedWaypoint(data);
+  }
+
+  getKnownWaypointKeys() {
+    return this._waypoints.getKnownKeys();
+  }
+
+  getWaypointReplayPackets() {
+    return this._waypoints.getReplayPackets();
   }
 
   handleTags(data) {
@@ -261,6 +276,7 @@ class MiscCache {
     this.playerListHeader = null;
     this._scoreboard.clear();
     this.bossBars.clear();
+    this._waypoints.clear();
     this.tags = null;
     this.serverData = null;
     this.simulationDistance = null;

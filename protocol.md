@@ -280,7 +280,7 @@ The server can send `ClientboundTrackedWaypointPacket` (`tracked_waypoint` in mi
 | `1` (untrack) | Remove |
 | `2` (update) | Update an existing waypoint |
 
-Clients must receive **track** before **update**. Mid-session joins that only see updates can disconnect (FlayerProxy blocks these for spectators — see [§8](#8-flayerproxy-spectator-watch-port-25568)).
+Clients must receive **track** before **update**. FlayerProxy caches active waypoints on the bot connection, replays them as `track` on play/spectator join, and drops live `update` packets until the client has seen the matching `track` ([WaypointCache](src/state/WaypointCache.js), [waypointRelay.js](src/utils/waypointRelay.js)).
 
 ---
 
@@ -356,9 +356,9 @@ sequenceDiagram
 10. `experience`, `update_health`, player effects
 11. Inventory (`window_items`, `set_slot`, …)
 
-After replay, the bridge forwards almost all upstream S2C packets. Chunks and registry-heavy packets use `writeRaw` when listed in [RAW_FORWARD_PACKETS](src/constants/rawPackets.js). Client movement C2S is translated and sent upstream via the bot.
+After replay, the bridge forwards almost all upstream S2C packets. `tracked_waypoint` updates are filtered until the client has the waypoint key (from replay or a live `track`). Chunks and registry-heavy packets use `writeRaw` when listed in [RAW_FORWARD_PACKETS](src/constants/rawPackets.js). Client movement C2S is translated and sent upstream via the bot.
 
-**Config phase on proxy clients:** On `login_acknowledged`, both play and spectator proxies replay captured upstream configuration buffers (`registry_data`, `tags`, …) with `writeRaw` so NBT matches the real server.
+**Config phase on proxy clients:** On `login_acknowledged` (prepend, before `finish_configuration`), [configReplay.js](src/utils/configReplay.js) sets **configuration** state and replays cached packets in **upstream receive order** (`registry_data` first, then `tags`, …). `registry_data` uses `writeRaw` when a buffer was captured; other packets use `client.write()`. `server.options.registryCodec` is left empty so login.js only sends `finish_configuration`. Spectators are rejected until `configReady`.
 
 ---
 
@@ -407,13 +407,13 @@ sequenceDiagram
 
 Vanilla spectator free-cam is client-side; the proxy re-sends `camera` on movement and runs a **1 s** correction loop.
 
-### Blocked S2C (spectator fan-out)
+### Locator waypoints (`tracked_waypoint`)
 
-| Packet | Reason |
+| Phase | Behavior |
 | :--- | :--- |
-| `tracked_waypoint` | Session-ordered (`track` → `update`). Mid-join spectators only see updates → client disconnect (`operation=UPDATE`). |
-
-Add more names to `SPECTATOR_BLOCKED_S2C` if similar ordered session packets appear.
+| Bot online | [WaypointCache](src/state/WaypointCache.js) stores `track` / merges `update` / removes on `untrack`. |
+| Play handoff / spectator join | [StateReplayer](src/replay/StateReplayer.js) sends cached waypoints as `track` after `player_info`. |
+| Live fan-out | [waypointRelay.js](src/utils/waypointRelay.js) forwards `track`/`untrack`, drops orphan `update`. |
 
 ### Synthetic visuals
 

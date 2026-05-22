@@ -106,18 +106,24 @@ class SessionManager {
   _setupServerEvents() {
     this.serverConn.on('connected', () => {
       log.info('Server connection established');
-      if (this.worldState.hasRawConfigPackets()) {
-        const packets = this.worldState.getRawConfigPacketsForReplay();
-        const registryCount = packets.filter(p => p.name === 'registry_data').length;
+      // Empty codec: login.js only sends finish_configuration; full config order is replayed on join.
+      if (this.worldState.isConfigReady()) {
         this.proxyServer.updateRegistryCodec({});
         this.spectatorProxy?.updateRegistryCodec({});
-        log.info(`Captured ${packets.length} raw config packets (${registryCount} registries) from server`);
+        const entries = this.worldState.getConfigReplayEntries();
+        const registryCount = entries.filter((p) => p.name === 'registry_data').length;
+        log.info(
+          `Config replay ready (${entries.length} packets, ${registryCount} registries)`
+        );
       } else {
         const registryCodec = this.worldState.buildRegistryCodec();
         if (registryCodec) {
           this.proxyServer.updateRegistryCodec(registryCodec);
           this.spectatorProxy?.updateRegistryCodec(registryCodec);
+          log.info('Registry codec ready (parsed fallback, no ordered config capture)');
         } else {
+          this.proxyServer.updateRegistryCodec({});
+          this.spectatorProxy?.updateRegistryCodec({});
           log.warn('No registry_data captured from server — proxy clients will use minecraft-data defaults');
         }
       }
@@ -267,6 +273,12 @@ class SessionManager {
   _spectatorSlotStatus() {
     if (!this.serverConn.connected) {
       return { ok: false, reason: 'Proxy is not connected to the server.' };
+    }
+    if (!this.worldState.isConfigReady()) {
+      return {
+        ok: false,
+        reason: 'Server configuration is not ready. Try again in a moment.',
+      };
     }
     if (this.state === State.INIT) {
       return {

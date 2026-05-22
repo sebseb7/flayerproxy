@@ -2,6 +2,7 @@ const mc = require('minecraft-protocol');
 const { createLogger } = require('../utils/logger');
 const { wrapClientEnd } = require('../utils/clientDisconnect');
 const { disableInboundChatValidation } = require('../utils/chatRelay');
+const { replayConfigToClient } = require('../utils/configReplay');
 
 const log = createLogger('SpectatorProxy');
 
@@ -55,15 +56,7 @@ class SpectatorProxyServer {
       }
 
       client.prependOnceListener('login_acknowledged', () => {
-        const packets = this.worldState.getRawConfigPacketsForReplay();
-        if (packets.length === 0) return;
-        for (const { name, buffer } of packets) {
-          try {
-            client.writeRaw(buffer);
-          } catch (err) {
-            log.error(`Raw config '${name}' for ${client.username}:`, err.message);
-          }
-        }
+        replayConfigToClient(client, this.worldState, log);
       });
     });
 
