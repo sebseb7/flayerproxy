@@ -18,8 +18,22 @@ const {
 
 const log = createLogger('Session');
 
-const AUTO_LOGOUT_SPECTATOR_MSG = 'Bot Auto disconnected';
-const AUTO_LOGOUT_PLAY_WAIT_MSG = 'Bot Auto disconnected. Reconnecting…';
+function formatAutoLogoutLabel(reason) {
+  if (!reason) return 'unknown';
+  if (reason === 'damage') return 'took damage';
+  if (typeof reason === 'string' && reason.startsWith('player:')) {
+    return `player ${reason.slice('player:'.length)}`;
+  }
+  return reason;
+}
+
+function autoLogoutSpectatorMsg(reason) {
+  return `Bot Auto disconnected (${formatAutoLogoutLabel(reason)})`;
+}
+
+function autoLogoutPlayWaitMsg(reason) {
+  return `Bot Auto disconnected (${formatAutoLogoutLabel(reason)}). Reconnecting…`;
+}
 const AUTO_LOGOUT_RECONNECT_TIMEOUT_MS = 90_000;
 const CHUNK_PRIME_MS_DEFAULT = 1500;
 const CHUNK_PRIME_MS_AFTER_AUTO_LOGOUT = 12_000;
@@ -135,7 +149,7 @@ class SessionManager {
       log.warn(`Auto logout triggered: ${reason}`);
       this._autoLogoutReason = reason;
       this._suppressReconnect = true;
-      this.spectatorHub?.kickAll(AUTO_LOGOUT_SPECTATOR_MSG);
+      this.spectatorHub?.kickAll(autoLogoutSpectatorMsg(reason));
       this.serverConn.disconnect();
     });
 
@@ -412,7 +426,7 @@ class SessionManager {
       this._autoLogoutReason || this._pendingAutoLogoutNotice;
 
     if (this._autoLogoutReconnectPromise) {
-      return { ok: false, reason: AUTO_LOGOUT_PLAY_WAIT_MSG };
+      return { ok: false, reason: autoLogoutPlayWaitMsg(this._autoLogoutReason) };
     }
 
     if (awaitingPlayAfterAutoLogout && !this.serverConn.connected) {
@@ -454,7 +468,7 @@ class SessionManager {
     const awaitingPlayAfterAutoLogout =
       this._autoLogoutReason || this._pendingAutoLogoutNotice || this._autoLogoutReconnectPromise;
     if (awaitingPlayAfterAutoLogout && !this.serverConn.connected) {
-      return { ok: false, reason: AUTO_LOGOUT_SPECTATOR_MSG };
+      return { ok: false, reason: autoLogoutSpectatorMsg(this._autoLogoutReason) };
     }
     if (!this.serverConn.connected) {
       return { ok: false, reason: 'Proxy is not connected to the server.' };
@@ -489,17 +503,8 @@ class SessionManager {
     return { ok: false, reason: 'Spectator mode is unavailable.' };
   }
 
-  _formatAutoLogoutLabel(reason) {
-    if (reason === 'damage') return 'took damage';
-    if (typeof reason === 'string' && reason.startsWith('player:')) {
-      return `player ${reason.slice('player:'.length)}`;
-    }
-    return reason;
-  }
-
   _notifyPlayClientAutoLogoutReconnect(client, reason) {
-    const label = this._formatAutoLogoutLabel(reason);
-    const text = `FlayerProxy: Bot auto-disconnected (${label}). Reconnected — starting handoff…`;
+    const text = `FlayerProxy: ${autoLogoutSpectatorMsg(reason)}. Reconnected — starting handoff…`;
     try {
       if (client.state === 'play' && !client.ended) {
         client.write('system_chat', {
