@@ -1,39 +1,70 @@
-const { GATE } = require('./mitmGate');
+const { traceBridge, traceRelay } = require('./packetTrace');
+const { relayPacket } = require('./mitmRelay');
+const { shouldRelayC2SToUpstream } = require('./mitmLoginBridge');
 
 /**
- * Build the per-connection MITM session state bag.
- * @param {object} client - minecraft-protocol client
+ * @param {object} client - minecraft-protocol server peer (Java)
  * @param {import('./PacketLog').PacketLog} packetLog
- * @returns {object} session state
  */
 function createMitmSession(client, packetLog) {
   return {
     client,
     upstream: null,
-    bridged: false,
-    gate: GATE.LOGIN,
-    holdS2C: false,
-    pendingS2C: [],
-    pendingConfig: [],
-    pendingPlay: [],
-    waitingJavaCrypto: false,
-    javaCryptoStarting: false,
-    relayedCompress: false,
+    upstreamLink: false,
     statusPipe: null,
     packetLog,
     username: 'unknown',
     cleaned: false,
+    holdS2C: false,
+    pendingS2C: [],
+    pendingConfig: [],
+    waitingJavaCrypto: false,
+    javaCryptoStarting: false,
+    javaLegEncrypted: false,
+    upstreamEncryptRequest: null,
+    upstreamEncryptDone: false,
+    javaCryptoReady: false,
+    javaLoginAcknowledged: false,
+    javaFinishConfiguration: false,
+    c2sQueue: [],
   };
 }
 
+function flushC2sQueue(session) {
+  if (!session.upstream || !session.upstreamLink) return;
+  for (const { meta, data, buffer } of session.c2sQueue) {
+    if (!shouldRelayC2SToUpstream(meta, session)) {
+      traceBridge(session.packetLog, meta, buffer, {
+        action: 'skip_flush',
+        bridge: 'java→backend',
+        dir: 'C2S',
+        note: 'not relayed on queue flush',
+      });
+      continue;
+    }
+    try {
+      const method = relayPacket(session.upstream, meta, data, buffer);
+      traceRelay(session.packetLog, {
+        bridge: 'java→backend',
+        dir: 'C2S',
+        meta,
+        data,
+        buffer,
+        method,
+        action: 'flush_queue',
+      });
+    } catch (err) {
+      throw new Error(`C2S ${meta.state}.${meta.name}: ${err.message}`);
+    }
+  }
+  session.c2sQueue.length = 0;
+}
+
 /**
- * Build the cleanup closure for a MITM session.
  * @param {object} session
- * @param {import('./PacketLog').PacketLog} packetLog
- * @param {{ activeSession: object|null }} proxy - MitmProxy instance (mutated on cleanup)
- * @returns {function(string): void}
+ * @param {{ activeSession: object|null }} proxy
  */
-function createSessionCleanup(session, packetLog, proxy) {
+function createSessionCleanup(session, proxy) {
   return (reason) => {
     if (session.cleaned) return;
     session.cleaned = true;
@@ -45,15 +76,17 @@ function createSessionCleanup(session, packetLog, proxy) {
     if (session.upstream && !session.upstream.ended) {
       try { session.upstream.end(reason); } catch (_) {}
     }
-    packetLog.writeMeta({
-      type: 'session_stats',
-      reason,
-      username: session.username,
-      bridged: session.bridged,
-    });
-    packetLog.close(reason);
+    const packetLog = session.packetLog;
+    if (packetLog) {
+      packetLog.writeMeta({
+        type: 'session_stats',
+        reason,
+        username: session.username,
+      });
+      packetLog.close(reason);
+    }
     if (proxy.activeSession === session) proxy.activeSession = null;
   };
 }
 
-module.exports = { createMitmSession, createSessionCleanup };
+module.exports = { createMitmSession, createSessionCleanup, flushC2sQueue };

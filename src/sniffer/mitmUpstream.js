@@ -1,53 +1,38 @@
 const net = require('net');
 const mc = require('minecraft-protocol');
 const { createLogger } = require('../utils/logger');
+const { createPassiveClient } = require('./mitmPassiveClient');
 const { relayToJava, syncCompression } = require('./mitmRelay');
-const { classifyS2C, queueHeldS2C, queueBufferedS2C } = require('./mitmGate');
+const { flushC2sQueue } = require('./mitmSession');
+const { traceBridge, traceRelay, traceTx } = require('./packetTrace');
+const { queueHeldS2C } = require('./mitmLoginBridge');
 
 const log = createLogger('Sniffer');
 const states = mc.states;
 
-/**
- * Pipe a status/ping handshake directly at the TCP level (no decryption needed).
- * @param {object} session
- * @param {{ server: { host: string, port: number } }} config
- * @param {import('./PacketLog').PacketLog} packetLog
- * @param {{ activeSession: object|null }} proxy - MitmProxy instance
- */
-function startStatusPipe(session, config, packetLog, proxy) {
+function startStatusPipe(session, config, proxy) {
   const { host, port } = config.server;
   const upstream = net.connect({ host, port });
   session.statusPipe = { client: session.client.socket, upstream };
 
-  packetLog.writeMeta({ type: 'handshake_intent', mode: 'status_ping' });
-
   session.client.socket.pipe(upstream);
   upstream.pipe(session.client.socket);
 
-  upstream.on('connect', () => packetLog.writeMeta({ type: 'upstream_connect', mode: 'status_tcp' }));
   let statusDone = false;
   const endStatus = () => {
     if (statusDone) return;
     statusDone = true;
     if (proxy.activeSession === session) proxy.activeSession = null;
-    packetLog.close('status_done');
   };
   upstream.on('close', endStatus);
   session.client.socket.on('close', endStatus);
 }
 
-/**
- * Create the upstream mc.createClient and wire the S2C packet relay.
- * @param {object} session
- * @param {{ server: { host: string, port: number, version: string }, sniffer: { upstreamAuth?: string } }} config
- * @param {function(string): void} cleanup
- * @param {object} callbacks - { onCompressBeforeCrypto, onEncryptionBegin, onSuccessNoEncryption }
- */
 function startUpstream(session, config, cleanup, callbacks) {
   const { host, port, version } = config.server;
   const auth = config.sniffer.upstreamAuth || 'microsoft';
 
-  const upstream = mc.createClient({
+  const upstream = createPassiveClient({
     host,
     port,
     username: session.username,
@@ -60,76 +45,98 @@ function startUpstream(session, config, cleanup, callbacks) {
   session.upstream = upstream;
 
   upstream.on('connect', () => {
+    session.upstreamLink = true;
     log.info(`Upstream connected for ${session.username}`);
     session.packetLog.writeMeta({ type: 'upstream_connect' });
+    try {
+      flushC2sQueue(session);
+    } catch (err) {
+      log.error(`C2S queue flush error: ${err.message}`);
+      try { session.client.end(err.message); } catch (_) {}
+      cleanup('c2s_flush_error');
+    }
   });
 
   upstream.on('packet', (data, meta, buffer) => {
-    const s2cAction = classifyS2C(session, meta);
+    const isLoginEncrypt =
+      meta.name === 'encryption_begin' && meta.state === states.LOGIN;
+    const holdConfigS2C =
+      meta.state === states.CONFIGURATION && !session.javaLoginAcknowledged;
+    const forwarded = isLoginEncrypt
+      ? 'mitm'
+      : holdConfigS2C
+        ? 'hold_java_ack'
+        : session.holdS2C
+          ? 'hold'
+          : 'relay';
+
     session.packetLog.logPacket('S2C', meta, data, buffer, {
-      forwarded: s2cAction,
+      leg: 'backend',
+      action: forwarded,
       clientState: session.client.state,
       upstreamState: upstream.state,
-      gate: session.gate,
+      note: holdConfigS2C ? 'waiting for Java login_acknowledged' : undefined,
     });
     syncCompression(upstream, meta.name, data);
 
-    if (s2cAction === 'relay') {
-      try {
-        relayToJava(session.client, meta, data, buffer);
-      } catch (err) {
-        log.error(`S2C relay error (${meta.name}):`, err.message);
-      }
+    if (isLoginEncrypt) {
+      session.upstreamEncryptRequest = data;
+      session.holdS2C = true;
+      session.waitingJavaCrypto = true;
+      traceBridge(session.packetLog, meta, buffer, {
+        action: 'mitm',
+        bridge: 'backend→java',
+        dir: 'S2C',
+        note: 'held; upstream encrypt waits for Java sniffer encryption_begin',
+      });
+      callbacks.onEncryptionBegin?.(session);
       return;
     }
 
-    if (s2cAction === 'buffer') {
-      queueBufferedS2C(session, data, meta, buffer);
-      return;
-    }
-
-    if (session.gate !== callbacks.GATE_LOGIN) {
+    if (holdConfigS2C) {
+      queueHeldS2C(session, data, meta, buffer);
       return;
     }
 
     if (meta.name === 'compress' && meta.state === states.LOGIN) {
-      session.relayedCompress = true;
-      try {
-        relayToJava(session.client, meta, data, buffer);
-      } catch (err) {
-        log.error(`S2C compress error:`, err.message);
+      if (session.holdS2C) {
+        queueHeldS2C(session, data, meta, buffer);
+        return;
       }
-      callbacks.onCompressBeforeCrypto(session);
-      return;
-    }
-
-    if (meta.name === 'encryption_begin') {
-      session.holdS2C = true;
-      session.waitingJavaCrypto = true;
-      callbacks.onEncryptionBegin(session);
+      syncCompression(session.client, meta.name, data);
+      try {
+        const method = relayToJava(session.client, meta, data, buffer);
+        traceTx(session.packetLog, 'java', 'S2C', meta, buffer, {
+          action: 'relay',
+          bridge: 'backend→java',
+          method,
+          note: 'login compress before crypto hold',
+        });
+      } catch (err) {
+        log.error(`S2C compress error: ${err.message}`);
+      }
+      callbacks.onCompressBeforeCrypto?.(session);
       return;
     }
 
     if (session.holdS2C) {
       queueHeldS2C(session, data, meta, buffer);
-      if (meta.name === 'success') {
-        callbacks.onSuccessWhileHeld(session);
-      }
+      if (meta.name === 'success') callbacks.onSuccessWhileHeld?.(session);
       return;
     }
 
-    if (meta.name === 'success') {
-      try {
-        relayToJava(session.client, meta, data, buffer);
-        callbacks.onSuccessNoEncryption(session);
-      } catch (err) {
-        log.error(`S2C success error:`, err.message);
-      }
-      return;
-    }
+    syncCompression(session.client, meta.name, data);
 
     try {
-      relayToJava(session.client, meta, data, buffer);
+      const method = relayToJava(session.client, meta, data, buffer);
+      traceRelay(session.packetLog, {
+        bridge: 'backend→java',
+        dir: 'S2C',
+        meta,
+        data,
+        buffer,
+        method,
+      });
     } catch (err) {
       log.error(`S2C relay error (${meta.name}):`, err.message);
     }

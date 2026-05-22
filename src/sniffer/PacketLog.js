@@ -1,5 +1,9 @@
 const fs = require('fs');
 const path = require('path');
+const { formatTraceLine, formatTracePayload } = require('./packetTrace');
+const { createLogger } = require('../utils/logger');
+
+const pktConsole = createLogger('PktTrace');
 
 /** JSONL lines longer than this go to sessionDir/line-NNNNNN.jsonl with a short ref in the main log. */
 const MAX_INLINE_LINE = 400;
@@ -40,8 +44,12 @@ class PacketLog {
    */
   constructor(opts) {
     this.includePayload = opts.includePayload !== false;
+    this.logEveryPacket = opts.logEveryPacket !== false;
+    this.consolePacketLog = opts.consolePacketLog !== false;
+    this.tracePayloadMaxLen = opts.tracePayloadMaxLen ?? 200;
     this.sessionId = opts.sessionId;
     this._seq = 0;
+    this._traceSeq = 0;
 
     const dir = path.resolve(opts.logDir);
     fs.mkdirSync(dir, { recursive: true });
@@ -50,6 +58,9 @@ class PacketLog {
     fs.mkdirSync(this._spillDir, { recursive: true });
     this._spillCount = 0;
     this._stream = fs.createWriteStream(file, { flags: 'a' });
+    const traceFile = path.join(dir, `${opts.sessionId}.trace.log`);
+    this._traceStream = fs.createWriteStream(traceFile, { flags: 'a' });
+    this.traceFilePath = traceFile;
     this._closed = false;
     this.filePath = file;
     this.spillDir = this._spillDir;
@@ -76,7 +87,10 @@ class PacketLog {
   }
 
   writeMeta(record) {
-    this._write({ ...record, t: new Date().toISOString() });
+    const row = { ...record, t: new Date().toISOString() };
+    this._write(row);
+    const { traceMeta } = require('./packetTrace');
+    traceMeta(this, record);
   }
 
   _writeChunkMeta(record) {
@@ -134,18 +148,49 @@ class PacketLog {
     });
   }
 
+  /**
+   * @param {'C2S'|'S2C'} dir
+   * @param {'java'|'backend'} [leg] - which TCP/session leg was decoded
+   */
   logPacket(dir, meta, data, rawBuffer, extra = {}) {
+    const leg = extra.leg ?? (dir === 'C2S' ? 'java' : 'backend');
     const entry = {
       type: 'packet',
       seq: ++this._seq,
       t: new Date().toISOString(),
+      leg,
       dir,
       state: meta.state,
       name: meta.name,
       clientState: extra.clientState,
       upstreamState: extra.upstreamState,
-      forwarded: extra.forwarded ?? null,
+      forwarded: extra.forwarded ?? extra.action ?? null,
+      action: extra.action ?? extra.forwarded ?? null,
     };
+
+    const traceName =
+      typeof meta.name === 'number' && extra.note?.includes('likely configuration.')
+        ? extra.note.split('likely ')[1]?.replace(')', '') || meta.name
+        : meta.name;
+
+    const skipTrace = entry.action === 'relay';
+    if (!skipTrace) {
+      this._recordTrace({
+        type: 'trace',
+        event: 'rx',
+        t: entry.t,
+        leg,
+        dir,
+        state: meta.state,
+        name: traceName,
+        rawBytes: rawBuffer?.length,
+        action: entry.action,
+        note: extra.note,
+        payload: this.includePayload
+          ? formatTracePayload(this.payloadSummary(meta.name, data, rawBuffer), this.tracePayloadMaxLen)
+          : null,
+      });
+    }
 
     if (rawBuffer) {
       entry.rawBytes = rawBuffer.length;
@@ -157,11 +202,36 @@ class PacketLog {
       entry.summary = summarizeLargePacket(meta.name, data, rawBuffer);
     }
 
-    if (CHUNK_PACKETS.has(meta.name)) {
+    if (CHUNK_PACKETS.has(meta.name) && !this.logEveryPacket) {
       this._writeChunk(entry);
       return;
     }
     this._write(entry);
+    if (CHUNK_PACKETS.has(meta.name) && this.logEveryPacket) {
+      this._writeChunk(entry);
+    }
+  }
+
+  /** Compact payload for .trace.log lines. */
+  payloadSummary(name, data, rawBuffer) {
+    if (!this.includePayload) return null;
+    if (LARGE_PACKETS.has(name) || CHUNK_PACKETS.has(name)) {
+      return summarizeLargePacket(name, data, rawBuffer);
+    }
+    return summarizePacket(name, data);
+  }
+
+  /** Plain-text + optional console line for every packet/bridge (no spill). */
+  _recordTrace(e) {
+    if (this._closed) return;
+    const seq = e.seq ?? ++this._traceSeq;
+    if (e.seq == null) e.seq = seq;
+    if (!e.t) e.t = new Date().toISOString();
+    const line = formatTraceLine(e);
+    this._traceStream.write(`${line}\n`);
+    if (this.consolePacketLog) {
+      pktConsole.info(line);
+    }
   }
 
   close(reason) {
@@ -171,6 +241,7 @@ class PacketLog {
     this._writeChunkMeta(end);
     this._closed = true;
     this._stream.end();
+    this._traceStream.end();
     this._chunkStream.end();
   }
 
@@ -214,7 +285,7 @@ class PacketLog {
 
 function buildPreview(obj) {
   if (obj.type === 'packet') {
-    const parts = [obj.dir, obj.state, obj.name].filter(Boolean).join(' ');
+    const parts = [obj.leg, obj.dir, obj.state, obj.name].filter(Boolean).join(' ');
     const extra = obj.rawBytes != null ? ` ${obj.rawBytes}b` : '';
     const fwd = obj.forwarded ? ` →${obj.forwarded}` : '';
     return `${parts}${extra}${fwd}`.trim();

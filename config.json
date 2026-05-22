@@ -26,7 +26,9 @@
     "upstreamAuth": "microsoft",
     "logDir": "logs/sniffer",
     "chunkLogDir": "logs/sniffer/chunks",
-    "includePayload": true
+    "includePayload": true,
+    "logEveryPacket": true,
+    "consolePacketLog": false
   },
   "bot": {
     "logMovement": true,

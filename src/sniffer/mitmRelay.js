@@ -34,11 +34,6 @@ function relayPacket(target, meta, data, buffer) {
     target.writeRaw(buffer);
     return 'raw';
   }
-  // Play-phase MITM: prefer wire-identical bytes (movement, chat, etc.).
-  if (buffer?.length && meta.state === 'play') {
-    target.writeRaw(buffer);
-    return 'raw';
-  }
   target.write(meta.name, data, meta.state);
   return 'parsed';
 }

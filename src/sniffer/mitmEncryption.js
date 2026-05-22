@@ -1,5 +1,9 @@
 const crypto = require('crypto');
 const NodeRSA = require('node-rsa');
+const mc = require('minecraft-protocol');
+const { traceTx } = require('./packetTrace');
+
+const states = mc.states;
 
 /**
  * Offer encryption_begin to the Java client using the sniffer's RSA key (MITM leg).
@@ -8,7 +12,7 @@ const NodeRSA = require('node-rsa');
  * @param {object} options - createServer options
  * @returns {Promise<void>} resolves when Java leg encryption is active
  */
-function enableJavaEncryption(client, server, options) {
+function enableJavaEncryption(client, server, options, packetLog) {
   const onlineMode = options['online-mode'] === true;
 
   return new Promise((resolve, reject) => {
@@ -37,6 +41,14 @@ function enableJavaEncryption(client, server, options) {
       verifyToken: client.verifyToken,
       shouldAuthenticate: onlineMode,
     });
+    if (packetLog) {
+      traceTx(packetLog, 'java', 'S2C', { state: states.LOGIN, name: 'encryption_begin' }, null, {
+        action: 'mitm_out',
+        bridge: 'sniffer→java',
+        method: 'parsed',
+        note: 'sniffer RSA encryption_begin (not from backend)',
+      });
+    }
   });
 }
 

@@ -1,27 +1,28 @@
 const mc = require('minecraft-protocol');
 const { createLogger } = require('../utils/logger');
 const { PacketLog } = require('./PacketLog');
+const { formatTracePayload, traceBridge, traceRelay, traceTx } = require('./packetTrace');
 const { relayPacket, sortLoginPending, relayToJava } = require('./mitmRelay');
 const { enableJavaEncryption } = require('./mitmEncryption');
+const { completeUpstreamEncryption } = require('./mitmUpstreamEncrypt');
 const { applyLoginStartIdentity } = require('./mitmLogin');
 const {
-  GATE,
-  canRelayC2S,
-  c2sForwardLabel,
-  hasPendingSuccess,
-  onJavaLoginAcknowledged,
-  onJavaFinishConfiguration,
+  shouldRelayC2SToUpstream,
   partitionAfterCrypto,
-} = require('./mitmGate');
+  flushPendingConfig,
+} = require('./mitmLoginBridge');
 const { createMitmSession, createSessionCleanup } = require('./mitmSession');
 const { startStatusPipe, startUpstream } = require('./mitmUpstream');
 
 const log = createLogger('Sniffer');
 const states = mc.states;
 
+/** Upstream keepAlive plugin answers server pings — do not duplicate from Java. */
+const BLOCK_C2S_KEEP_ALIVE = new Set(['keep_alive']);
+
 /**
- * MITM sniffer: Java ↔ node server ↔ upstream client ↔ real server.
- * Each leg is decrypted by minecraft-protocol so packets can be logged by name.
+ * MITM sniffer: decrypt both legs, log packets, relay through protocol codecs.
+ * Java leg uses sniffer encryption_begin; upstream leg uses real server auth/crypto.
  */
 class MitmProxy {
   constructor(config) {
@@ -55,7 +56,8 @@ class MitmProxy {
       );
       log.info(`Upstream auth: ${sniffer.upstreamAuth || 'microsoft'}`);
       log.info(`Logs: ${sniffer.logDir}`);
-      if (sniffer.chunkLogDir) log.info(`Chunk logs: ${sniffer.chunkLogDir}`);
+      if (sniffer.chunkLogDir)       log.info(`Chunk logs: ${sniffer.chunkLogDir}`);
+      log.info(`Per-packet trace: console=${sniffer.consolePacketLog !== false} every=${sniffer.logEveryPacket !== false}`);
     });
 
     this.server.on('error', (err) => {
@@ -72,26 +74,17 @@ class MitmProxy {
       return;
     }
 
-    // Do not run local login — upstream is the real server session.
     client.removeAllListeners('login_start');
 
-    const packetLog = new PacketLog({
-      logDir: this.config.sniffer.logDir,
-      chunkLogDir: this.config.sniffer.chunkLogDir,
-      sessionId: `session-${Date.now()}`,
-      clientUsername: 'unknown',
-      server: `${this.config.server.host}:${this.config.server.port}`,
-      version: this.config.server.version,
-      includePayload: this.config.sniffer.includePayload,
-    });
-
-    const session = createMitmSession(client, packetLog);
+    const session = createMitmSession(client, null);
     this.activeSession = session;
 
-    const cleanup = createSessionCleanup(session, packetLog, this);
+    const cleanup = createSessionCleanup(session, this);
 
     client.on('end', () => {
-      log.info(`Client disconnected ${session.username} (${addr})`);
+      if (session.packetLog) {
+        log.info(`Client disconnected ${session.username} (${addr})`);
+      }
       cleanup('client_end');
     });
     client.on('error', (err) => {
@@ -100,15 +93,11 @@ class MitmProxy {
     });
 
     client.on('packet', (data, meta, buffer) => {
-      packetLog.logPacket('C2S', meta, data, buffer, {
-        forwarded: c2sForwardLabel(session, meta),
-        clientState: client.state,
-        upstreamState: session.upstream?.state,
-        gate: session.gate,
-      });
+      if (session.statusPipe) return;
 
       if (meta.state === states.HANDSHAKING && meta.name === 'set_protocol' && data.nextState === 1) {
-        startStatusPipe(session, this.config, packetLog, this);
+        log.debug(`Status ping from ${addr} (no session log)`);
+        startStatusPipe(session, this.config, this);
         return;
       }
 
@@ -121,94 +110,190 @@ class MitmProxy {
           return;
         }
         session.username = data.username;
-        packetLog.writeMeta({ type: 'username', username: data.username });
-        packetLog.writeMeta({ type: 'handshake_intent', mode: 'login' });
+        session.packetLog = this._createPacketLog(session.username);
+        log.info(`Client connected ${addr} → ${session.packetLog.filePath}`);
+        log.info(`Trace log: ${session.packetLog.traceFilePath}`);
+        session.packetLog.writeMeta({ type: 'username', username: data.username });
+        session.packetLog.writeMeta({ type: 'handshake_intent', mode: 'login' });
         this._startUpstream(session, cleanup);
         return;
       }
 
+      if (!session.packetLog) return;
+
+      const action = this._c2sForwardLabel(session, meta);
+      session.packetLog.logPacket('C2S', meta, data, buffer, {
+        leg: 'java',
+        action,
+        clientState: client.state,
+        upstreamState: session.upstream?.state,
+      });
+
       if (meta.name === 'login_acknowledged') {
+        client.state = states.CONFIGURATION;
+        this._relayC2S(session, meta, data, buffer);
+        session.javaLoginAcknowledged = true;
+        if (session.upstream?.state === states.LOGIN) {
+          session.upstream.state = states.CONFIGURATION;
+        }
         try {
-          if (onJavaLoginAcknowledged(session)) {
-            log.info(`Java login acknowledged → configuration for ${session.username}`);
-          }
+          flushPendingConfig(session);
         } catch (err) {
-          log.error(`login_acknowledged error: ${err.message}`);
+          log.error(`login_acknowledged flush error: ${err.message}`);
         }
         return;
       }
 
       if (meta.name === 'finish_configuration') {
-        try {
-          if (onJavaFinishConfiguration(session, packetLog)) {
-            log.info(`MITM bridge active (play) for ${session.username}`);
-          }
-        } catch (err) {
-          log.error(`finish_configuration error: ${err.message}`);
+        client.state = states.PLAY;
+        this._relayC2S(session, meta, data, buffer);
+        session.javaFinishConfiguration = true;
+        if (session.upstream?.state === states.CONFIGURATION) {
+          session.upstream.state = states.PLAY;
         }
         return;
       }
 
-      if (session.upstream && canRelayC2S(session, meta)) {
-        try {
-          relayPacket(session.upstream, meta, data, buffer);
-        } catch (err) {
-          log.error(`C2S relay error (${meta.name}):`, err.message);
-        }
-      }
+      this._relayC2S(session, meta, data, buffer);
     });
+  }
 
-    log.info(`Client connected ${addr} → ${packetLog.filePath}`);
+  _createPacketLog(username) {
+    const sniffer = this.config.sniffer;
+    return new PacketLog({
+      logDir: sniffer.logDir,
+      chunkLogDir: sniffer.chunkLogDir,
+      sessionId: `session-${Date.now()}`,
+      clientUsername: username,
+      server: `${this.config.server.host}:${this.config.server.port}`,
+      version: this.config.server.version,
+      includePayload: sniffer.includePayload,
+      logEveryPacket: sniffer.logEveryPacket,
+      consolePacketLog: sniffer.consolePacketLog,
+      tracePayloadMaxLen: sniffer.tracePayloadMaxLen,
+    });
+  }
+
+  _c2sForwardLabel(session, meta) {
+    if (!shouldRelayC2SToUpstream(meta, session)) {
+      if (meta.state === states.LOGIN && meta.name === 'encryption_begin') return 'local_java_crypto';
+      return 'local';
+    }
+    if (BLOCK_C2S_KEEP_ALIVE.has(meta.name)) return 'blocked';
+    if (!session.upstream || !session.upstreamLink) return 'queued';
+    return 'relay';
+  }
+
+  _relayC2S(session, meta, data, buffer) {
+    if (!shouldRelayC2SToUpstream(meta, session)) {
+      if (
+        meta.state === states.CONFIGURATION ||
+        (meta.state === states.PLAY && !session.javaFinishConfiguration)
+      ) {
+        if (!session.upstreamLink) {
+          session.c2sQueue.push({ meta, data, buffer });
+        }
+        traceBridge(session.packetLog, meta, buffer, {
+          action: 'queued_java_gate',
+          bridge: 'java→backend',
+          dir: 'C2S',
+          note:
+            meta.state === states.CONFIGURATION
+              ? 'waiting for Java login_acknowledged'
+              : 'waiting for Java finish_configuration',
+        });
+        return;
+      }
+      if (meta.state !== states.LOGIN || meta.name !== 'encryption_begin') {
+        traceBridge(session.packetLog, meta, buffer, {
+          action: this._c2sForwardLabel(session, meta),
+          bridge: 'java→backend',
+          dir: 'C2S',
+          note: 'not relayed to backend',
+        });
+      }
+      return;
+    }
+    if (BLOCK_C2S_KEEP_ALIVE.has(meta.name)) {
+      traceBridge(session.packetLog, meta, buffer, {
+        action: 'blocked',
+        bridge: 'java→backend',
+        dir: 'C2S',
+        note: 'upstream keepAlive plugin handles',
+      });
+      return;
+    }
+    if (!session.upstream) return;
+
+    if (!session.upstreamLink) {
+      session.c2sQueue.push({ meta, data, buffer });
+      traceBridge(session.packetLog, meta, buffer, {
+        action: 'queued',
+        bridge: 'java→backend',
+        dir: 'C2S',
+        note: `queue depth=${session.c2sQueue.length}`,
+      });
+      return;
+    }
+
+    try {
+      const method = relayPacket(session.upstream, meta, data, buffer);
+      traceRelay(session.packetLog, {
+        bridge: 'java→backend',
+        dir: 'C2S',
+        meta,
+        data,
+        buffer,
+        method,
+      });
+    } catch (err) {
+      log.error(`C2S relay error (${meta.name}):`, err.message);
+    }
   }
 
   _startUpstream(session, cleanup) {
-    const tryBegin = () => this._tryBeginJavaCrypto(session, cleanup);
+    const tryAdvance = () => this._tryAdvanceLogin(session, cleanup);
     startUpstream(session, this.config, cleanup, {
-      GATE_LOGIN: GATE.LOGIN,
-      onCompressBeforeCrypto: tryBegin,
-      onEncryptionBegin: tryBegin,
-      onSuccessWhileHeld: tryBegin,
-      onSuccessNoEncryption: (s) => {
-        s.gate = GATE.AWAIT_LOGIN_ACK;
-        log.info(`Login success sent (no upstream encryption) for ${s.username}`);
-      },
+      onCompressBeforeCrypto: tryAdvance,
+      onEncryptionBegin: () => this._startJavaMitmCrypto(session, cleanup),
+      onSuccessWhileHeld: tryAdvance,
     });
   }
 
-  _tryBeginJavaCrypto(session, cleanup) {
-    if (!session.waitingJavaCrypto || session.javaCryptoStarting || session.gate !== GATE.LOGIN) return;
-
-    if (!hasPendingSuccess(session)) return;
-
-    this._doJavaCrypto(session, cleanup);
-  }
-
-  async _doJavaCrypto(session, cleanup) {
-    if (session.javaCryptoStarting || session.gate !== GATE.LOGIN) return;
+  async _startJavaMitmCrypto(session, cleanup) {
+    if (!session.waitingJavaCrypto || session.javaCryptoStarting || !session.upstreamEncryptRequest) {
+      return;
+    }
     session.javaCryptoStarting = true;
 
-    sortLoginPending(session.pendingS2C);
-    const heldLogin = [];
-    for (const item of session.pendingS2C) {
-      const { meta } = item;
-      if (meta.name === 'encryption_begin') continue;
-      if (meta.name === 'compress' && meta.state === states.LOGIN) {
-        session.relayedCompress = true;
-        try {
-          relayToJava(session.client, item.meta, item.data, item.buffer);
-        } catch (err) {
-          log.error(`S2C pre-crypto compress error:`, err.message);
-        }
-        continue;
+    const compressIdx = session.pendingS2C.findIndex(
+      (p) => p.meta.name === 'compress' && p.meta.state === states.LOGIN,
+    );
+    if (compressIdx >= 0) {
+      const item = session.pendingS2C[compressIdx];
+      session.pendingS2C.splice(compressIdx, 1);
+      try {
+        const method = relayToJava(session.client, item.meta, item.data, item.buffer);
+        traceTx(session.packetLog, 'java', 'S2C', item.meta, item.buffer, {
+          action: 'login_compress',
+          bridge: 'backend→java',
+          method,
+          note: 'before sniffer encryption_begin (must precede Java setEncryption)',
+        });
+        log.info(`Login compress → Java for ${session.username}`);
+      } catch (err) {
+        session.javaCryptoStarting = false;
+        log.error(`Login compress to Java failed: ${err.message}`);
+        session.client.end('Login compress failed');
+        cleanup('compress_error');
+        return;
       }
-      heldLogin.push(item);
     }
-    session.pendingS2C.length = 0;
-    const { login: afterCrypto, config: heldConfig } = partitionAfterCrypto(heldLogin);
-    session.pendingConfig.push(...heldConfig);
 
     try {
-      await enableJavaEncryption(session.client, this.server, this.server.options);
+      await enableJavaEncryption(session.client, this.server, this.server.options, session.packetLog);
+      session.javaLegEncrypted = true;
+      log.info(`Java leg encrypted for ${session.username}`);
     } catch (err) {
       session.javaCryptoStarting = false;
       log.error('Java encryption setup failed:', err.message);
@@ -217,23 +302,63 @@ class MitmProxy {
       return;
     }
 
+    await this._tryAdvanceLogin(session, cleanup);
+  }
+
+  async _tryAdvanceLogin(session, cleanup) {
+    if (!session.javaLegEncrypted || !session.upstreamEncryptRequest) return;
+
+    if (!session.upstreamEncryptDone) {
+      try {
+        await completeUpstreamEncryption(session, this.config);
+        log.info(`Upstream leg encrypted for ${session.username}`);
+      } catch (err) {
+        log.error(`Upstream encryption failed: ${err.message}`);
+        if (err.cause || err.code) log.error('Upstream encryption detail:', err.cause || err.code);
+        session.client.end('Upstream encryption failed (Mojang session server)');
+        cleanup('upstream_encryption_error');
+        return;
+      }
+    }
+
+    if (!session.pendingS2C.some((p) => p.meta.name === 'success')) return;
+    if (session.javaCryptoReady) return;
+    session.javaCryptoReady = true;
+
+    sortLoginPending(session.pendingS2C);
+    const heldLogin = [];
+    for (const item of session.pendingS2C) {
+      const { meta } = item;
+      if (meta.name === 'encryption_begin') continue;
+      if (meta.name === 'compress' && meta.state === states.LOGIN) {
+        continue;
+      }
+      heldLogin.push(item);
+    }
+    session.pendingS2C.length = 0;
+    const { login: afterCrypto, config: heldConfig } = partitionAfterCrypto(heldLogin);
+    session.pendingConfig.push(...heldConfig);
+
     session.holdS2C = false;
     session.waitingJavaCrypto = false;
-    session.gate = GATE.AWAIT_LOGIN_ACK;
     session.packetLog.writeMeta({ type: 'java_crypto_ready' });
-    log.info(`Java crypto ready for ${session.username}, awaiting login_acknowledged`);
+    log.info(`Login phase ready for ${session.username}`);
 
-    const successPackets = [
-      ...afterCrypto.filter((p) => p.meta.name === 'success'),
-      ...session.pendingS2C.filter((p) => p.meta.name === 'success'),
-    ];
-    session.pendingS2C = session.pendingS2C.filter((p) => p.meta.name !== 'success');
-
-    for (const { data, meta, buffer } of successPackets) {
+    for (const { data, meta, buffer } of afterCrypto.filter((p) => p.meta.name === 'success')) {
       try {
-        relayToJava(session.client, meta, data, buffer);
+        const method = relayToJava(session.client, meta, data, buffer);
+        traceTx(session.packetLog, 'java', 'S2C', meta, buffer, {
+          action: 'post_crypto_flush',
+          bridge: 'backend→java',
+          method,
+          note: 'held login success',
+          payload: formatTracePayload(
+            session.packetLog.payloadSummary(meta.name, data, buffer),
+            session.packetLog.tracePayloadMaxLen,
+          ),
+        });
       } catch (err) {
-        log.error(`S2C success flush error:`, err.message);
+        log.error(`S2C success flush error: ${err.message}`);
       }
     }
   }
@@ -246,7 +371,7 @@ class MitmProxy {
       if (session.upstream && !session.upstream.ended) {
         try { session.upstream.end('Sniffer shutting down'); } catch (_) {}
       }
-      session.packetLog.close('shutdown');
+      session.packetLog?.close('shutdown');
     }
     if (this.server) {
       this.server.close();

@@ -22,6 +22,9 @@ try {
       logDir: path.join(__dirname, '..', '..', 'logs', 'sniffer'),
       chunkLogDir: path.join(__dirname, '..', '..', 'logs', 'sniffer', 'chunks'),
       includePayload: true,
+      logEveryPacket: true,
+      consolePacketLog: true,
+      tracePayloadMaxLen: 600,
     },
     config.sniffer,
   );
@@ -31,6 +34,7 @@ try {
   log.info(`Upstream auth: ${config.sniffer.upstreamAuth}`);
   log.info(`Logs: ${path.resolve(config.sniffer.logDir)}`);
   log.info(`Chunk logs: ${path.resolve(config.sniffer.chunkLogDir)}`);
+  log.info(`Packet trace: console=${config.sniffer.consolePacketLog !== false} (see *.trace.log per session)`);
 } catch (err) {
   log.error(err.message);
   process.exit(1);
