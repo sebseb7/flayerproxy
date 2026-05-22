@@ -36,6 +36,7 @@
       "enabled": true,
       "onDamage": true,
       "onPlayer": true,
+      "belowY": 64,
       "allowedPlayers": ["tobbop2", "craftery85"]
     }
   },

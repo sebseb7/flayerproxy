@@ -95,6 +95,7 @@ While no play client is connected (`BOT_MODE`), the bot can quit upstream when:
 
 - **`onDamage`** — the bot takes damage (`entityHurt` on the bot entity).
 - **`onPlayer`** — any player entity not in `allowedPlayers` spawns in range. The bot’s own username is always allowed.
+- **`belowY`** — the bot’s Y coordinate drops below the configured value (default `64`). Set to `false` to disable.
 
 Auto logout is **disabled** during handoff and while a play client controls the session (`HANDOFF` / `CLIENT_MODE`). After a trigger the bot disconnects upstream and stays offline (no background reconnect). **Spectators** are rejected with `Bot Auto disconnected`.
 
@@ -145,6 +146,7 @@ Edit `config.json` in the project root:
       "enabled": true,
       "onDamage": true,
       "onPlayer": true,
+      "belowY": 64,
       "allowedPlayers": ["tobbop2", "craftery85"]
     }
   },
@@ -164,7 +166,7 @@ Edit `config.json` in the project root:
 | **`proxy`** | `host`, `port`, `onlineMode`, `maxClients` | Play proxy (**25566**). `maxClients` is enforced as **1**. |
 | **`spectator`** | `enabled`, `host`, `port`, `onlineMode`, `maxClients` | Watch-only proxy (**25568**). Set `enabled: false` to disable. |
 | **`sniffer`** | `port`, `onlineMode`, `upstreamAuth`, `logDir`, … | Dev MITM on **25567**; see [protocol.md §11](protocol.md#11-packet-sniffer-development). |
-| **`bot`** | `antiAfk`, `antiAfkMinInterval`, `antiAfkMaxInterval`, `viewDistance`, `autoLogout` | Idle look/sneak/swing when no play client; chunk cache radius hint. `autoLogout`: `enabled`, `onDamage`, `onPlayer`, `allowedPlayers` (bot username always allowed). |
+| **`bot`** | `antiAfk`, `antiAfkMinInterval`, `antiAfkMaxInterval`, `viewDistance`, `autoLogout` | Idle look/sneak/swing when no play client; chunk cache radius hint. `autoLogout`: `enabled`, `onDamage`, `onPlayer`, `belowY`, `allowedPlayers` (bot username always allowed). |
 | **`cache`** | `maxChunks`, `trackEntities` | LRU chunk cap and entity tracking. |
 
 ---

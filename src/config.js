@@ -45,6 +45,7 @@ function loadConfig() {
         enabled: true,
         onDamage: true,
         onPlayer: true,
+        belowY: 64,
         allowedPlayers: ['tobbop2', 'craftery85'],
       },
     },
@@ -55,10 +56,14 @@ function loadConfig() {
       enabled: true,
       onDamage: true,
       onPlayer: true,
+      belowY: 64,
       allowedPlayers: ['tobbop2', 'craftery85'],
     },
     config.bot.autoLogout || {},
   );
+  if (config.bot.autoLogout.belowY === undefined) {
+    config.bot.autoLogout.belowY = 64;
+  }
   if (!Array.isArray(config.bot.autoLogout.allowedPlayers)) {
     config.bot.autoLogout.allowedPlayers = ['tobbop2', 'craftery85'];
   }

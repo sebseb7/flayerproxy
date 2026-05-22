@@ -311,7 +311,7 @@ While in **`BOT_MODE`**, the bot holds the upstream session, runs optional anti-
 
 | Event | Behavior |
 | :--- | :--- |
-| Trigger (`onDamage` / `onPlayer`) | Bot disconnects upstream; `_suppressReconnect` blocks auto-reconnect; spectators kicked with `Bot Auto disconnected`. |
+| Trigger (`onDamage` / `onPlayer` / `belowY`) | Bot disconnects upstream; `_suppressReconnect` blocks auto-reconnect; spectators kicked with `Bot Auto disconnected`. |
 | Play login while bot offline | `_clientSlotStatus` allows login; `_preparePlayLogin` runs on `login_acknowledged` **before** config replay. |
 | `_startAutoLogoutReconnect` | `worldState.clear()`, reconnect bot, wait for config/login cache, `_primeChunksNearBot` (12s), stash chat notice for handoff. |
 | Handoff after reconnect | Same as normal handoff; longer chunk prime window; system chat on join. |

@@ -26,6 +26,14 @@ class BotAutoLogout {
     this._allowed = this._normalizeAllowed(allowed);
     this._onEntityHurt = (entity) => this._handleEntityHurt(entity);
     this._onEntitySpawn = (entity) => this._handleEntitySpawn(entity);
+    this._onMove = () => this._checkBelowY();
+  }
+
+  _belowYThreshold() {
+    const v = this._autoLogoutConfig().belowY;
+    if (v === false || v == null) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
   }
 
   _normalizeAllowed(list) {
@@ -43,20 +51,24 @@ class BotAutoLogout {
   _isConfigured() {
     const cfg = this._autoLogoutConfig();
     if (cfg.enabled === false) return false;
-    return cfg.onDamage || cfg.onPlayer;
+    return cfg.onDamage || cfg.onPlayer || this._belowYThreshold() != null;
   }
 
   start() {
     if (!this._isConfigured() || this._enabled) return;
     this._enabled = true;
     this._triggered = false;
+    const belowY = this._belowYThreshold();
     log.info(
       `Auto logout armed (damage=${!!this._autoLogoutConfig().onDamage}, ` +
-        `player=${!!this._autoLogoutConfig().onPlayer}, allowed=${this._allowed.size})`,
+        `player=${!!this._autoLogoutConfig().onPlayer}, belowY=${belowY ?? 'off'}, ` +
+        `allowed=${this._allowed.size})`,
     );
     this.bot.on('entityHurt', this._onEntityHurt);
     this.bot.on('entitySpawn', this._onEntitySpawn);
+    if (belowY != null) this.bot.on('move', this._onMove);
     this._scanExistingPlayerEntities();
+    this._checkBelowY();
   }
 
   stop() {
@@ -64,6 +76,7 @@ class BotAutoLogout {
     this._enabled = false;
     this.bot.removeListener('entityHurt', this._onEntityHurt);
     this.bot.removeListener('entitySpawn', this._onEntitySpawn);
+    this.bot.removeListener('move', this._onMove);
   }
 
   _scanExistingPlayerEntities() {
@@ -88,6 +101,15 @@ class BotAutoLogout {
     this._handlePlayerSeen(entity.username);
   }
 
+  _checkBelowY() {
+    const threshold = this._belowYThreshold();
+    if (threshold == null) return;
+    if (!this.isActive() || this._triggered) return;
+    const y = this.bot.entity?.position?.y;
+    if (y == null || !Number.isFinite(y) || y >= threshold) return;
+    this._trigger('belowY');
+  }
+
   _handlePlayerSeen(username) {
     if (!this._autoLogoutConfig().onPlayer) return;
     if (!this.isActive() || this._triggered) return;
@@ -103,7 +125,10 @@ class BotAutoLogout {
     if (this._triggered) return;
     this._triggered = true;
     this.stop();
-    const label = kind === 'damage' ? 'took damage' : `player detected (${kind.replace(/^player:/, '')})`;
+    let label;
+    if (kind === 'damage') label = 'took damage';
+    else if (kind === 'belowY') label = `Y below ${this._belowYThreshold()}`;
+    else label = `player detected (${kind.replace(/^player:/, '')})`;
     log.warn(`Auto logout — ${label}`);
     this.onLogout(label);
   }
