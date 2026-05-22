@@ -11,7 +11,8 @@
   "proxy": {
     "port": 25566,
     "onlineMode": true,
-    "maxClients": 1
+    "maxClients": 1,
+    "clientViewDistance": 7
   },
   "spectator": {
     "enabled": true,
@@ -33,7 +34,7 @@
     "antiAfk": true,
     "antiAfkMinInterval": 1500,
     "antiAfkMaxInterval": 6000,
-    "viewDistance": 3,
+    "viewDistance": 7,
     "autoLogout": {
       "enabled": true,
       "onDamage": true,

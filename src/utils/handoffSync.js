@@ -189,8 +189,7 @@ function ackChunkBatchToServer(serverConn, log) {
 function installHandoffLiveChunkForward(client, serverConn, worldState, log) {
   const view = { chunkX: null, chunkZ: null };
 
-  const getViewDistance = () =>
-    worldState.misc.viewDistance?.viewDistance ?? 10;
+  const getViewDistance = () => worldState.getViewDistanceContext().clientRender;
 
   const handler = (name, data, buffer) => {
     if (

@@ -337,13 +337,13 @@ class ServerConnection extends EventEmitter {
     }
   }
 
-  /** Prompt the server to (re)send the chunk column around the bot (view distance refresh). */
-  nudgeClientSettings() {
+  /**
+   * Serverbound settings — drives PlayerChunkSender / ChunkMap radius on the bot connection.
+   * @param {number} viewDistance
+   */
+  applyUpstreamViewDistance(viewDistance) {
     if (!this.rawClient || !this.connected) return false;
-    const vd =
-      this.worldState.misc.viewDistance?.viewDistance ??
-      this.config.bot?.viewDistance ??
-      10;
+    const vd = Math.max(2, Math.min(32, Math.floor(viewDistance)));
     try {
       this._bridgeRelayDepth += 1;
       this.rawClient.write('settings', {
@@ -359,11 +359,27 @@ class ServerConnection extends EventEmitter {
       });
       return true;
     } catch (err) {
-      log.warn('nudgeClientSettings failed:', err.message);
+      log.warn(`applyUpstreamViewDistance(${vd}) failed:`, err.message);
       return false;
     } finally {
       this._bridgeRelayDepth -= 1;
     }
+  }
+
+  /** Align upstream chunk radius with server / bot / java client (see viewDistance.js). */
+  syncChunkStreamingViewDistance() {
+    const ctx = this.worldState.getViewDistanceContext();
+    const ok = this.applyUpstreamViewDistance(ctx.upstream);
+    if (ok) {
+      this.worldState.logViewDistanceContext('upstream sync');
+    }
+    return { ok, ...ctx };
+  }
+
+  /** Prompt the server to (re)send chunks (uses coordinated upstream view distance). */
+  nudgeClientSettings() {
+    const ctx = this.worldState.getViewDistanceContext();
+    return this.applyUpstreamViewDistance(ctx.upstream);
   }
 
   /** Grim setback accept on upstream only — do not show to java client */

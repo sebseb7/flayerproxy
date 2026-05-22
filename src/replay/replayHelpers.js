@@ -78,7 +78,7 @@ function splitMiscReplayPackets(packets) {
       [1, 7, 8].includes(pkt.data.reason)
     ) {
       weatherPackets.push(pkt);
-    } else if (pkt.name === 'update_view_distance') {
+    } else if (pkt.name === 'update_view_distance' || pkt.name === 'simulation_distance') {
       continue;
     } else {
       beforeLevel.push(pkt);

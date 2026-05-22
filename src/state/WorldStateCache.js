@@ -7,6 +7,12 @@ const { InventoryCache } = require('./InventoryCache');
 const { MiscCache } = require('./MiscCache');
 const { JoinSyncCache } = require('./JoinSyncCache');
 const { TerrainCapture } = require('./TerrainCapture');
+const {
+  resolveViewDistances,
+  viewDistanceFromSettings,
+  serverDistancesFromMisc,
+  logViewDistanceSummary,
+} = require('../utils/viewDistance');
 
 const log = createLogger('WorldState');
 
@@ -28,6 +34,10 @@ class WorldStateCache {
   constructor(config) {
     this._serverVersion = config.server?.version ?? '1.21.10';
     this._defaultViewDistance = config.bot?.viewDistance ?? 10;
+    this._clientViewDistanceTarget =
+      config.proxy?.clientViewDistance ?? config.bot?.viewDistance ?? 10;
+    /** Java render distance if legacy settings packet seen (usually null on 1.21 play). */
+    this.javaViewDistance = null;
     this.chunks = new ChunkCache(config.cache.maxChunks, {
       version: this._serverVersion,
       getWorldBounds: () =>
@@ -157,6 +167,40 @@ class WorldStateCache {
     const view = this._getChunkViewContext();
     if (!view) return;
     this.chunks.forgetOutsideView(view.centerChunkX, view.centerChunkZ, view.viewDistance);
+  }
+
+  /** @param {number} vd */
+  setJavaViewDistance(vd) {
+    this.javaViewDistance = vd;
+  }
+
+  getViewDistanceContext() {
+    const { render, simulation } = serverDistancesFromMisc({
+      viewDistance: this.misc.viewDistance,
+      simulationDistance: this.misc.simulationDistance,
+    });
+    return resolveViewDistances({
+      serverVd: render,
+      serverSim: simulation,
+      botVd: this._defaultViewDistance,
+      javaVd: this.javaViewDistance,
+      clientTargetVd: this._clientViewDistanceTarget,
+    });
+  }
+
+  logViewDistanceContext(label) {
+    logViewDistanceSummary(this.getViewDistanceContext(), label);
+  }
+
+  /**
+   * Capture java render distance from serverbound settings (may arrive before ClientBridge).
+   */
+  captureJavaSettingsPacket(data, meta) {
+    if (meta?.state !== 'play' || meta?.name !== 'settings') return false;
+    const vd = viewDistanceFromSettings(data);
+    if (vd == null) return false;
+    this.javaViewDistance = vd;
+    return true;
   }
 
   /**
@@ -432,6 +476,7 @@ class WorldStateCache {
   }
 
   clear() {
+    this.javaViewDistance = null;
     this.chunks.clear();
     this.entities.clear();
     this.player.clear();

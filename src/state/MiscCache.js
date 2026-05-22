@@ -159,6 +159,11 @@ class MiscCache {
 
   handleSimulationDistance(data) {
     this.simulationDistance = { ...data };
+    const d = data?.distance;
+    if (d != null) {
+      const side = 2 * d + 1;
+      log.info(`Server simulation_distance=${d} (~${side}×${side} chunk area)`);
+    }
   }
 
   handleUpdateViewDistance(data) {

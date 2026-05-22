@@ -19,6 +19,7 @@ const {
   logProxyS2C,
   resetMapChunkReplayCount,
 } = require('../utils/handoffTrace');
+const { pushClientChunkDistances } = require('../utils/viewDistance');
 
 const log = createLogger('StateReplayer');
 
@@ -137,9 +138,9 @@ class StateReplayer {
     }
 
     const center = getPlayerChunkCenter(playerState, ws.misc, bot);
-    const serverVd = ws.misc.viewDistance?.viewDistance ?? 10;
-    const botVd = this.serverConn?.config?.bot?.viewDistance ?? 10;
-    const viewDistance = Math.min(serverVd, botVd);
+    const vdCtx = ws.getViewDistanceContext();
+    const viewDistance = vdCtx.upstream;
+    ws.logViewDistanceContext('handoff replay');
 
     // 6. Teleport before terrain — PlayerList.placeNewPlayer teleports before sendLevelInfo/chunks
     const cachedPos = playerState.position;
@@ -167,9 +168,7 @@ class StateReplayer {
     for (const pkt of weatherPackets) {
       write(pkt.name, pkt.data);
     }
-    if (ws.misc.viewDistance) {
-      write('update_view_distance', ws.misc.viewDistance);
-    }
+    pushClientChunkDistances(client, vdCtx);
 
     const capturedTerrain = ws.getCapturedTerrainPackets();
     const useCapturedTerrain = capturedTerrain.length > 0 && ws.hasCapturedTerrainBatch();

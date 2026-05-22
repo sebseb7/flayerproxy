@@ -15,6 +15,12 @@ const {
   ensureClientViewIncludesChunk,
 } = require('../utils/positionSync');
 const { isSetbackStylePosition } = require('../utils/setbackPosition');
+const {
+  viewDistanceFromSettings,
+  settingsWithViewDistance,
+  pushClientChunkDistances,
+  logViewDistanceSummary,
+} = require('../utils/viewDistance');
 
 const { logJavaC2S } = require('../utils/handoffTrace');
 
@@ -92,11 +98,15 @@ class ClientBridge {
   }
 
   _getViewDistance() {
-    return (
-      this.worldState.misc.viewDistance?.viewDistance ??
-      this.serverConn.config?.bot?.viewDistance ??
-      10
-    );
+    return this.worldState.getViewDistanceContext().clientRender;
+  }
+
+  _syncChunkStreaming() {
+    const ctx = this.worldState.getViewDistanceContext();
+    this.serverConn.applyUpstreamViewDistance(ctx.upstream);
+    pushClientChunkDistances(this.client, ctx);
+    logViewDistanceSummary(ctx, 'CLIENT_MODE sync');
+    return ctx;
   }
 
   /**
@@ -150,6 +160,7 @@ class ClientBridge {
    */
   enableMovement() {
     this._movementSynced = true;
+    this._syncChunkStreaming();
     this._syncClientViewFromBot();
     log.info('Client movement forwarding enabled');
   }
@@ -162,6 +173,7 @@ class ClientBridge {
 
     this.serverConn.setClientDrivesChunkBatchAck(true);
     this.serverConn.flushChunkBatchAck();
+    this._syncChunkStreaming();
 
     log.info(
       `Client bridge started — forwarding packets${this._logBridge ? ' (logBridgePackets=true)' : ''}`,
@@ -233,6 +245,22 @@ class ClientBridge {
           return;
         }
 
+        if (meta.name === 'settings') {
+          const javaVd = viewDistanceFromSettings(data);
+          if (javaVd != null) {
+            this.worldState.setJavaViewDistance(javaVd);
+          }
+          const ctx = this.worldState.getViewDistanceContext();
+          this.serverConn.writeToServer(
+            'settings',
+            settingsWithViewDistance(data, ctx.upstream),
+            { source: 'ClientBridge.syncViewDistance' },
+          );
+          pushClientChunkDistances(this.client, ctx);
+          logViewDistanceSummary(ctx, 'java settings');
+          return;
+        }
+
         if (this._priorityClientPackets.has(meta.name)) {
           if (meta.name === 'player_loaded' || meta.name === 'chunk_batch_received') {
             logJavaC2S(log, meta.name, data, 'CLIENT_MODE');
@@ -288,6 +316,13 @@ class ClientBridge {
 
       try {
         if (this.client.state !== 'play') return;
+
+        if (name === 'update_view_distance' || name === 'simulation_distance') {
+          const ctx = this.worldState.getViewDistanceContext();
+          pushClientChunkDistances(this.client, ctx);
+          this.serverConn.applyUpstreamViewDistance(ctx.upstream);
+          return;
+        }
 
         // update_view_position must arrive before map_chunk in the same batch (ChunkMap.java)
         if (RAW_FORWARD_PACKETS.has(name)) {

@@ -23,7 +23,17 @@ function loadConfig() {
   }
 
   // Apply defaults
-  config.proxy = Object.assign({ host: '0.0.0.0', port: 25566, onlineMode: false, maxClients: 1 }, config.proxy);
+  config.proxy = Object.assign(
+    {
+      host: '0.0.0.0',
+      port: 25566,
+      onlineMode: false,
+      maxClients: 1,
+      /** Target render/simulation radius for java client when play has no settings packet (1.21+) */
+      clientViewDistance: 10,
+    },
+    config.proxy,
+  );
   config.spectator = Object.assign(
     {
       enabled: true,

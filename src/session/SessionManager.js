@@ -321,12 +321,12 @@ class SessionManager {
 
     const cx = Math.floor(bot.entity.position.x / 16);
     const cz = Math.floor(bot.entity.position.z / 16);
-    const serverVd = this.worldState.misc.viewDistance?.viewDistance ?? 10;
-    const botVd = this.config.bot?.viewDistance ?? 10;
-    const viewDistance = Math.min(serverVd, botVd);
-    const count = this.worldState.chunks.getChunksForReplay(cx, cz, viewDistance).length;
-    const min = minChunksForHandoff(viewDistance);
-    return { cx, cz, viewDistance, count, min };
+    const ctx = this.worldState.getViewDistanceContext();
+    const count = this.worldState.chunks
+      .getChunksForReplay(cx, cz, ctx.upstream)
+      .length;
+    const min = minChunksForHandoff(ctx.upstream);
+    return { cx, cz, viewDistance: ctx.upstream, count, min };
   }
 
   /**
@@ -337,7 +337,9 @@ class SessionManager {
     const stats = this._chunkHandoffCounts();
     if (!stats) return;
 
-    const { cx, cz, viewDistance, min } = stats;
+    const ctx = this.worldState.getViewDistanceContext();
+    const viewDistance = ctx.upstream;
+    const { cx, cz, min } = stats;
     let { count } = stats;
 
     this.worldState.beginTerrainCapture();
@@ -390,6 +392,7 @@ class SessionManager {
       });
     } finally {
       this.worldState.endTerrainCapture();
+      this.worldState.logViewDistanceContext('after prime');
     }
   }
 
@@ -553,6 +556,13 @@ class SessionManager {
     this._transitionTo(State.HANDOFF);
     this.currentClient = client;
 
+    const onJavaSettings = (data, meta) => {
+      if (this.worldState.captureJavaSettingsPacket(data, meta)) {
+        this.worldState.logViewDistanceContext('java settings (play)');
+      }
+    };
+    client.on('packet', onJavaSettings);
+
     // Disable bot physics; keep mineflayer chunk_batch ack until the bridge takes over
     this.serverConn.setBotControl(false);
 
@@ -560,6 +570,7 @@ class SessionManager {
     const onDisconnect = () => {
       handoffAborted = true;
       log.info('Client disconnected during handoff');
+      client.removeListener('packet', onJavaSettings);
       this._cleanupClient();
       this._transitionTo(State.BOT_MODE);
       this.serverConn.setBotControl(true);
@@ -585,6 +596,7 @@ class SessionManager {
     });
 
     client.removeListener('end', onDisconnect);
+    client.removeListener('packet', onJavaSettings);
 
     if (!result || !canContinue()) {
       this._cleanupClient();
