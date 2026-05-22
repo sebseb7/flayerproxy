@@ -10,6 +10,7 @@ const {
   ANIMATION_SWING_OFF_HAND,
 } = require('../constants/spectatorPackets');
 const { buildPlayerPoseMetadata } = require('../utils/playerVisualRelay');
+const { installTickEndRelay } = require('./tickEndRelay');
 
 const log = createLogger('ServerConn');
 
@@ -37,6 +38,8 @@ class ServerConnection extends EventEmitter {
     this._idleBehavior = null;
     /** @type {BotAutoLogout|null} */
     this._autoLogout = null;
+    /** @type {(() => void)|null} */
+    this._tickEndCleanup = null;
     /** Mirrors bot sneak for spectator camera height (position Y offset). */
     this.botSneaking = false;
   }
@@ -51,6 +54,8 @@ class ServerConnection extends EventEmitter {
     this._idleBehavior = null;
     this._autoLogout?.stop();
     this._autoLogout = null;
+    this._tickEndCleanup?.();
+    this._tickEndCleanup = null;
 
     this.bot = mineflayer.createBot({
       host: this.config.server.host,
@@ -64,6 +69,7 @@ class ServerConnection extends EventEmitter {
     });
 
     this.rawClient = this.bot._client;
+    this._tickEndCleanup = installTickEndRelay(this.bot, this.config.server.version);
 
     this._setupConfigCapture();
     this._setupPacketCapture();
@@ -141,6 +147,8 @@ class ServerConnection extends EventEmitter {
       this.connected = false;
       this._idleBehavior?.stop();
       this._autoLogout?.stop();
+      this._tickEndCleanup?.();
+      this._tickEndCleanup = null;
       this.emit('disconnected', reason);
     });
 
