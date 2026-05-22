@@ -42,15 +42,11 @@ function formatTraceLine(e) {
   return parts.join(' ');
 }
 
-function formatTracePayload(summary, maxLen = 160) {
-  if (summary == null) return null;
-  try {
-    const s = typeof summary === 'string' ? summary : JSON.stringify(summary);
-    if (!s || s === '{}') return '{}';
-    return s.length > maxLen ? `${s.slice(0, maxLen)}…` : s;
-  } catch {
-    return '?';
-  }
+const { formatTracePayload: formatFullTracePayload } = require('./packetPayload');
+
+/** @deprecated use packetPayload.formatTracePayload */
+function formatTracePayload(summary, maxLen) {
+  return formatFullTracePayload(summary, maxLen);
 }
 
 /**
@@ -110,18 +106,20 @@ function traceTx(packetLog, leg, dir, meta, buffer, extra = {}) {
  * Single line for a packet relayed across legs (replaces separate rx + tx lines).
  */
 function traceRelay(packetLog, { bridge, dir, meta, data, buffer, method, action }) {
-  const summary = packetLog.payloadSummary(meta.name, data, buffer);
+  const decodedFile = packetLog.consumePendingDecodedFile?.();
+  const payload = packetLog.buildFullPacketPayload(data, buffer, decodedFile);
+  const traceName = packetLog.consumePendingTracePacketName?.() ?? meta.name;
   emitTrace(packetLog, {
     type: 'trace',
     event: 'relay',
     bridge,
     dir,
     state: meta.state,
-    name: meta.name,
+    name: traceName,
     rawBytes: buffer?.length,
     method,
     action: action || 'relay',
-    payload: formatTracePayload(summary, packetLog.tracePayloadMaxLen),
+    payload: formatFullTracePayload(payload, packetLog.tracePayloadMaxLen),
   });
 }
 

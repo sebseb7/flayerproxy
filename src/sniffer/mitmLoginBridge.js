@@ -1,23 +1,8 @@
 const mc = require('minecraft-protocol');
 const { relayToJava } = require('./mitmRelay');
+const { formatPacketName, LOGIN_ID_LIKELY_CONFIG } = require('./packetMeta');
 
 const states = mc.states;
-
-/** Login-state ids that are really configuration S2C when upstream decoder lags. */
-const LOGIN_ID_LIKELY_CONFIG = {
-  12: 'feature_flags',
-  14: 'select_known_packs',
-};
-
-function formatPacketName(meta, peerState) {
-  const name = meta.name;
-  if (typeof name !== 'number') return name;
-  if (meta.state === states.LOGIN && peerState === states.CONFIGURATION) {
-    const hint = LOGIN_ID_LIKELY_CONFIG[name];
-    if (hint) return `${name}(likely configuration.${hint})`;
-  }
-  return String(name);
-}
 
 /** Java leg only — upstream already sends its own hello via Microsoft auth. */
 function shouldRelayC2SToUpstream(meta, session) {
@@ -75,6 +60,7 @@ function flushPendingConfig(session) {
 
 module.exports = {
   formatPacketName,
+  LOGIN_ID_LIKELY_CONFIG,
   shouldRelayC2SToUpstream,
   partitionAfterCrypto,
   queueHeldS2C,

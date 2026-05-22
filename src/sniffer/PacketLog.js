@@ -1,7 +1,14 @@
 const fs = require('fs');
 const path = require('path');
-const { formatTraceLine, formatTracePayload } = require('./packetTrace');
+const { formatTraceLine } = require('./packetTrace');
+const {
+  buildFullPacketPayload: buildFullPacketRecord,
+  formatTracePayload,
+} = require('./packetPayload');
 const { createLogger } = require('../utils/logger');
+const { buildDecodedPacketRecord, buildDecodedDumpFileName } = require('./decodedPacketDump');
+const { summarizePacket, serializePacketFull } = require('./packetSummarize');
+const { resolvePacketName } = require('./packetMeta');
 
 const pktConsole = createLogger('PktTrace');
 
@@ -46,7 +53,7 @@ class PacketLog {
     this.includePayload = opts.includePayload !== false;
     this.logEveryPacket = opts.logEveryPacket !== false;
     this.consolePacketLog = opts.consolePacketLog !== false;
-    this.tracePayloadMaxLen = opts.tracePayloadMaxLen ?? 200;
+    this.tracePayloadMaxLen = opts.tracePayloadMaxLen ?? 8192;
     this.sessionId = opts.sessionId;
     this._seq = 0;
     this._traceSeq = 0;
@@ -74,6 +81,10 @@ class PacketLog {
     this._chunkStream = fs.createWriteStream(chunkFile, { flags: 'a' });
     this.chunkFilePath = chunkFile;
     this.chunkSpillDir = this._chunkSpillDir;
+    this._decodedDumpDir = path.join(this._chunkSpillDir, 'decoded');
+    fs.mkdirSync(this._decodedDumpDir, { recursive: true });
+    this._pendingTraceDecodedFile = null;
+    this._pendingTracePacketName = null;
 
     const sessionStart = {
       type: 'session_start',
@@ -118,6 +129,52 @@ class PacketLog {
     });
   }
 
+  /**
+   * minecraft-protocol deserializer failure (unparsed wire — connection may continue).
+   * @param {'C2S'|'S2C'} dir
+   * @param {string} state
+   * @param {Error} err - often has .field and .buffer
+   */
+  logDeserializerError(dir, state, err, extra = {}) {
+    const frame = err.buffer;
+    const entry = {
+      type: 'parse_error',
+      seq: ++this._seq,
+      t: new Date().toISOString(),
+      dir,
+      leg: extra.leg ?? (dir === 'C2S' ? 'java' : 'backend'),
+      state,
+      unknown: true,
+      field: err.field ?? null,
+      error: err.message,
+      forwarded: extra.forwarded ?? 'decode_failed',
+    };
+    if (frame?.length) {
+      entry.frameBytes = frame.length;
+      entry.headHex = frame.subarray(0, Math.min(64, frame.length)).toString('hex');
+      const decodedFile = this._maybeDumpDecodedPacket(
+        entry.seq,
+        { name: 'parse_error', packetId: null, unknown: true, displayName: 'parse_error', note: entry.field },
+        { field: entry.field, error: entry.error, params: null },
+        frame,
+      );
+      if (decodedFile) entry.decodedFile = decodedFile;
+    }
+    this._write(entry);
+    this._recordTrace({
+      type: 'trace',
+      event: 'parse_error',
+      t: entry.t,
+      leg: entry.leg,
+      dir,
+      state,
+      name: 'parse_error',
+      rawBytes: frame?.length,
+      action: entry.forwarded,
+      note: entry.field ?? entry.error,
+    });
+  }
+
   logOpaque(dir, bytes, extra = {}) {
     if (extra.encrypted) {
       this._encryptedOpaque = this._encryptedOpaque || { C2S: 0, S2C: 0, bytes: { C2S: 0, S2C: 0 } };
@@ -154,6 +211,7 @@ class PacketLog {
    */
   logPacket(dir, meta, data, rawBuffer, extra = {}) {
     const leg = extra.leg ?? (dir === 'C2S' ? 'java' : 'backend');
+    const nameInfo = resolvePacketName(meta, extra);
     const entry = {
       type: 'packet',
       seq: ++this._seq,
@@ -161,17 +219,36 @@ class PacketLog {
       leg,
       dir,
       state: meta.state,
-      name: meta.name,
+      name: nameInfo.name,
       clientState: extra.clientState,
       upstreamState: extra.upstreamState,
       forwarded: extra.forwarded ?? extra.action ?? null,
       action: extra.action ?? extra.forwarded ?? null,
     };
+    if (nameInfo.packetId != null) entry.packetId = nameInfo.packetId;
+    if (nameInfo.unknown) entry.unknown = true;
+    if (nameInfo.note) entry.note = extra.note ? `${nameInfo.note}; ${extra.note}` : nameInfo.note;
 
-    const traceName =
-      typeof meta.name === 'number' && extra.note?.includes('likely configuration.')
-        ? extra.note.split('likely ')[1]?.replace(')', '') || meta.name
-        : meta.name;
+    const traceName = nameInfo.displayName;
+
+    if (rawBuffer) {
+      entry.rawBytes = rawBuffer.length;
+    }
+
+    const packetName = meta.name;
+    const decodedFile = this._maybeDumpDecodedPacket(entry.seq, nameInfo, data, rawBuffer);
+    if (decodedFile) {
+      entry.decodedFile = decodedFile;
+      this._pendingTraceDecodedFile = decodedFile;
+    }
+    this._pendingTracePacketName = traceName;
+
+    if (this.includePayload) {
+      const full = buildFullPacketRecord(data, rawBuffer, decodedFile);
+      entry.data = full.params;
+      if (full.wire) entry.wire = full.wire;
+      else if (full.wireBytes != null) entry.wireBytes = full.wireBytes;
+    }
 
     const skipTrace = entry.action === 'relay';
     if (!skipTrace) {
@@ -187,38 +264,52 @@ class PacketLog {
         action: entry.action,
         note: extra.note,
         payload: this.includePayload
-          ? formatTracePayload(this.payloadSummary(meta.name, data, rawBuffer), this.tracePayloadMaxLen)
+          ? formatTracePayload(
+              buildFullPacketRecord(data, rawBuffer, decodedFile),
+              this.tracePayloadMaxLen,
+            )
           : null,
       });
     }
 
-    if (rawBuffer) {
-      entry.rawBytes = rawBuffer.length;
-    }
-
-    if (this.includePayload && !LARGE_PACKETS.has(meta.name)) {
-      entry.data = summarizePacket(meta.name, data);
-    } else {
-      entry.summary = summarizeLargePacket(meta.name, data, rawBuffer);
-    }
-
-    if (CHUNK_PACKETS.has(meta.name) && !this.logEveryPacket) {
+    if (CHUNK_PACKETS.has(packetName) && !this.logEveryPacket) {
       this._writeChunk(entry);
       return;
     }
     this._write(entry);
-    if (CHUNK_PACKETS.has(meta.name) && this.logEveryPacket) {
+    if (CHUNK_PACKETS.has(packetName) && this.logEveryPacket) {
       this._writeChunk(entry);
     }
   }
 
-  /** Compact payload for .trace.log lines. */
-  payloadSummary(name, data, rawBuffer) {
+  /** Picked up by traceRelay after logPacket for the same wire frame. */
+  consumePendingDecodedFile() {
+    const f = this._pendingTraceDecodedFile;
+    this._pendingTraceDecodedFile = null;
+    return f;
+  }
+
+  consumePendingTracePacketName() {
+    const n = this._pendingTracePacketName;
+    this._pendingTracePacketName = null;
+    return n;
+  }
+
+  /** Every successfully parsed packet with params or wire bytes gets a decoded/ artifact. */
+  _maybeDumpDecodedPacket(seq, nameInfo, data, rawBuffer) {
+    if (!rawBuffer?.length && data == null) return null;
+    const fileName = buildDecodedDumpFileName(seq, nameInfo, data);
+    const record = buildDecodedPacketRecord(nameInfo.name, data, rawBuffer, nameInfo);
+    record.seq = seq;
+    const absPath = path.join(this._decodedDumpDir, fileName);
+    fs.writeFileSync(absPath, `${JSON.stringify(record, null, 2)}\n`);
+    return `decoded/${fileName}`;
+  }
+
+  /** Full packet payload for trace lines (params + wire + decodedFile). */
+  buildFullPacketPayload(data, rawBuffer, decodedFile) {
     if (!this.includePayload) return null;
-    if (LARGE_PACKETS.has(name) || CHUNK_PACKETS.has(name)) {
-      return summarizeLargePacket(name, data, rawBuffer);
-    }
-    return summarizePacket(name, data);
+    return buildFullPacketRecord(data, rawBuffer, decodedFile);
   }
 
   /** Plain-text + optional console line for every packet/bridge (no spill). */
@@ -293,12 +384,9 @@ function buildPreview(obj) {
   if (obj.type === 'session_start') {
     return `${obj.clientUsername ?? '?'} → ${obj.server ?? '?'}`;
   }
-  if (obj.summary && typeof obj.summary === 'object') {
-    const s = obj.summary;
-    if (s.id) return `${s.name ?? 'packet'} id=${s.id}`;
-    if (s.channel) return `channel=${s.channel}`;
-    return JSON.stringify(s);
-  }
+  if (obj.wire?.length != null) return `wire ${obj.wire.length}b (inline)`;
+  if (obj.wireBytes != null) return `wire ${obj.wireBytes}b`;
+  if (obj.decodedFile) return obj.decodedFile;
   if (obj.reason) return String(obj.reason);
   if (obj.username) return String(obj.username);
   const compact = JSON.stringify(obj.data ?? obj);
@@ -318,61 +406,4 @@ function buildSpillRef(obj, spillFile) {
   return ref;
 }
 
-function summarizePacket(name, data) {
-  if (data == null) return data;
-  if (Buffer.isBuffer(data)) {
-    return { _type: 'Buffer', length: data.length };
-  }
-  if (typeof data !== 'object') return data;
-
-  try {
-    return JSON.parse(JSON.stringify(data, replacer));
-  } catch {
-    return { _type: 'Unserializable', name };
-  }
-}
-
-function replacer(_key, value) {
-  if (Buffer.isBuffer(value)) {
-    return { _type: 'Buffer', length: value.length };
-  }
-  if (typeof value === 'string' && value.length > 512) {
-    return `${value.slice(0, 512)}…(${value.length} chars)`;
-  }
-  if (Array.isArray(value) && value.length > 32) {
-    return { _type: 'Array', length: value.length, sample: value.slice(0, 3) };
-  }
-  return value;
-}
-
-function summarizeLargePacket(name, data, rawBuffer) {
-  const summary = { name };
-  if (rawBuffer) summary.rawBytes = rawBuffer.length;
-  if (!data || typeof data !== 'object') return summary;
-
-  if (name === 'map_chunk' || name === 'level_chunk_with_light') {
-    summary.x = data.x;
-    summary.z = data.z;
-    if (data.groundUp != null) summary.groundUp = data.groundUp;
-  } else if (name === 'registry_data') {
-    summary.id = data.id;
-    if (data.codec) summary.hasCodec = true;
-  } else if (name === 'player_info') {
-    summary.action = data.action;
-    summary.entryCount = data.data?.length ?? 0;
-  } else if (name === 'custom_payload') {
-    summary.channel = data.channel;
-    if (data.data) {
-      summary.dataLength = Buffer.isBuffer(data.data) ? data.data.length : String(data.data).length;
-    }
-  } else {
-    for (const [k, v] of Object.entries(data)) {
-      if (Buffer.isBuffer(v)) summary[k] = { bytes: v.length };
-      else if (typeof v === 'string' && v.length > 64) summary[k] = `${v.length} chars`;
-      else summary[k] = v;
-    }
-  }
-  return summary;
-}
-
-module.exports = { PacketLog, CHUNK_PACKETS };
+module.exports = { PacketLog, CHUNK_PACKETS, LARGE_PACKETS };

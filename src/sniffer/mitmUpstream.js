@@ -6,6 +6,7 @@ const { relayToJava, syncCompression } = require('./mitmRelay');
 const { flushC2sQueue } = require('./mitmSession');
 const { traceBridge, traceRelay, traceTx } = require('./packetTrace');
 const { queueHeldS2C } = require('./mitmLoginBridge');
+const { logDeserializerError } = require('./mitmWireErrors');
 
 const log = createLogger('Sniffer');
 const states = mc.states;
@@ -152,6 +153,7 @@ function startUpstream(session, config, cleanup, callbacks) {
 
   upstream.on('error', (err) => {
     log.error(`Upstream error: ${err.message}`);
+    logDeserializerError(session.packetLog, 'S2C', upstream.state, err, { leg: 'backend' });
     if (!session.cleaned && !session.client.ended) {
       try { session.client.end(err.message); } catch (_) {}
     }

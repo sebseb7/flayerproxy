@@ -13,6 +13,7 @@ const {
 } = require('./mitmLoginBridge');
 const { createMitmSession, createSessionCleanup } = require('./mitmSession');
 const { startStatusPipe, startUpstream } = require('./mitmUpstream');
+const { logDeserializerError } = require('./mitmWireErrors');
 
 const log = createLogger('Sniffer');
 const states = mc.states;
@@ -89,6 +90,7 @@ class MitmProxy {
     });
     client.on('error', (err) => {
       log.error(`Client error: ${err.message}`);
+      logDeserializerError(session.packetLog, 'C2S', client.state, err, { leg: 'java' });
       cleanup('client_error');
     });
 
@@ -353,7 +355,7 @@ class MitmProxy {
           method,
           note: 'held login success',
           payload: formatTracePayload(
-            session.packetLog.payloadSummary(meta.name, data, buffer),
+            session.packetLog.buildFullPacketPayload(data, buffer, null),
             session.packetLog.tracePayloadMaxLen,
           ),
         });
