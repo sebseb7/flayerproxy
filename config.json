@@ -1,0 +1,40 @@
+{
+  "server": {
+    "host": "192.168.178.58",
+    "port": 25565,
+    "version": "1.21.10"
+  },
+  "auth": {
+    "username": "FlayerBot",
+    "auth": "microsoft"
+  },
+  "proxy": {
+    "port": 25566,
+    "onlineMode": true,
+    "maxClients": 1
+  },
+  "spectator": {
+    "enabled": true,
+    "port": 25568,
+    "onlineMode": true,
+    "maxClients": 20
+  },
+  "sniffer": {
+    "port": 25567,
+    "onlineMode": false,
+    "upstreamAuth": "microsoft",
+    "logDir": "logs/sniffer",
+    "chunkLogDir": "logs/sniffer/chunks",
+    "includePayload": true
+  },
+  "bot": {
+    "antiAfk": true,
+    "antiAfkMinInterval": 1500,
+    "antiAfkMaxInterval": 6000,
+    "viewDistance": 10
+  },
+  "cache": {
+    "maxChunks": 1024,
+    "trackEntities": true
+  }
+}

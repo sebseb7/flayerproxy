@@ -1,0 +1,8 @@
+node_modules/
+tools/fernflower.jar
+serversSrc/
+logs/
+versions/
+tools/
+scripts/
+.cursor/

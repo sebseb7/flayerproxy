@@ -1,0 +1,22 @@
+{
+  "name": "flayerproxy",
+  "version": "1.0.0",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "sniffer": "node src/sniffer/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "install:fernflower": "bash scripts/install-fernflower.sh"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "minecraft-data": "^3.110.2",
+    "minecraft-protocol": "^1.66.2",
+    "mineflayer": "^4.37.1",
+    "prismarine-chunk": "^1.40.0",
+    "prismarine-world": "^3.7.0"
+  }
+}
