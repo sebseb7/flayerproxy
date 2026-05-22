@@ -220,6 +220,7 @@ class WorldStateCache {
         break;
       case 'entity_metadata':
         this.entities.handleEntityMetadata(data);
+        this.player.handleEntityMetadata(data);
         break;
       case 'entity_equipment':
         this.entities.handleEntityEquipment(data);

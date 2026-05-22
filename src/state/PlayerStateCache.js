@@ -19,6 +19,8 @@ class PlayerStateCache {
     this.gameMode = null;         // from game_state_change
     this.difficulty = null;       // { difficulty, difficultyLocked }
     this.entityId = null;         // The player's entity ID from login
+    /** Last clientbound entity_metadata for this player (from upstream). */
+    this.entityMetadata = null;
     /** entity_status for game-mode switcher / command permission UI */
     this.permissionStatus = null; // { entityId, entityStatus }
     this.effects = [];            // player status effects
@@ -49,6 +51,15 @@ class PlayerStateCache {
   /**
    * Permission level for the local player (entity_status 24–28).
    */
+  handleEntityMetadata(data) {
+    const id = this.entityId;
+    if (id == null || data.entityId !== id) return;
+    this.entityMetadata = {
+      entityId: data.entityId,
+      metadata: data.metadata ? data.metadata.map((e) => ({ ...e })) : [],
+    };
+  }
+
   handleEntityStatus(data) {
     if (this.entityId == null || data.entityId !== this.entityId) return;
     const status = data.entityStatus ?? data.status;
@@ -122,6 +133,7 @@ class PlayerStateCache {
     this.gameMode = null;
     this.difficulty = null;
     this.entityId = null;
+    this.entityMetadata = null;
     this.permissionStatus = null;
     this.effects = [];
   }

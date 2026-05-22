@@ -13,6 +13,7 @@ const {
   updateClientViewPosition,
 } = require('../utils/positionSync');
 const { disableInboundChatValidation } = require('../utils/chatRelay');
+const { applySpectatorSneakYOffset } = require('../utils/playerVisualRelay');
 
 const log = createLogger('Spectator');
 
@@ -33,6 +34,8 @@ class SpectatorHub {
     this.config = config;
     this._botVisualHandler = (name, data) => this._forwardToSpectators(name, data, null);
     serverConn.on('botVisual', this._botVisualHandler);
+    this._sneakChangeHandler = () => this._resnapAllSpectators();
+    serverConn.on('spectatorSneakChange', this._sneakChangeHandler);
     /** @type {Map<object, { view: { chunkX: number|null, chunkZ: number|null }, teleportId: number }>} */
     this._spectators = new Map();
     this._serverHandler = null;
@@ -115,7 +118,19 @@ class SpectatorHub {
       this.serverConn.removeListener('botVisual', this._botVisualHandler);
       this._botVisualHandler = null;
     }
+    if (this._sneakChangeHandler) {
+      this.serverConn.removeListener('spectatorSneakChange', this._sneakChangeHandler);
+      this._sneakChangeHandler = null;
+    }
     this.kickAll('Proxy shutting down');
+  }
+
+  _resnapAllSpectators() {
+    for (const [client, state] of this._spectators) {
+      if (client.ended || client.state !== 'play') continue;
+      this._lockCamera(client);
+      this._snapPosition(client, state);
+    }
   }
 
   _installClientGuard(client, state) {
@@ -143,8 +158,9 @@ class SpectatorHub {
   _snapPosition(client, state) {
     const bot = this.serverConn.bot;
     if (!bot?.entity?.position || client.ended || client.state !== 'play') return;
-    const packet = buildClientboundPositionPacket(bot, ++state.teleportId);
+    let packet = buildClientboundPositionPacket(bot, ++state.teleportId);
     if (!packet) return;
+    packet = applySpectatorSneakYOffset(this.serverConn, 'position', packet);
     try {
       client.write('position', packet);
     } catch (err) {
@@ -232,13 +248,15 @@ class SpectatorHub {
           );
         }
 
+        const payload = applySpectatorSneakYOffset(this.serverConn, name, data);
         if (buffer && RAW_FORWARD_PACKETS.has(name)) {
           client.writeRaw(buffer);
         } else {
-          client.write(name, data);
+          client.write(name, payload);
         }
       } catch (err) {
-        log.debug(`Spectator forward ${name} to ${client.username}: ${err.message}`);
+        const level = name === 'entity_metadata' || name === 'animation' ? 'warn' : 'debug';
+        log[level](`Spectator forward ${name} to ${client.username}: ${err.message}`);
       }
     }
   }

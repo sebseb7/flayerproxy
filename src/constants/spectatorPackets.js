@@ -1,6 +1,12 @@
 /** Gamemode id for spectator (clientbound game_state_change). */
 const SPECTATOR_GAMEMODE = 3;
 
+/**
+ * Lower feet Y on clientbound position for spectators while the bot sneaks.
+ * Approximates standing vs crouching eye height (~1.62 vs ~1.27 blocks above feet).
+ */
+const SPECTATOR_SNEAK_EYE_Y_OFFSET = 0.35;
+
 /** ClientboundAnimatePacket (minecraft-data: animation). */
 const ANIMATION_SWING_MAIN_HAND = 0;
 const ANIMATION_SWING_OFF_HAND = 3;
@@ -40,6 +46,7 @@ const SPECTATOR_MOVEMENT_C2S = new Set([
 
 module.exports = {
   SPECTATOR_GAMEMODE,
+  SPECTATOR_SNEAK_EYE_Y_OFFSET,
   SPECTATOR_ALLOWED_C2S,
   SESSION_ORDERED_BLOCKED_S2C,
   SPECTATOR_BLOCKED_S2C,

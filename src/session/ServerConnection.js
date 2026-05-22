@@ -8,7 +8,7 @@ const {
   ANIMATION_SWING_MAIN_HAND,
   ANIMATION_SWING_OFF_HAND,
 } = require('../constants/spectatorPackets');
-const { buildPlayerPoseMetadata } = require('../utils/playerPoseRelay');
+const { buildPlayerPoseMetadata } = require('../utils/playerVisualRelay');
 
 const log = createLogger('ServerConn');
 
@@ -34,6 +34,8 @@ class ServerConnection extends EventEmitter {
     this._chunkAck = new ChunkAckManager();
     /** @type {BotIdleBehavior|null} */
     this._idleBehavior = null;
+    /** Mirrors bot sneak for spectator camera height (position Y offset). */
+    this.botSneaking = false;
   }
 
   /**
@@ -99,6 +101,9 @@ class ServerConnection extends EventEmitter {
     this.bot.on('spawn', () => {
       log.info('Bot spawned in world');
       this.connected = true;
+      if (this.bot.entity?.id != null) {
+        this.worldState.player.entityId = this.bot.entity.id;
+      }
       if (!this._idleBehavior) {
         this._idleBehavior = new BotIdleBehavior(this.bot, this.config.bot, {
           onSwing: (hand) => this._emitBotSwingAnimation(hand),
@@ -172,12 +177,27 @@ class ServerConnection extends EventEmitter {
    * @param {'left'|'right'} hand
    */
   _emitBotSwingAnimation(hand) {
-    const entityId = this.worldState.player.entityId ?? this.bot?.entity?.id;
-    if (entityId == null) return;
-    this.emit('botVisual', 'animation', {
-      entityId,
+    this.emitBotVisual('animation', {
       animation: hand === 'left' ? ANIMATION_SWING_OFF_HAND : ANIMATION_SWING_MAIN_HAND,
     });
+  }
+
+  /**
+   * Synthetic S2C for spectators (swing, crouch, jump) — not echoed to the bot connection.
+   * @param {string} name - minecraft-protocol packet name
+   * @param {object} data
+   */
+  emitBotVisual(name, data) {
+    const entityId = this.bot?.entity?.id ?? this.worldState.player.entityId;
+    if (entityId == null) return;
+
+    const payload = { ...data, entityId: data.entityId ?? entityId };
+    if (name === 'entity_metadata') {
+      this.worldState.player.handleEntityMetadata(payload);
+      this.worldState.entities.handleEntityMetadata(payload);
+    }
+
+    this.emit('botVisual', name, payload);
   }
 
   /**
@@ -185,10 +205,10 @@ class ServerConnection extends EventEmitter {
    * @param {boolean} sneaking
    */
   emitPlayerPoseVisual(sneaking) {
+    this.botSneaking = sneaking;
     const packet = buildPlayerPoseMetadata(this.worldState, this, sneaking);
-    if (!packet) return;
-    this.worldState.entities.handleEntityMetadata(packet);
-    this.emit('botVisual', 'entity_metadata', packet);
+    if (packet) this.emitBotVisual('entity_metadata', packet);
+    this.emit('spectatorSneakChange', sneaking);
   }
 
   /**

@@ -1,7 +1,7 @@
 const { createLogger } = require('../utils/logger');
 const { RAW_FORWARD_PACKETS } = require('../constants/rawPackets');
 const { shouldForwardWaypointToClient } = require('../utils/waypointRelay');
-const { isSneakingFromPlayerInput } = require('../utils/playerPoseRelay');
+const { relayPlayClientVisual } = require('../utils/playerVisualRelay');
 const {
   CHAT_SESSION_PACKETS,
   disableInboundChatValidation,
@@ -76,8 +76,8 @@ class ClientBridge {
     this._clientView = { chunkX: null, chunkZ: null };
     /** Last block coords from client movement (for view center ahead of server) */
     this._lastClientBlock = { x: null, z: null };
-    /** Last sneak state relayed to spectators (player_input is not echoed S2C) */
-    this._lastRelayedSneak = null;
+    /** Play-client visual relay state (sneak/jump not echoed S2C to self) */
+    this._playVisualRelay = { lastSneak: null, lastJump: false };
   }
 
   _getViewDistance() {
@@ -151,6 +151,7 @@ class ClientBridge {
     this.serverConn.flushChunkBatchAck();
 
     log.info('Client bridge started — forwarding packets');
+    this._playVisualRelay = { lastSneak: null, lastJump: false };
     disableInboundChatValidation(this.client);
 
     // Client → Server
@@ -188,12 +189,8 @@ class ClientBridge {
           return;
         }
 
-        if (meta.name === 'player_input') {
-          const sneaking = isSneakingFromPlayerInput(data);
-          if (sneaking !== this._lastRelayedSneak) {
-            this._lastRelayedSneak = sneaking;
-            this.serverConn.emitPlayerPoseVisual(sneaking);
-          }
+        if (meta.name === 'player_input' || meta.name === 'arm_animation') {
+          relayPlayClientVisual(this.serverConn, meta.name, data, this._playVisualRelay);
           this.serverConn.writeToServer(meta.name, data);
           return;
         }
