@@ -41,9 +41,27 @@ function loadConfig() {
       antiAfkMaxInterval: 6000,
       antiAfkInterval: 6000,
       viewDistance: 10,
+      autoLogout: {
+        enabled: true,
+        onDamage: true,
+        onPlayer: true,
+        allowedPlayers: ['tobbop2', 'craftery85'],
+      },
     },
     config.bot,
   );
+  config.bot.autoLogout = Object.assign(
+    {
+      enabled: true,
+      onDamage: true,
+      onPlayer: true,
+      allowedPlayers: ['tobbop2', 'craftery85'],
+    },
+    config.bot.autoLogout || {},
+  );
+  if (!Array.isArray(config.bot.autoLogout.allowedPlayers)) {
+    config.bot.autoLogout.allowedPlayers = ['tobbop2', 'craftery85'];
+  }
   if (config.bot.antiAfkMaxInterval == null && config.bot.antiAfkInterval != null) {
     config.bot.antiAfkMaxInterval = config.bot.antiAfkInterval;
   }

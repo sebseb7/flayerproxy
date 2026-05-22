@@ -4,6 +4,7 @@ const { createLogger } = require('../utils/logger');
 const { relayClientMovement, syncProxyClientPosition, confirmServerPosition } = require('./MovementRelay');
 const { ChunkAckManager } = require('./ChunkAckManager');
 const { BotIdleBehavior } = require('./BotIdleBehavior');
+const { BotAutoLogout } = require('./BotAutoLogout');
 const {
   ANIMATION_SWING_MAIN_HAND,
   ANIMATION_SWING_OFF_HAND,
@@ -34,6 +35,8 @@ class ServerConnection extends EventEmitter {
     this._chunkAck = new ChunkAckManager();
     /** @type {BotIdleBehavior|null} */
     this._idleBehavior = null;
+    /** @type {BotAutoLogout|null} */
+    this._autoLogout = null;
     /** Mirrors bot sneak for spectator camera height (position Y offset). */
     this.botSneaking = false;
   }
@@ -46,6 +49,8 @@ class ServerConnection extends EventEmitter {
     this._initialSpawnDone = false;
     this._idleBehavior?.stop();
     this._idleBehavior = null;
+    this._autoLogout?.stop();
+    this._autoLogout = null;
 
     this.bot = mineflayer.createBot({
       host: this.config.server.host,
@@ -110,8 +115,18 @@ class ServerConnection extends EventEmitter {
           onSneakChange: (sneaking) => this.emitPlayerPoseVisual(sneaking),
         });
       }
+      if (!this._autoLogout) {
+        this._autoLogout = new BotAutoLogout(
+          this.bot,
+          this.config.bot,
+          () => this._botControlEnabled,
+          (reason) => this.emit('autoLogout', reason),
+          this.config.auth.username,
+        );
+      }
       if (this._botControlEnabled) {
         this._idleBehavior.start();
+        this._autoLogout.start();
       }
       if (!this._initialSpawnDone) {
         this._initialSpawnDone = true;
@@ -125,6 +140,7 @@ class ServerConnection extends EventEmitter {
       log.warn(`Bot disconnected: ${reason}`);
       this.connected = false;
       this._idleBehavior?.stop();
+      this._autoLogout?.stop();
       this.emit('disconnected', reason);
     });
 
@@ -221,9 +237,11 @@ class ServerConnection extends EventEmitter {
       log.info('Bot control ENABLED (bot mode)');
       if (this.bot) this.bot.physicsEnabled = true;
       this._idleBehavior?.start();
+      this._autoLogout?.start();
     } else {
       log.info('Bot control DISABLED (client taking over)');
       this._idleBehavior?.stop();
+      this._autoLogout?.stop();
       if (this.bot) {
         this.bot.physicsEnabled = false;
         try {
@@ -311,6 +329,7 @@ class ServerConnection extends EventEmitter {
    */
   disconnect() {
     this._idleBehavior?.stop();
+    this._autoLogout?.stop();
     if (this.bot) {
       this.bot.quit();
     }

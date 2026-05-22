@@ -34,6 +34,7 @@ class SessionManager {
     this.config = config;
     this.state = State.INIT;
     this._shuttingDown = false;
+    this._suppressReconnect = false;
     this._reconnectTimer = null;
 
     // Core components
@@ -130,6 +131,13 @@ class SessionManager {
       this._transitionTo(State.BOT_MODE);
     });
 
+    this.serverConn.on('autoLogout', (reason) => {
+      log.warn(`Auto logout triggered: ${reason}`);
+      this._suppressReconnect = true;
+      this.spectatorHub?.kickAll(`Auto logout: ${reason}`);
+      this.serverConn.disconnect();
+    });
+
     this.serverConn.on('disconnected', (reason) => {
       log.warn(`Server disconnected: ${reason}`);
       if (this.state === State.INIT) return; // Already handled by kicked
@@ -144,6 +152,11 @@ class SessionManager {
       this._cleanupClient();
       this.spectatorHub?.kickAll(`Server disconnected: ${disconnectReasonText(reason)}`);
       this._transitionTo(State.INIT);
+      if (this._suppressReconnect) {
+        this._suppressReconnect = false;
+        log.info('Auto logout complete — not reconnecting (restart npm start to rejoin)');
+        return;
+      }
       this._scheduleReconnect(5);
     });
 

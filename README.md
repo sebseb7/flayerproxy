@@ -41,7 +41,7 @@ stateDiagram-v2
 | State | What happens |
 | :--- | :--- |
 | **`INIT`** | Bot connecting; proxies may listen but play handoff waits for upstream. |
-| **`BOT_MODE`** | Bot holds the session, caches S2C packets, optional anti-AFK (look / sneak / swing). Spectators can watch on **25568**. |
+| **`BOT_MODE`** | Bot holds the session, caches S2C packets, optional anti-AFK (look / sneak / swing), optional auto-logout (damage / other players). Spectators can watch on **25568**. |
 | **`HANDOFF`** | Play client connected on **25566**; bot physics off; [StateReplayer](src/replay/StateReplayer.js) replays cached state. |
 | **`CLIENT_MODE`** | [ClientBridge](src/proxy/ClientBridge.js) pipes packets between your client and the bot’s upstream connection. Cache still updates. Replays cached locator waypoints on handoff; live `tracked_waypoint` updates only after a matching `track`. |
 
@@ -89,6 +89,17 @@ Works in **`BOT_MODE`** (watch bot + idle behavior) and **`CLIENT_MODE`** (watch
 
 ---
 
+## 🚪 Auto logout (bot mode only)
+
+While no play client is connected (`BOT_MODE`), the bot can quit upstream when:
+
+- **`onDamage`** — the bot takes damage (`entityHurt` on the bot entity).
+- **`onPlayer`** — any player not in `allowedPlayers` joins the server or spawns in range (tab list + entity spawn). The bot’s own username is always allowed.
+
+Auto logout is **disabled** during handoff and while a play client controls the session (`HANDOFF` / `CLIENT_MODE`). After a trigger, the proxy **does not** auto-reconnect; restart `npm start` to join again.
+
+---
+
 ## ⚙️ Configuration
 
 Edit `config.json` in the project root:
@@ -127,7 +138,13 @@ Edit `config.json` in the project root:
     "antiAfk": true,
     "antiAfkMinInterval": 1500,
     "antiAfkMaxInterval": 6000,
-    "viewDistance": 10
+    "viewDistance": 10,
+    "autoLogout": {
+      "enabled": true,
+      "onDamage": true,
+      "onPlayer": true,
+      "allowedPlayers": ["tobbop2", "craftery85"]
+    }
   },
   "cache": {
     "maxChunks": 1024,
@@ -145,7 +162,7 @@ Edit `config.json` in the project root:
 | **`proxy`** | `host`, `port`, `onlineMode`, `maxClients` | Play proxy (**25566**). `maxClients` is enforced as **1**. |
 | **`spectator`** | `enabled`, `host`, `port`, `onlineMode`, `maxClients` | Watch-only proxy (**25568**). Set `enabled: false` to disable. |
 | **`sniffer`** | `port`, `onlineMode`, `upstreamAuth`, `logDir`, … | Dev MITM on **25567**; see [protocol.md §11](protocol.md#11-packet-sniffer-development). |
-| **`bot`** | `antiAfk`, `antiAfkMinInterval`, `antiAfkMaxInterval`, `viewDistance` | Idle look/sneak/swing when no play client; chunk cache radius hint. |
+| **`bot`** | `antiAfk`, `antiAfkMinInterval`, `antiAfkMaxInterval`, `viewDistance`, `autoLogout` | Idle look/sneak/swing when no play client; chunk cache radius hint. `autoLogout`: `enabled`, `onDamage`, `onPlayer`, `allowedPlayers` (bot username always allowed). |
 | **`cache`** | `maxChunks`, `trackEntities` | LRU chunk cap and entity tracking. |
 
 ---
@@ -172,6 +189,7 @@ Edit `config.json` in the project root:
     │   ├── SessionManager.js
     │   ├── ServerConnection.js  # Mineflayer + packet capture
     │   ├── BotIdleBehavior.js   # Anti-AFK idle actions
+    │   ├── BotAutoLogout.js     # Damage / player auto-disconnect
     │   ├── ChunkAckManager.js
     │   ├── MovementRelay.js
     │   └── handoffFlow.js

@@ -31,7 +31,13 @@
     "antiAfk": true,
     "antiAfkMinInterval": 1500,
     "antiAfkMaxInterval": 6000,
-    "viewDistance": 10
+    "viewDistance": 10,
+    "autoLogout": {
+      "enabled": true,
+      "onDamage": true,
+      "onPlayer": true,
+      "allowedPlayers": ["tobbop2", "craftery85"]
+    }
   },
   "cache": {
     "maxChunks": 1024,
