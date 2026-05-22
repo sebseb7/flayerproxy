@@ -170,7 +170,7 @@ class SessionManager {
       if (this._suppressReconnect) {
         this._suppressReconnect = false;
         log.info(
-          'Auto logout — bot offline until a player connects on the play port to reconnect',
+          `Auto logout (${formatAutoLogoutLabel(this._autoLogoutReason)}) — bot offline until a player connects on the play port to reconnect`,
         );
         return;
       }
