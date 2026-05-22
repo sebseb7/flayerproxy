@@ -236,8 +236,3 @@ Connect the Java client to **25567** to log decrypted traffic to `logs/sniffer/`
 - **Handoff position:** Replay sends `position`, waits for `teleport_confirm`, then syncs again before enabling movement — avoids falling or desync on join.
 - **Raw forwarding:** `map_chunk`, lights, chunk batch markers, and `update_view_position` use `writeRaw` where possible to avoid NBT/chunk re-encoding issues.
 
----
-
-## 📜 License
-
-This project is licensed under the [ISC License](LICENSE).
