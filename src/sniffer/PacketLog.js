@@ -204,17 +204,11 @@ class PacketLog {
   }
 
   _writeRaw(line) {
-    const ok = this._stream.write(`${line}\n`);
-    if (!ok) {
-      this._stream.once('drain', () => {});
-    }
+    this._stream.write(`${line}\n`);
   }
 
   _writeChunkRaw(line) {
-    const ok = this._chunkStream.write(`${line}\n`);
-    if (!ok) {
-      this._chunkStream.once('drain', () => {});
-    }
+    this._chunkStream.write(`${line}\n`);
   }
 }
 
