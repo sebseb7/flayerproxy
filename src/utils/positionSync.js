@@ -36,6 +36,9 @@ function buildClientboundPositionPacket(bot, teleportId) {
   };
 }
 
+/**
+ * @returns {Promise<number|false>} teleportId confirmed, or false on timeout
+ */
 function waitForClientTeleportConfirm(client, timeoutMs, log) {
   return new Promise((resolve) => {
     if (!client || client.ended) return resolve(false);
@@ -46,9 +49,10 @@ function waitForClientTeleportConfirm(client, timeoutMs, log) {
       resolve(false);
     }, timeoutMs);
 
-    const onConfirm = () => {
+    const onConfirm = (data) => {
       clearTimeout(timeout);
-      resolve(true);
+      const id = data?.teleportId;
+      resolve(id != null ? id : true);
     };
 
     client.once('teleport_confirm', onConfirm);
@@ -65,6 +69,32 @@ function movementFlags(onGround, hasHorizontalCollision) {
 /**
  * Serverbound position_look from bot entity (what the server expects).
  */
+/**
+ * Grim setback accept: S2C position often has absolute XYZ + relative yaw/pitch (flags bit 24).
+ * @param {import('mineflayer').Bot} bot
+ * @param {object} data - clientbound position from server
+ */
+function buildServerboundFromClientboundPosition(bot, data) {
+  const entity = bot?.entity;
+  const f = data?.flags;
+  let yaw = data.yaw ?? 0;
+  let pitch = data.pitch ?? 0;
+  if (entity && f && typeof f === 'object') {
+    if (f.yaw) yaw = conv.toNotchianYaw(entity.yaw) + data.yaw;
+    else yaw = conv.toNotchianYaw(entity.yaw);
+    if (f.pitch) pitch = conv.toNotchianPitch(entity.pitch) + data.pitch;
+    else pitch = conv.toNotchianPitch(entity.pitch);
+  }
+  return {
+    x: data.x,
+    y: data.y,
+    z: data.z,
+    yaw,
+    pitch,
+    flags: movementFlags(data.onGround ?? true),
+  };
+}
+
 function buildServerboundPositionLook(bot) {
   const entity = bot?.entity;
   if (!entity?.position) return null;
@@ -148,6 +178,7 @@ function ensureClientViewIncludesChunk(client, playerBlockX, playerBlockZ, chunk
 
 module.exports = {
   buildClientboundPositionPacket,
+  buildServerboundFromClientboundPosition,
   buildServerboundPositionLook,
   waitForClientTeleportConfirm,
   movementFlags,

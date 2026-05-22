@@ -1,6 +1,6 @@
 {
   "server": {
-    "host": "192.168.178.58",
+    "host": "constantiam.net",
     "port": 25565,
     "version": "1.21.10"
   },
@@ -28,10 +28,12 @@
     "includePayload": true
   },
   "bot": {
+    "logMovement": true,
+    "logBridgePackets": true,
     "antiAfk": true,
     "antiAfkMinInterval": 1500,
     "antiAfkMaxInterval": 6000,
-    "viewDistance": 10,
+    "viewDistance": 3,
     "autoLogout": {
       "enabled": true,
       "onDamage": true,

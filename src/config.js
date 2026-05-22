@@ -36,6 +36,8 @@ function loadConfig() {
   );
   config.bot = Object.assign(
     {
+      logMovement: true,
+      logBridgePackets: false,
       antiAfk: true,
       antiAfkMinInterval: 1500,
       antiAfkMaxInterval: 6000,

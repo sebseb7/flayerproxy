@@ -1,16 +1,13 @@
 /**
- * Vanilla 1.21.2+ sends CLIENT_TICK_END once per client tick, after movement/input.
- * Mineflayer never sends it; Grim TickTimer flags every flying without a prior tick_end
- * (see Grim/common/.../checks/impl/timer/TickTimer.java).
- *
- * We append tick_end synchronously after each serverbound activity packet via origWrite
- * so packet order on the wire is: … → flying → tick_end → flying → tick_end.
+ * Mineflayer omits serverbound tick_end (1.21.2+). Inject only in BOT_MODE.
+ * In CLIENT_MODE the Java client sends its own tick_end — injecting here duplicates
+ * packets and triggers Grim TickTimer / packet-spam kicks.
  */
 
 const TICK_END = 'tick_end';
+const POSITION_REMINDER_AFTER_FLYING = 18;
 
-/** Packets that end a client tick (Grim PacketOrderO: nothing else after flying until tick_end) */
-const TICK_ACTIVITY = new Set([
+const CLIENT_INPUT = new Set([
   'position',
   'position_look',
   'look',
@@ -21,8 +18,19 @@ const TICK_ACTIVITY = new Set([
   'arm_animation',
 ]);
 
-/** Grim BadPacketsE: >19 flying without position on 1.21.2+ */
-const POSITION_REMINDER_AFTER_FLYING = 18;
+/** Mineflayer must not emit these when the Java client drives the same upstream connection */
+/** Java client is the only writer for these while CLIENT_MODE (mineflayer shares bot._client) */
+const MINEFLAYER_GHOST_WHEN_CLIENT_DRIVES = new Set([
+  'position',
+  'position_look',
+  'look',
+  'flying',
+  'vehicle_move',
+  'steer_vehicle',
+  'paddle_boat',
+  'tick_end',
+  'teleport_confirm',
+]);
 
 /**
  * @param {string} version
@@ -40,11 +48,6 @@ function supportsTickEnd(version) {
   return patch >= 2;
 }
 
-/**
- * @param {import('mineflayer').Bot} bot
- * @param {import('minecraft-protocol').Client} client
- * @param {typeof client.write} origWrite
- */
 function writePositionReminder(bot, client, origWrite) {
   const entity = bot.entity;
   if (!entity?.position || client.ended || client.state !== 'play') return;
@@ -61,25 +64,54 @@ function writePositionReminder(bot, client, origWrite) {
 /**
  * @param {import('mineflayer').Bot} bot
  * @param {string} version
- * @returns {() => void} cleanup
+ * @param {{ isBotMode: () => boolean, isBridgeRelay: () => boolean, ghostBlocked?: { counts: Map<string, number> } }} hooks
+ * @returns {() => void}
  */
-function installTickEndRelay(bot, version) {
+function installTickEndRelay(bot, version, hooks) {
   if (!supportsTickEnd(version)) return () => {};
 
   const client = bot._client;
   const origWrite = client.write.bind(client);
-  let flyingWithoutPosition = 0;
+  let pendingTickEnd = null;
   let relaying = false;
+  let flyingWithoutPosition = 0;
 
-  const sendTickEnd = () => {
-    if (client.ended || client.state !== 'play') return;
+  const flushTickEnd = () => {
+    pendingTickEnd = null;
+    if (!hooks.isBotMode() || client.ended || client.state !== 'play') return;
     origWrite(TICK_END, {});
   };
 
+  const scheduleTickEnd = () => {
+    if (!hooks.isBotMode() || pendingTickEnd) return;
+    pendingTickEnd = setImmediate(flushTickEnd);
+  };
+
   client.write = (name, params) => {
+    if (
+      !hooks.isBridgeRelay() &&
+      !hooks.isBotMode() &&
+      MINEFLAYER_GHOST_WHEN_CLIENT_DRIVES.has(name)
+    ) {
+      if (hooks.ghostBlocked?.counts) {
+        const key = `mineflayer-physics:${name}`;
+        hooks.ghostBlocked.counts.set(
+          key,
+          (hooks.ghostBlocked.counts.get(key) || 0) + 1,
+        );
+      }
+      return;
+    }
+
     const result = origWrite(name, params);
 
-    if (relaying || client.state !== 'play' || name === TICK_END || !TICK_ACTIVITY.has(name)) {
+    if (
+      relaying ||
+      !hooks.isBotMode() ||
+      client.state !== 'play' ||
+      name === TICK_END ||
+      !CLIENT_INPUT.has(name)
+    ) {
       return result;
     }
 
@@ -94,9 +126,7 @@ function installTickEndRelay(bot, version) {
           writePositionReminder(bot, client, origWrite);
         }
       }
-      sendTickEnd();
-    } catch {
-      /* socket closing */
+      scheduleTickEnd();
     } finally {
       relaying = false;
     }
@@ -105,6 +135,7 @@ function installTickEndRelay(bot, version) {
   };
 
   return () => {
+    if (pendingTickEnd) clearImmediate(pendingTickEnd);
     client.write = origWrite;
   };
 }

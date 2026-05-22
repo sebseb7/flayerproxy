@@ -6,6 +6,7 @@ const { PlayerStateCache } = require('./PlayerStateCache');
 const { InventoryCache } = require('./InventoryCache');
 const { MiscCache } = require('./MiscCache');
 const { JoinSyncCache } = require('./JoinSyncCache');
+const { TerrainCapture } = require('./TerrainCapture');
 
 const log = createLogger('WorldState');
 
@@ -40,6 +41,7 @@ class WorldStateCache {
     this.inventory = new InventoryCache();
     this.misc = new MiscCache();
     this.joinSync = new JoinSyncCache();
+    this.terrainCapture = new TerrainCapture();
 
     /** Parsed configuration-phase packets (fallback registry codec build) */
     this.configPackets = [];
@@ -163,11 +165,48 @@ class WorldStateCache {
    * @param {object} data - packet data
    * @param {Buffer} [buffer] - raw packet bytes from the server
    */
+  beginTerrainCapture() {
+    this.terrainCapture.start();
+  }
+
+  endTerrainCapture() {
+    this.terrainCapture.stop();
+  }
+
+  hasCapturedTerrainBatch() {
+    return this.terrainCapture.hasBatch();
+  }
+
+  getCapturedTerrainPackets() {
+    return this.terrainCapture.getPackets();
+  }
+
+  /**
+   * map_chunk packets captured during priming that lie in the handoff view (may lack batch_finished).
+   */
+  getLooseTerrainMapChunks(centerChunkX, centerChunkZ, viewDistance) {
+    const { isChunkWithinViewDistance } = require('../utils/positionSync');
+    return this.terrainCapture.getPackets().filter((p) => {
+      if (p.name !== 'map_chunk' || p.data?.x == null) return false;
+      return isChunkWithinViewDistance(
+        centerChunkX,
+        centerChunkZ,
+        p.data.x,
+        p.data.z,
+        viewDistance,
+      );
+    });
+  }
+
   handleServerPacket(name, data, buffer) {
+    if (this.terrainCapture.active) {
+      this.terrainCapture.push(name, data, buffer);
+    }
+
     switch (name) {
       // Player state
       case 'login':
-        this.player.handleLogin(data);
+        this.player.handleLogin(data, buffer);
         this.initialized = true;
         break;
       case 'position':

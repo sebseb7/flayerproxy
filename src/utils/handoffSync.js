@@ -5,15 +5,40 @@
 const { RAW_FORWARD_PACKETS } = require('../constants/rawPackets');
 const { ensureClientViewIncludesChunk } = require('./positionSync');
 
-function installHandoffUpstreamRelay(client, serverConn, log) {
+const { logJavaC2S, logProxyC2S } = require('./handoffTrace');
+
+/** Per-handoff gate: hold java player_loaded until entities/inventory are replayed. */
+function createHandoffUpstreamGate() {
+  return { holdPlayerLoaded: true, pendingPlayerLoaded: null };
+}
+
+function installHandoffUpstreamRelay(client, serverConn, log, gate) {
   const handler = (data, meta) => {
     if (meta.state !== 'play') return;
     if (meta.name === 'chunk_batch_received') {
-      serverConn.writeToServer('chunk_batch_received', data);
-      if (log) log.info('Forwarded client chunk_batch_received to server');
+      logJavaC2S(log, meta.name, data, 'HANDOFF');
+      serverConn.writeToServer('chunk_batch_received', data, {
+        source: 'handoffRelay.forward(java)',
+      });
     } else if (meta.name === 'player_loaded') {
-      serverConn.writeToServer('player_loaded', data);
-      if (log) log.info('Forwarded client player_loaded to server');
+      logJavaC2S(log, meta.name, data, 'HANDOFF');
+      if (gate?.holdPlayerLoaded) {
+        gate.pendingPlayerLoaded = data ?? {};
+        if (log) {
+          log.info(
+            '[Handoff] HOLD java player_loaded — will forward upstream after entities+inventory replay',
+          );
+        }
+        return;
+      }
+      serverConn.writeToServer('player_loaded', data, {
+        source: 'handoffRelay.forward(java)',
+      });
+    } else if (meta.name === 'teleport_confirm') {
+      logJavaC2S(log, meta.name, data, 'HANDOFF');
+      serverConn.writeToServer('teleport_confirm', data, {
+        source: 'handoffRelay.forward(java)',
+      });
     }
   };
   client.on('packet', handler);
@@ -24,10 +49,138 @@ function removeHandoffUpstreamRelay(client, handler) {
   if (handler) client.removeListener('packet', handler);
 }
 
+/**
+ * Forward player_loaded that java sent before post-terrain replay completed.
+ * @returns {boolean} true if a held packet was sent upstream
+ */
+function releaseHeldPlayerLoaded(gate, serverConn, log) {
+  if (!gate) return false;
+  gate.holdPlayerLoaded = false;
+  if (!gate.pendingPlayerLoaded) return false;
+  const data = gate.pendingPlayerLoaded;
+  gate.pendingPlayerLoaded = null;
+  if (log) {
+    log.info('[Handoff] RELEASE held java player_loaded → upstream (post-terrain done)');
+  }
+  serverConn.writeToServer('player_loaded', data, {
+    source: 'handoffRelay.releaseHeld(java)',
+  });
+  return true;
+}
+
+/**
+ * Wait until the java client finishes processing a replayed chunk batch.
+ * @returns {Promise<boolean>}
+ */
+function waitForClientChunkBatchReceived(client, timeoutMs = 30_000, log) {
+  return new Promise((resolve) => {
+    if (!client || client.ended) return resolve(false);
+
+    const timeout = setTimeout(() => {
+      client.removeListener('packet', onPacket);
+      if (log) log.warn('Timed out waiting for client chunk_batch_received after replay');
+      resolve(false);
+    }, timeoutMs);
+
+    const onPacket = (_data, meta) => {
+      if (meta.state !== 'play' || meta.name !== 'chunk_batch_received') return;
+      clearTimeout(timeout);
+      client.removeListener('packet', onPacket);
+      if (log) log.info('Client chunk_batch_received after replay');
+      resolve(true);
+    };
+
+    client.on('packet', onPacket);
+  });
+}
+
+/**
+ * Wait for the upstream server to push a chunk batch to the bot after player_loaded.
+ * @returns {Promise<{ ok: boolean, chunkCount: number, batchSize?: number }>}
+ */
+function waitForServerChunkBatch(serverConn, timeoutMs = 20_000, log) {
+  return new Promise((resolve) => {
+    let inBatch = false;
+    let chunkCount = 0;
+
+    const handler = (name, data) => {
+      if (name === 'chunk_batch_start') {
+        inBatch = true;
+        chunkCount = 0;
+        if (log) log.info('Server chunk_batch_start (live → java client)');
+      }
+      if (name === 'map_chunk' && inBatch) chunkCount++;
+      if (name === 'chunk_batch_finished' && inBatch) {
+        cleanup();
+        if (log) {
+          log.info(
+            `Server chunk_batch_finished batchSize=${data.batchSize} (${chunkCount} map_chunk on wire)`,
+          );
+        }
+        resolve({ ok: true, chunkCount, batchSize: data.batchSize });
+      }
+    };
+
+    const timeout = setTimeout(() => {
+      cleanup();
+      if (log) {
+        log.warn(
+          `Timed out waiting for server chunk batch (${chunkCount} map_chunk seen, inBatch=${inBatch})`,
+        );
+      }
+      resolve({ ok: false, chunkCount });
+    }, timeoutMs);
+
+    function cleanup() {
+      clearTimeout(timeout);
+      serverConn.removeListener('serverPacket', handler);
+    }
+
+    serverConn.on('serverPacket', handler);
+  });
+}
+
+/**
+ * Wait for java client player_loaded (do not send it from the proxy).
+ * @returns {Promise<boolean>}
+ */
+function waitForClientPlayerLoaded(client, timeoutMs = 60_000, log) {
+  return new Promise((resolve) => {
+    if (!client || client.ended) return resolve(false);
+
+    const timeout = setTimeout(() => {
+      client.removeListener('packet', onPacket);
+      if (log) {
+        log.warn(
+          '[Handoff] TIMEOUT waiting for java player_loaded — proxy did NOT send player_loaded; java never sent it',
+        );
+      }
+      resolve(false);
+    }, timeoutMs);
+
+    const onPacket = (_data, meta) => {
+      if (meta.state !== 'play' || meta.name !== 'player_loaded') return;
+      clearTimeout(timeout);
+      client.removeListener('packet', onPacket);
+      if (log) {
+        log.info(
+          '[Handoff] java player_loaded received (after bridge start) — NOT sent by proxy',
+        );
+      }
+      resolve(true);
+    };
+
+    client.on('packet', onPacket);
+  });
+}
+
 /** Unblock server chunk streaming after replay (client may not ack replayed batches). */
 function ackChunkBatchToServer(serverConn, log) {
-  serverConn.writeToServer('chunk_batch_received', { chunksPerTick: 9.0 });
-  if (log) log.info('Sent chunk_batch_received to server after handoff replay');
+  const payload = { chunksPerTick: 9.0 };
+  logProxyC2S(log, 'chunk_batch_received', payload, 'handoffFlow.ackChunkBatchToServer(PROXY)');
+  serverConn.writeToServer('chunk_batch_received', payload, {
+    source: 'handoffFlow.ackChunkBatchToServer(PROXY)',
+  });
 }
 
 /**
@@ -70,8 +223,9 @@ function installHandoffLiveChunkForward(client, serverConn, worldState, log) {
         );
       }
 
-      if (buffer?.length && RAW_FORWARD_PACKETS.has(name)) {
-        client.writeRaw(buffer);
+      const { writePlayToProxyClient } = require('./playPacketWire');
+      if (RAW_FORWARD_PACKETS.has(name)) {
+        writePlayToProxyClient(client, name, data);
       } else {
         client.write(name, data);
       }
@@ -112,8 +266,13 @@ function sendPermissionStatusToClient(client, permissionStatus, log) {
 }
 
 module.exports = {
+  createHandoffUpstreamGate,
   installHandoffUpstreamRelay,
   removeHandoffUpstreamRelay,
+  releaseHeldPlayerLoaded,
+  waitForClientChunkBatchReceived,
+  waitForServerChunkBatch,
+  waitForClientPlayerLoaded,
   ackChunkBatchToServer,
   installHandoffLiveChunkForward,
   removeHandoffLiveChunkForward,

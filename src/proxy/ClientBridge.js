@@ -1,5 +1,7 @@
 const { createLogger } = require('../utils/logger');
+const { BridgePacketLog } = require('./bridgePacketLog');
 const { RAW_FORWARD_PACKETS } = require('../constants/rawPackets');
+const { writePlayToProxyClient } = require('../utils/playPacketWire');
 const { shouldForwardWaypointToClient } = require('../utils/waypointRelay');
 const { relayPlayClientVisual } = require('../utils/playerVisualRelay');
 const {
@@ -12,6 +14,9 @@ const {
   updateClientViewPosition,
   ensureClientViewIncludesChunk,
 } = require('../utils/positionSync');
+const { isSetbackStylePosition } = require('../utils/setbackPosition');
+
+const { logJavaC2S } = require('../utils/handoffTrace');
 
 const log = createLogger('ClientBridge');
 
@@ -45,7 +50,6 @@ class ClientBridge {
     // Forwarding them again from the proxy client causes duplicate responses and kicks.
     this._blockedClientPackets = new Set([
       'keep_alive',
-      'teleport_confirm',
       'message_acknowledgement',
     ]);
 
@@ -55,7 +59,7 @@ class ClientBridge {
       'player_loaded',
     ]);
 
-    /** Block movement until client matches server (set true after syncProxyClientPosition) */
+    /** Block movement until handoff replay / server position is ready */
     this._movementSynced = false;
     this._movementPackets = new Set([
       'position',
@@ -79,6 +83,12 @@ class ClientBridge {
     this._lastClientBlock = { x: null, z: null };
     /** Play-client visual relay state (sneak/jump not echoed S2C to self) */
     this._playVisualRelay = { lastSneak: null, lastJump: false };
+
+    this._logBridge =
+      serverConn.config?.bot?.logBridgePackets === true ||
+      serverConn.config?.bot?.logMovement !== false;
+    this._bridgePktLog = this._logBridge ? new BridgePacketLog() : null;
+    this._bridgeLogTimer = null;
   }
 
   _getViewDistance() {
@@ -148,24 +158,43 @@ class ClientBridge {
     if (this.active) return;
     this.active = true;
 
+    this._syncClientViewFromBot();
+
     this.serverConn.setClientDrivesChunkBatchAck(true);
     this.serverConn.flushChunkBatchAck();
 
-    log.info('Client bridge started — forwarding packets');
+    log.info(
+      `Client bridge started — forwarding packets${this._logBridge ? ' (logBridgePackets=true)' : ''}`,
+    );
     this._playVisualRelay = { lastSneak: null, lastJump: false };
     disableInboundChatValidation(this.client);
+
+    if (this._logBridge) {
+      this._bridgeLogTimer = setInterval(() => this._bridgePktLog?.flushSummary(), 5000);
+    }
 
     // Client → Server
     this._clientPacketHandler = (data, meta) => {
       if (!this.active) return;
       if (meta.state !== 'play') return;
       if (this._blockedClientPackets.has(meta.name)) return;
-      if (!this._movementSynced && this._movementPackets.has(meta.name)) return;
+      if (!this._movementSynced && this._movementPackets.has(meta.name)) {
+        this._bridgePktLog?.recordC2SDropped(meta.name);
+        if (this._logBridge) {
+          log.debug(`C2S dropped (pre-sync): ${meta.name}`);
+        }
+        return;
+      }
 
       try {
+        if (meta.name === 'teleport_confirm') {
+          this._bridgePktLog?.recordC2S(meta.name, data);
+          this.serverConn.writeToServer('teleport_confirm', data);
+          return;
+        }
+
         if (this._movementPackets.has(meta.name)) {
-          // Update view center from client coords before relay — server sends center on
-          // chunk boundary (ChunkMap.applyChunkTrackingView) but map_chunk may arrive first.
+          this._bridgePktLog?.recordC2S(meta.name, data);
           if (
             (meta.name === 'position' || meta.name === 'position_look' || meta.name === 'vehicle_move') &&
             data.x != null &&
@@ -173,14 +202,22 @@ class ClientBridge {
           ) {
             this._syncClientViewFromBlockCoords(data.x, data.z);
           }
-
           const ok = this.serverConn.relayClientMovement(meta.name, data);
           if (!ok) {
-            this.serverConn.confirmServerPosition();
-            this.serverConn.syncProxyClientPosition(this.client).catch(() => {});
+            log.error(
+              `[java-client] movement relay failed for ${meta.name} — bot entity not ready`,
+            );
           }
           return;
         }
+
+        if (meta.name === 'tick_end') {
+          this._bridgePktLog?.recordC2S(meta.name, data);
+          this.serverConn.writeToServer('tick_end', data);
+          return;
+        }
+
+        this._bridgePktLog?.recordC2S(meta.name, data);
 
         if (CHAT_SESSION_PACKETS.has(meta.name)) {
           if (meta.name === 'message_acknowledgement') {
@@ -197,7 +234,12 @@ class ClientBridge {
         }
 
         if (this._priorityClientPackets.has(meta.name)) {
-          this.serverConn.writeToServer(meta.name, data);
+          if (meta.name === 'player_loaded' || meta.name === 'chunk_batch_received') {
+            logJavaC2S(log, meta.name, data, 'CLIENT_MODE');
+          }
+          this.serverConn.writeToServer(meta.name, data, {
+            source: `ClientBridge.forward(java).${meta.name}`,
+          });
           return;
         }
 
@@ -220,6 +262,16 @@ class ClientBridge {
 
       if (name === 'position') {
         this._movementSynced = true;
+
+        if (isSetbackStylePosition(data)) {
+          this.serverConn.acceptGrimSetback(data);
+          return;
+        }
+
+        this._bridgePktLog?.noteS2CTeleport(
+          data,
+          buffer?.length ? 'server→proxy-client (raw)' : 'server→proxy-client',
+        );
         if (data.x != null && data.z != null) {
           this._syncClientViewFromBlockCoords(data.x, data.z);
         }
@@ -238,8 +290,8 @@ class ClientBridge {
         if (this.client.state !== 'play') return;
 
         // update_view_position must arrive before map_chunk in the same batch (ChunkMap.java)
-        if (buffer?.length && RAW_FORWARD_PACKETS.has(name)) {
-          this.client.writeRaw(buffer);
+        if (RAW_FORWARD_PACKETS.has(name)) {
+          writePlayToProxyClient(this.client, name, data);
           return;
         }
         this.client.write(name, data);
@@ -288,6 +340,13 @@ class ClientBridge {
   stop() {
     if (!this.active) return;
     this.active = false;
+
+    if (this._bridgeLogTimer) {
+      clearInterval(this._bridgeLogTimer);
+      this._bridgeLogTimer = null;
+    }
+    this._bridgePktLog?.flushSummary();
+    this._bridgePktLog = null;
 
     this.serverConn.setClientDrivesChunkBatchAck(false);
 

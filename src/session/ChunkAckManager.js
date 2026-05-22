@@ -48,8 +48,11 @@ class ChunkAckManager {
    */
   flush(rawClient) {
     if (!rawClient) return;
+    const payload = { chunksPerTick: 9.0 };
     try {
-      rawClient.write('chunk_batch_received', { chunksPerTick: 9.0 });
+      const { logProxyC2S } = require('../utils/handoffTrace');
+      logProxyC2S(log, 'chunk_batch_received', payload, 'ChunkAckManager.flush(PROXY)');
+      rawClient.write('chunk_batch_received', payload);
     } catch (err) {
       log.debug('flushChunkBatchAck failed:', err.message);
     }

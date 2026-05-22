@@ -35,7 +35,7 @@ function autoLogoutPlayWaitMsg(reason) {
   return `Bot Auto disconnected (${formatAutoLogoutLabel(reason)}). Reconnecting…`;
 }
 const AUTO_LOGOUT_RECONNECT_TIMEOUT_MS = 90_000;
-const CHUNK_PRIME_MS_DEFAULT = 1500;
+const CHUNK_PRIME_MS_DEFAULT = 5000;
 const CHUNK_PRIME_MS_AFTER_AUTO_LOGOUT = 12_000;
 
 /**
@@ -321,9 +321,9 @@ class SessionManager {
 
     const cx = Math.floor(bot.entity.position.x / 16);
     const cz = Math.floor(bot.entity.position.z / 16);
-    const viewDistance = this.worldState.misc.viewDistance?.viewDistance
-      ?? this.config.bot?.viewDistance
-      ?? 10;
+    const serverVd = this.worldState.misc.viewDistance?.viewDistance ?? 10;
+    const botVd = this.config.bot?.viewDistance ?? 10;
+    const viewDistance = Math.min(serverVd, botVd);
     const count = this.worldState.chunks.getChunksForReplay(cx, cz, viewDistance).length;
     const min = minChunksForHandoff(viewDistance);
     return { cx, cz, viewDistance, count, min };
@@ -340,46 +340,57 @@ class SessionManager {
     const { cx, cz, viewDistance, min } = stats;
     let { count } = stats;
 
-    if (count >= min) {
-      log.info(`Handoff cache ready: ${count}/${min} chunks at (${cx}, ${cz})`);
-      return;
+    this.worldState.beginTerrainCapture();
+    try {
+      this.serverConn.confirmServerPosition();
+      this.serverConn.nudgeClientSettings();
+
+      const rawClient = this.serverConn.rawClient;
+      if (!rawClient) return;
+
+      log.info(
+        `Priming handoff at (${cx}, ${cz}): ${count}/${min} cached — waiting for server chunk batch (up to ${waitMs}ms)`,
+      );
+
+      await new Promise((resolve) => {
+        const finish = (label) => {
+          clearTimeout(timeout);
+          rawClient.removeListener('packet', onPacket);
+          count = this.worldState.chunks.getChunksForReplay(cx, cz, viewDistance).length;
+          const captured = this.worldState.hasCapturedTerrainBatch();
+          if (captured) {
+            const n = this.worldState.getCapturedTerrainPackets().length;
+            log.info(`Server terrain batch captured (${n} packets, ${label})`);
+          } else {
+            log.warn(
+              `No server terrain batch captured (${label}) — handoff will use ${count} cached chunk(s)`,
+            );
+          }
+          if (count >= min) {
+            log.info(`Chunk cache: ${count}/${min} at (${cx}, ${cz})`);
+          } else if (count > 0) {
+            log.warn(`Chunk cache: only ${count}/${min} at (${cx}, ${cz})`);
+          }
+          resolve();
+        };
+
+        const timeout = setTimeout(() => finish('timeout'), waitMs);
+
+        const onPacket = (data, meta) => {
+          if (meta.state !== 'play') return;
+          if (meta.name === 'map_chunk') {
+            count = this.worldState.chunks.getChunksForReplay(cx, cz, viewDistance).length;
+          }
+          if (this.worldState.hasCapturedTerrainBatch()) {
+            finish('server-batch');
+          }
+        };
+
+        rawClient.on('packet', onPacket);
+      });
+    } finally {
+      this.worldState.endTerrainCapture();
     }
-
-    log.info(`Priming chunks at (${cx}, ${cz}): ${count}/${min} cached — nudging server...`);
-    this.serverConn.confirmServerPosition();
-
-    const rawClient = this.serverConn.rawClient;
-    if (!rawClient) return;
-
-    await new Promise((resolve) => {
-      const finish = (label) => {
-        clearTimeout(timeout);
-        rawClient.removeListener('packet', onPacket);
-        count = this.worldState.chunks.getChunksForReplay(cx, cz, viewDistance).length;
-        if (count >= min) {
-          log.info(`Primed ${count}/${min} chunks for handoff (${label})`);
-        } else if (count > 0) {
-          log.warn(
-            `Only ${count}/${min} chunks cached after ${waitMs}ms — terrain may load slowly after handoff`,
-          );
-        } else {
-          log.warn(`No chunks cached after ${waitMs}ms — client may stay on Loading Terrain`);
-        }
-        resolve();
-      };
-
-      const timeout = setTimeout(() => finish('timeout'), waitMs);
-
-      const onPacket = (data, meta) => {
-        if (meta.state !== 'play' || meta.name !== 'map_chunk') return;
-        count = this.worldState.chunks.getChunksForReplay(cx, cz, viewDistance).length;
-        if (count >= min) {
-          finish('ready');
-        }
-      };
-
-      rawClient.on('packet', onPacket);
-    });
   }
 
   /**
@@ -393,7 +404,6 @@ class SessionManager {
     this.worldState.entities.clear();
 
     await this.serverConn.syncProxyClientPosition(client);
-    this.serverConn.confirmServerPosition();
 
     if (this.clientBridge) {
       this.clientBridge._syncClientViewFromBot();
@@ -546,8 +556,9 @@ class SessionManager {
     // Disable bot physics; keep mineflayer chunk_batch ack until the bridge takes over
     this.serverConn.setBotControl(false);
 
-    // Handle client disconnect during handoff
+    let handoffAborted = false;
     const onDisconnect = () => {
+      handoffAborted = true;
       log.info('Client disconnected during handoff');
       this._cleanupClient();
       this._transitionTo(State.BOT_MODE);
@@ -555,24 +566,31 @@ class SessionManager {
     };
     client.once('end', onDisconnect);
 
+    const canContinue = () =>
+      !handoffAborted &&
+      this.state === State.HANDOFF &&
+      this.currentClient === client &&
+      !client.ended;
+
     const result = await performHandoff({
       client,
       serverConn: this.serverConn,
       worldState: this.worldState,
       replayer: this.replayer,
-      proxyServer: this.proxyServer,
       primeChunks: () =>
         this._primeChunksNearBot(
           afterAutoLogout ? CHUNK_PRIME_MS_AFTER_AUTO_LOGOUT : CHUNK_PRIME_MS_DEFAULT,
         ),
-      isHandoffState: () => this.state === State.HANDOFF,
+      canContinue,
     });
 
     client.removeListener('end', onDisconnect);
 
-    if (!result) {
+    if (!result || !canContinue()) {
       this._cleanupClient();
-      this._transitionTo(State.BOT_MODE);
+      if (this.state === State.HANDOFF) {
+        this._transitionTo(State.BOT_MODE);
+      }
       this.serverConn.setBotControl(true);
       return;
     }

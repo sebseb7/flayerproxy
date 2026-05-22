@@ -2,6 +2,7 @@ const { createLogger } = require('../utils/logger');
 const conv = require('mineflayer/lib/conversions');
 const {
   buildClientboundPositionPacket,
+  buildServerboundFromClientboundPosition,
   buildServerboundPositionLook,
   waitForClientTeleportConfirm,
   movementFlags,
@@ -20,7 +21,23 @@ const log = createLogger('ServerConn');
  * @param {object} data - packet data
  * @returns {boolean} false only when the bot entity is not ready
  */
-function relayClientMovement(bot, rawClient, name, data) {
+/**
+ * @param {object} [opts]
+ * @param {boolean} [opts.syncEntity=true] — false: passthrough java client packets verbatim
+ */
+function relayClientMovement(bot, rawClient, name, data, opts = {}) {
+  const syncEntity = opts.syncEntity !== false;
+
+  if (!syncEntity) {
+    try {
+      rawClient.write(name, data);
+      return true;
+    } catch (err) {
+      log.error(`Failed to relay movement '${name}':`, err.message);
+      return false;
+    }
+  }
+
   if (!bot?.entity?.position) return false;
 
   const entity = bot.entity;
@@ -30,7 +47,7 @@ function relayClientMovement(bot, rawClient, name, data) {
     const dist = Math.sqrt(distanceSq(target, entity.position));
     if (dist > MAX_CLIENT_MOVEMENT_WARN_DELTA) {
       log.warn(
-        `Client ${dist.toFixed(1)} blocks ahead of bot — forwarding anyway so server streams chunks`
+        `Client ${dist.toFixed(1)} blocks ahead of bot entity — forwarding anyway (syncEntity=false skips entity write)`,
       );
     }
     entity.position.set(target.x, target.y, target.z);
@@ -45,17 +62,18 @@ function relayClientMovement(bot, rawClient, name, data) {
   if (onGround !== undefined) entity.onGround = onGround;
 
   const flags = movementFlags(
-    onGround ?? entity.onGround,
-    data.flags?.hasHorizontalCollision
+    onGround ?? (syncEntity ? entity.onGround : false),
+    data.flags?.hasHorizontalCollision,
   );
 
   try {
+    log.debug(`[java-client] upstream ${name}`);
     if (name === 'flying' && data.x === undefined) {
       rawClient.write('flying', { flags });
     } else if (name === 'look') {
       rawClient.write('look', {
-        yaw: conv.toNotchianYaw(entity.yaw),
-        pitch: conv.toNotchianPitch(entity.pitch),
+        yaw: data.yaw ?? conv.toNotchianYaw(entity.yaw),
+        pitch: data.pitch ?? conv.toNotchianPitch(entity.pitch),
         flags,
       });
     } else if (name === 'position') {
@@ -92,7 +110,7 @@ function relayClientMovement(bot, rawClient, name, data) {
  * @param {object} client - minecraft-protocol client
  * @returns {Promise<boolean>}
  */
-async function syncProxyClientPosition(bot, worldState, client) {
+async function syncProxyClientPosition(bot, worldState, client, serverConn) {
   if (!bot?.entity?.position) {
     log.warn('Cannot sync client position: bot entity not ready');
     return false;
@@ -115,7 +133,19 @@ async function syncProxyClientPosition(bot, worldState, client) {
     return false;
   }
 
-  await waitForClientTeleportConfirm(client, 10000, log);
+  const confirmId = await waitForClientTeleportConfirm(client, 10000, log);
+  if (confirmId !== false && serverConn) {
+    serverConn.writeToServer(
+      'teleport_confirm',
+      {
+        teleportId: confirmId === true ? packet.teleportId : confirmId,
+      },
+      { source: 'MovementRelay.forwardJavaTeleportConfirm' },
+    );
+    log.info(
+      `Forwarded java-client teleport_confirm id=${confirmId === true ? packet.teleportId : confirmId} after position sync`,
+    );
+  }
 
   try {
     client.write('update_view_position', { chunkX, chunkZ });
@@ -153,4 +183,36 @@ function confirmServerPosition(bot, rawClient, connected) {
   }
 }
 
-module.exports = { relayClientMovement, syncProxyClientPosition, confirmServerPosition };
+/**
+ * Grim setback: server needs teleport_confirm + matching position_look on the bot connection.
+ * Do not forward these S2C packets to the java client (causes duplicate position_look / AimDuplicateLook).
+ * @param {import('mineflayer').Bot} bot
+ * @param {import('./ServerConnection').ServerConnection} serverConn
+ * @param {object} data - clientbound position
+ */
+function acceptGrimSetbackOnUpstream(bot, serverConn, data) {
+  const entity = bot?.entity;
+  if (!entity?.position) return false;
+
+  serverConn.writeToServer('teleport_confirm', { teleportId: data.teleportId });
+  const packet = buildServerboundFromClientboundPosition(bot, data);
+  if (!packet) return false;
+
+  serverConn.writeToServer('position_look', packet);
+  entity.position.set(packet.x, packet.y, packet.z);
+  entity.yaw = conv.fromNotchianYaw(packet.yaw);
+  entity.pitch = conv.fromNotchianPitch(packet.pitch);
+  entity.onGround = packet.flags?.onGround ?? true;
+
+  log.info(
+    `[proxy] Grim setback id=${data.teleportId} → confirm + position_look (${packet.x.toFixed(2)}, ${packet.y.toFixed(2)}, ${packet.z.toFixed(2)})`,
+  );
+  return true;
+}
+
+module.exports = {
+  relayClientMovement,
+  syncProxyClientPosition,
+  confirmServerPosition,
+  acceptGrimSetbackOnUpstream,
+};

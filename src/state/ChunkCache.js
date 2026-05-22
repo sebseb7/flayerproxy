@@ -14,7 +14,7 @@ const log = createLogger('ChunkCache');
 
 /**
  * Caches chunk column data keyed by "x,z".
- * Block and light updates are merged into the column; replay sends map_chunk only.
+ * Block and light updates are merged into the column; replay encodes map_chunk from column export.
  */
 class ChunkCache {
   /**
@@ -64,7 +64,7 @@ class ChunkCache {
    * Store a map_chunk when it lies within view distance of the current center.
    * @param {object} [view] - { centerChunkX, centerChunkZ, viewDistance }
    */
-  handleMapChunk(data, rawBuffer, view) {
+  handleMapChunk(data, _rawBuffer, view) {
     if (view?.centerChunkX != null && view.viewDistance != null) {
       if (
         !isChunkWithinViewDistance(
@@ -83,7 +83,6 @@ class ChunkCache {
     const key = this._key(data.x, data.z);
     this.chunks.set(key, {
       packetData: normalizeMapChunkPacket(structuredClone(data)),
-      rawBuffer: rawBuffer ? Buffer.from(rawBuffer) : null,
       column: null,
     });
     this._touch(key);
@@ -163,7 +162,6 @@ class ChunkCache {
         this.version,
         this.getWorldBounds()
       );
-      stored.rawBuffer = null;
     }
     return stored.column;
   }
@@ -173,13 +171,16 @@ class ChunkCache {
    */
   _syncPacketFromColumn(stored) {
     stored.packetData = exportMapChunkPacket(stored.column, stored.packetData);
-    stored.rawBuffer = null;
   }
 
-  _buildChunkEntry(chunkData) {
+  _buildChunkEntry(stored) {
+    if (stored.column) {
+      stored.packetData = exportMapChunkPacket(stored.column, stored.packetData);
+    } else {
+      normalizeMapChunkPacket(stored.packetData);
+    }
     return {
-      packetData: chunkData.packetData,
-      rawMapChunkBuffer: chunkData.rawBuffer,
+      packetData: stored.packetData,
     };
   }
 

@@ -1,7 +1,7 @@
 const TELEPORT_CONFIRM_TIMEOUT_MS = 15000;
 const CHUNK_YIELD_EVERY = 32;
-/** Vanilla keeps "Loading Terrain" at least ~2s after chunks start loading */
-const POST_REPLAY_SETTLE_MS = 2500;
+/** Brief yield after replay; handoff waits for client chunk_batch_received separately */
+const POST_REPLAY_SETTLE_MS = 1500;
 
 /**
  * Minimum in-view cached chunks before handoff replay (avoids "Loading Terrain" with 1 chunk).

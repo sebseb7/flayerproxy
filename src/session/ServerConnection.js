@@ -1,7 +1,12 @@
 const EventEmitter = require('events');
 const mineflayer = require('mineflayer');
 const { createLogger } = require('../utils/logger');
-const { relayClientMovement, syncProxyClientPosition, confirmServerPosition } = require('./MovementRelay');
+const {
+  relayClientMovement,
+  syncProxyClientPosition,
+  confirmServerPosition,
+  acceptGrimSetbackOnUpstream,
+} = require('./MovementRelay');
 const { ChunkAckManager } = require('./ChunkAckManager');
 const { BotIdleBehavior } = require('./BotIdleBehavior');
 const { BotAutoLogout } = require('./BotAutoLogout');
@@ -11,6 +16,11 @@ const {
 } = require('../constants/spectatorPackets');
 const { buildPlayerPoseMetadata } = require('../utils/playerVisualRelay');
 const { installTickEndRelay } = require('./tickEndRelay');
+const { installUpstreamMovementLog } = require('../utils/upstreamMovementLog');
+const {
+  stashMineflayerPositionListeners,
+  restoreMineflayerPositionListeners,
+} = require('./mineflayerPositionGuard');
 
 const log = createLogger('ServerConn');
 
@@ -40,6 +50,13 @@ class ServerConnection extends EventEmitter {
     this._autoLogout = null;
     /** @type {(() => void)|null} */
     this._tickEndCleanup = null;
+    /** @type {(() => void)|null} */
+    this._movementLogCleanup = null;
+    this._movementHooks = {
+      ghostBlocked: { counts: new Map() },
+    };
+    /** >0 while ClientBridge is writing to upstream (Java client packets) */
+    this._bridgeRelayDepth = 0;
     /** Mirrors bot sneak for spectator camera height (position Y offset). */
     this.botSneaking = false;
   }
@@ -56,6 +73,8 @@ class ServerConnection extends EventEmitter {
     this._autoLogout = null;
     this._tickEndCleanup?.();
     this._tickEndCleanup = null;
+    this._movementLogCleanup?.();
+    this._movementLogCleanup = null;
 
     this.bot = mineflayer.createBot({
       host: this.config.server.host,
@@ -69,7 +88,16 @@ class ServerConnection extends EventEmitter {
     });
 
     this.rawClient = this.bot._client;
-    this._tickEndCleanup = installTickEndRelay(this.bot, this.config.server.version);
+    this._movementHooks.ghostBlocked.counts.clear();
+    const hooks = {
+      ghostBlocked: this._movementHooks.ghostBlocked,
+      isBotMode: () => this._botControlEnabled && this._bridgeRelayDepth === 0,
+      isBridgeRelay: () => this._bridgeRelayDepth > 0,
+    };
+    this._movementLogCleanup = installUpstreamMovementLog(this.rawClient, hooks, {
+      enabled: this.config.bot.logMovement !== false,
+    });
+    this._tickEndCleanup = installTickEndRelay(this.bot, this.config.server.version, hooks);
 
     this._setupConfigCapture();
     this._setupPacketCapture();
@@ -243,11 +271,13 @@ class ServerConnection extends EventEmitter {
     this._botControlEnabled = enabled;
     if (enabled) {
       log.info('Bot control ENABLED (bot mode)');
+      restoreMineflayerPositionListeners(this.rawClient);
       if (this.bot) this.bot.physicsEnabled = true;
       this._idleBehavior?.start();
       this._autoLogout?.start();
     } else {
       log.info('Bot control DISABLED (client taking over)');
+      stashMineflayerPositionListeners(this.rawClient);
       this._idleBehavior?.stop();
       this._autoLogout?.stop();
       if (this.bot) {
@@ -292,14 +322,58 @@ class ServerConnection extends EventEmitter {
    * Call after replay and before enabling movement forwarding.
    */
   async syncProxyClientPosition(client) {
-    return syncProxyClientPosition(this.bot, this.worldState, client);
+    return syncProxyClientPosition(this.bot, this.worldState, client, this);
   }
 
   /**
    * Tell the server the bot's current position (serverbound position_look).
    */
   confirmServerPosition() {
-    return confirmServerPosition(this.bot, this.rawClient, this.connected);
+    this._bridgeRelayDepth += 1;
+    try {
+      return confirmServerPosition(this.bot, this.rawClient, this.connected);
+    } finally {
+      this._bridgeRelayDepth -= 1;
+    }
+  }
+
+  /** Prompt the server to (re)send the chunk column around the bot (view distance refresh). */
+  nudgeClientSettings() {
+    if (!this.rawClient || !this.connected) return false;
+    const vd =
+      this.worldState.misc.viewDistance?.viewDistance ??
+      this.config.bot?.viewDistance ??
+      10;
+    try {
+      this._bridgeRelayDepth += 1;
+      this.rawClient.write('settings', {
+        locale: 'en_US',
+        viewDistance: vd,
+        chatFlags: 0,
+        chatColors: true,
+        skinParts: 0xff,
+        mainHand: 1,
+        enableTextFiltering: false,
+        enableServerListing: true,
+        particleStatus: 0,
+      });
+      return true;
+    } catch (err) {
+      log.warn('nudgeClientSettings failed:', err.message);
+      return false;
+    } finally {
+      this._bridgeRelayDepth -= 1;
+    }
+  }
+
+  /** Grim setback accept on upstream only — do not show to java client */
+  acceptGrimSetback(data) {
+    this._bridgeRelayDepth += 1;
+    try {
+      return acceptGrimSetbackOnUpstream(this.bot, this, data);
+    } finally {
+      this._bridgeRelayDepth -= 1;
+    }
   }
 
   /**
@@ -319,16 +393,34 @@ class ServerConnection extends EventEmitter {
    * using the client's coordinates so ChunkMap.move() tracks where the player walks.
    * @returns {boolean} false only when the bot entity is not ready
    */
-  relayClientMovement(name, data) {
-    return relayClientMovement(this.bot, this.rawClient, name, data);
+  relayClientMovement(name, data, opts) {
+    this._bridgeRelayDepth += 1;
+    try {
+      return relayClientMovement(this.bot, this.rawClient, name, data, {
+        syncEntity: opts?.syncEntity ?? this._botControlEnabled,
+      });
+    } finally {
+      this._bridgeRelayDepth -= 1;
+    }
   }
 
   /**
    * Write a packet to the upstream server.
+   * @param {string} name
+   * @param {object} data
+   * @param {{ source?: string }} [opts] - logged for handoff trace packets (player_loaded, etc.)
    */
-  writeToServer(name, data) {
-    if (this.rawClient && this.connected) {
+  writeToServer(name, data, opts = {}) {
+    if (!this.rawClient || !this.connected) return;
+    if (opts.source) {
+      const { logProxyC2S } = require('../utils/handoffTrace');
+      logProxyC2S(log, name, data, opts.source);
+    }
+    this._bridgeRelayDepth += 1;
+    try {
       this.rawClient.write(name, data);
+    } finally {
+      this._bridgeRelayDepth -= 1;
     }
   }
 

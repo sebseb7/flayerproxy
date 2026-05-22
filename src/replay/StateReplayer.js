@@ -10,6 +10,15 @@ const {
   waitForClientTeleportConfirm,
 } = require('./replayHelpers');
 const { replayChunks } = require('./replayChunks');
+const { minChunksForHandoff } = require('./replayHelpers');
+const {
+  replayCapturedTerrain,
+  replayLooseCapturedMapChunks,
+} = require('./replayTerrainCapture');
+const {
+  logProxyS2C,
+  resetMapChunkReplayCount,
+} = require('../utils/handoffTrace');
 
 const log = createLogger('StateReplayer');
 
@@ -46,6 +55,7 @@ class StateReplayer {
    */
   async replay(client, options = {}) {
     const spectator = options.spectator === true;
+    const deferPostTerrain = options.deferPostTerrain === true;
     const ws = this.worldState;
     const bot = this.serverConn?.bot;
     const playerState = ws.player.getState();
@@ -56,27 +66,21 @@ class StateReplayer {
     }
 
     log.info('Starting state replay...');
+    resetMapChunkReplayCount();
     let packetCount = 0;
+    let terrainMode = 'unknown';
 
     const write = (name, data) => {
       const payload = replayPacketData(client, name, data);
       if (payload !== data && data?.enforcesSecureChat) {
         log.info(`Replay ${name}: cleared enforcesSecureChat (proxy client has no profile keys)`);
       }
+      logProxyS2C(log, name, payload, 'StateReplayer.write');
       try {
         client.write(name, payload);
         packetCount++;
       } catch (err) {
         log.error(`Failed to write packet '${name}':`, err.message);
-      }
-    };
-
-    const writeRaw = (buffer, label) => {
-      try {
-        client.writeRaw(buffer);
-        packetCount++;
-      } catch (err) {
-        log.error(`Failed to write raw packet '${label}':`, err.message);
       }
     };
 
@@ -133,7 +137,9 @@ class StateReplayer {
     }
 
     const center = getPlayerChunkCenter(playerState, ws.misc, bot);
-    const viewDistance = ws.misc.viewDistance?.viewDistance ?? this.serverConn?.config?.bot?.viewDistance ?? 10;
+    const serverVd = ws.misc.viewDistance?.viewDistance ?? 10;
+    const botVd = this.serverConn?.config?.bot?.viewDistance ?? 10;
+    const viewDistance = Math.min(serverVd, botVd);
 
     // 6. Teleport before terrain — PlayerList.placeNewPlayer teleports before sendLevelInfo/chunks
     const cachedPos = playerState.position;
@@ -144,24 +150,11 @@ class StateReplayer {
 
     if (initialPosition) {
       write('position', initialPosition);
+      log.info(
+        `[Handoff] proxy S2C → java: position (replay teleport) teleportId=${initialPosition.teleportId}`,
+      );
       await waitForClientTeleportConfirm(client);
-    }
-
-    // 7. Tab list (after initial teleport on vanilla)
-    const playerInfoPackets = ws.misc.getPlayerInfoReplayPackets();
-    if (playerInfoPackets.length > 0) {
-      log.info(`Replaying ${playerInfoPackets.length} player_info packets...`);
-      for (const pkt of playerInfoPackets) {
-        write(pkt.name, pkt.data);
-      }
-    }
-
-    const waypointPackets = ws.misc.getWaypointReplayPackets();
-    if (waypointPackets.length > 0) {
-      log.info(`Replaying ${waypointPackets.length} tracked_waypoint (locator) packets...`);
-      for (const pkt of waypointPackets) {
-        write(pkt.name, pkt.data);
-      }
+      log.info('[Handoff] java teleport_confirm received after replay position');
     }
 
     // 8. sendLevelInfo — border, time, weather, spawn (PlayerList.sendLevelInfo)
@@ -178,20 +171,128 @@ class StateReplayer {
       write('update_view_distance', ws.misc.viewDistance);
     }
 
-    write('update_view_position', {
-      chunkX: center.chunkX,
-      chunkZ: center.chunkZ,
+    const capturedTerrain = ws.getCapturedTerrainPackets();
+    const useCapturedTerrain = capturedTerrain.length > 0 && ws.hasCapturedTerrainBatch();
+
+    if (!useCapturedTerrain) {
+      write('update_view_position', {
+        chunkX: center.chunkX,
+        chunkZ: center.chunkZ,
+      });
+      write('game_state_change', LEVEL_CHUNKS_LOAD_START);
+    }
+
+    if (useCapturedTerrain) {
+      terrainMode = 'serverCapture';
+      replayCapturedTerrain(client, capturedTerrain, write);
+    } else {
+      const loose = ws.getLooseTerrainMapChunks(center.chunkX, center.chunkZ, viewDistance);
+      const minLoose = minChunksForHandoff(viewDistance);
+      if (loose.length >= minLoose) {
+        terrainMode = `looseCapture(${loose.length})`;
+        log.info(`[Handoff] terrain path: ${terrainMode}`);
+        replayLooseCapturedMapChunks(client, loose, write);
+      } else {
+        terrainMode = 'chunkCache';
+        log.info(`[Handoff] terrain path: ${terrainMode}`);
+        await this.replayCachedTerrain(client, {
+          write,
+          center,
+          viewDistance,
+        });
+      }
+    }
+    if (terrainMode !== 'chunkCache') {
+      log.info(`[Handoff] terrain path: ${terrainMode} (see map_chunk summary above)`);
+    }
+
+    if (!deferPostTerrain) {
+      await this._replayPostTerrain(client, {
+        write,
+        ws,
+        playerState,
+        spectator,
+        fullInvPackets,
+      });
+    }
+
+    log.info(`State replay complete: ${packetCount} packets sent`);
+
+    if (deferPostTerrain) {
+      log.info(
+        '[Handoff] deferPostTerrain: no settle wait — handoff replays entities/inventory next',
+      );
+    } else {
+      log.info(`Waiting ${POST_REPLAY_SETTLE_MS}ms for client to render terrain...`);
+      await new Promise((resolve) => setTimeout(resolve, POST_REPLAY_SETTLE_MS));
+    }
+  }
+
+  /** Tab list, entities, inventory — after terrain is on the java client. */
+  async replayPostTerrain(client, options = {}) {
+    const spectator = options.spectator === true;
+    const ws = this.worldState;
+    const playerState = ws.player.getState();
+    const invPackets = ws.inventory.getReplayPackets();
+    const fullInvPackets = invPackets.filter((p) => p.name !== 'held_item_slot');
+
+    let packetCount = 0;
+    const write = (name, data) => {
+      const payload = replayPacketData(client, name, data);
+      logProxyS2C(log, name, payload, 'StateReplayer.postTerrain');
+      try {
+        client.write(name, payload);
+        packetCount++;
+      } catch (err) {
+        log.error(`Failed to write packet '${name}':`, err.message);
+      }
+    };
+
+    await this._replayPostTerrain(client, {
+      write,
+      ws,
+      playerState,
+      spectator,
+      fullInvPackets,
     });
+    log.info(`Post-terrain replay: ${packetCount} packets sent`);
+  }
 
-    write('game_state_change', LEVEL_CHUNKS_LOAD_START);
+  async replayCachedTerrain(client, { write, center, viewDistance } = {}) {
+    const ws = this.worldState;
+    const writeFn =
+      write ??
+      ((name, data) => {
+        client.write(name, replayPacketData(client, name, data));
+      });
 
-    // 9. Chunks
-    write('chunk_batch_start', {});
+    writeFn('chunk_batch_start', {});
     const totalCached = ws.chunks.size;
     const chunks = ws.chunks.getChunksForReplay(center.chunkX, center.chunkZ, viewDistance);
-    await replayChunks(write, writeRaw, chunks, center, totalCached, viewDistance);
+    const sent = await replayChunks(client, writeFn, chunks, center, totalCached, viewDistance);
+    writeFn('chunk_batch_finished', { batchSize: sent });
+  }
 
-    // 10. Entities
+  async _replayPostTerrain(
+    client,
+    { write, ws, playerState, spectator, fullInvPackets },
+  ) {
+    const playerInfoPackets = ws.misc.getPlayerInfoReplayPackets();
+    if (playerInfoPackets.length > 0) {
+      log.info(`Replaying ${playerInfoPackets.length} player_info packets (post-terrain)...`);
+      for (const pkt of playerInfoPackets) {
+        write(pkt.name, pkt.data);
+      }
+    }
+
+    const waypointPackets = ws.misc.getWaypointReplayPackets();
+    if (waypointPackets.length > 0) {
+      log.info(`Replaying ${waypointPackets.length} tracked_waypoint packets (post-terrain)...`);
+      for (const pkt of waypointPackets) {
+        write(pkt.name, pkt.data);
+      }
+    }
+
     const entities = ws.entities.getAllEntities();
     log.info(`Replaying ${entities.length} entities...`);
     for (const entity of entities) {
@@ -234,12 +335,6 @@ class StateReplayer {
         write(pkt.name, pkt.data);
       }
     }
-
-    log.info(`State replay complete: ${packetCount} packets sent`);
-
-    log.info(`Waiting ${POST_REPLAY_SETTLE_MS}ms for client to render terrain...`);
-    await new Promise((resolve) => setTimeout(resolve, POST_REPLAY_SETTLE_MS));
-
   }
 }
 

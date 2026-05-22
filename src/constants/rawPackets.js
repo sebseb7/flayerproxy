@@ -6,6 +6,8 @@ const RAW_FORWARD_PACKETS = new Set([
   'chunk_batch_start',
   'chunk_batch_finished',
   'update_view_position',
+  /** Re-encoding corrupts PositionUpdateRelatives (Grim setbacks use relative yaw/pitch) */
+  'position',
 ]);
 
 module.exports = { RAW_FORWARD_PACKETS };

@@ -34,6 +34,21 @@ function normalizeMapChunkPacket(packet) {
 }
 
 /**
+ * Params ready for proxy client serializer (one chunkData field, Buffers normalized).
+ * @param {object} packetData
+ */
+function prepareMapChunkParams(packetData) {
+  const params = normalizeMapChunkPacket(structuredClone(packetData));
+  if (params.data !== undefined) {
+    if (params.chunkData === undefined) {
+      params.chunkData = params.data;
+    }
+    delete params.data;
+  }
+  return params;
+}
+
+/**
  * World bounds for prismarine-chunk from login dimension (defaults to overworld).
  * @param {string} version
  * @param {string} [dimensionName]
@@ -117,6 +132,7 @@ function loadColumnFromMapChunk(packet, version, worldBounds) {
  */
 function exportMapChunkPacket(column, packet) {
   const out = structuredClone(packet);
+  delete out.data;
   out.chunkData = column.dump();
   const light = column.dumpLight();
   out.skyLight = light.skyLight;
@@ -182,6 +198,7 @@ module.exports = {
   DEFAULT_WORLD,
   asBuffer,
   normalizeMapChunkPacket,
+  prepareMapChunkParams,
   worldBoundsForDimension,
   dimensionNameFromLogin,
   createEmptyColumn,

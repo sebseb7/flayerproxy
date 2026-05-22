@@ -26,7 +26,7 @@ class PlayerStateCache {
     this.effects = [];            // player status effects
   }
 
-  handleLogin(data) {
+  handleLogin(data, _wireBuffer) {
     this.loginPacket = { ...data };
     this.entityId = data.entityId;
     log.info(`Player entity ID: ${this.entityId}`);
