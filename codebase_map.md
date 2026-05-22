@@ -14,12 +14,12 @@ This document provides a comprehensive mapping of all the classes, functions, an
 - [Cross-Cutting Behavior](#-cross-cutting-behavior)
 - [Detailed File Mapping](#-detailed-file-mapping)
   - [Root Scripts & Configuration](#1-root-scripts--configuration) — `src/index.js`, `src/config.js`
-  - [session — Session State Machine](#2-session--session-state-machine) — `SessionManager`, `ServerConnection`, `BotIdleBehavior`, `ChunkAckManager`, `MovementRelay`, `handoffFlow`
+  - [session — Session State Machine](#2-session--session-state-machine) — `SessionManager`, `ServerConnection`, `BotIdleBehavior`, `BotAutoLogout`, `ChunkAckManager`, `MovementRelay`, `handoffFlow`
   - [proxy — Client Connection Proxy](#3-proxy--client-connection-proxy) — `ProxyServer`, `ClientBridge`
   - [spectator — Watch-Only Multi-Client Proxy](#4-spectator--watch-only-multi-client-proxy) — `SpectatorProxyServer`, `SpectatorHub`, `spectatorPackets`
   - [state — World State Caching](#5-state--world-state-caching) — `WorldStateCache`, `ChunkCache`, `chunkMerge`, entity/player/inventory/misc caches
   - [replay — Client Handoff Replay](#6-replay--client-handoff-replay) — `StateReplayer`, `replayChunks`, `replayHelpers`
-  - [utils — Helper Utilities](#7-utils--helper-utilities) — `angles`, `chatRelay`, `clientDisconnect`, `handoffSync`, `logger`, `positionSync`
+  - [utils — Helper Utilities](#7-utils--helper-utilities) — `angles`, `chatRelay`, `clientDisconnect`, `configReplay`, `handoffSync`, `logger`, `positionSync`
   - [constants — Shared Packet Sets](#8-constants--shared-packet-sets) — `rawPackets`, `spectatorPackets`
   - [sniffer — MITM Packet Sniffer](#9-sniffer--mitm-packet-sniffer) — `MitmProxy`, `TransparentProxy`, `StreamTap`, `PacketLog`, and relay modules
 
@@ -98,7 +98,8 @@ sequenceDiagram
     PS->>SM: _onClientConnect(client)
     Note over SM: State -> HANDOFF
     SM->>SC: setBotControl(false) [Disable Bot physics/AI]
-    SM->>SM: _primeChunksNearBot() [Confirm position & await chunks]
+    SM->>SM: _primeChunksNearBot() [Until minChunksForHandoff in-view]
+    Note over SM: handoffSync: upstream relay + live map_chunk forward
     SM->>SR: replay(client)
     SR->>Player: Send 'login' packet (join_game)
     SR->>Player: Send difficulty, abilities, permission level
@@ -108,10 +109,16 @@ sequenceDiagram
     Player-->>SR: Send 'teleport_confirm' packet
     SR->>Player: Send tab list (player_info)
     SR->>Player: Send level info (world border, spawn, time)
-    SR->>Player: Send chunks (chunk_batch_start, map_chunks, light, block_changes, chunk_batch_finished)
+    SR->>Player: Send chunks (chunk_batch_start, map_chunks, chunk_batch_finished)
     SR->>Player: Send spawned entities (metadata, equipment, effects, passengers)
     SR->>Player: Send experience, health, and status effects
     SR->>Player: Send inventory snapshot (window_items, set_slot, held_item_slot)
+    Note over SR: POST_REPLAY_SETTLE_MS (~2.5s)
+    SM->>Server: chunk_batch_received (ackChunkBatchToServer)
+    loop Live HANDOFF stream (until ClientBridge)
+        Server->>SC: map_chunk
+        SC->>Player: handoffSync live forward
+    end
     Note over SR: State replay complete
     SM->>SC: syncProxyClientPosition(client) [Final snap]
     SC->>Player: Send updated 'position' + 'update_view_position'
@@ -198,7 +205,7 @@ Summary of policies that span multiple modules (not obvious from individual clas
 
 | Port (default) | Listener | Max clients | When accepted |
 | :--- | :--- | :--- | :--- |
-| **25566** | [ProxyServer](file:///home/seb/flayerproxy/src/proxy/ProxyServer.js) | **1** | `BOT_MODE` only; slot reserved on `login`, released on reject/disconnect |
+| **25566** | [ProxyServer](file:///home/seb/flayerproxy/src/proxy/ProxyServer.js) | **1** | Normally `BOT_MODE`; after auto logout, login allowed while bot offline (reconnect on `preparePlayLogin`) |
 | **25568** | [SpectatorProxyServer](file:///home/seb/flayerproxy/src/proxy/SpectatorProxyServer.js) | **20** (configurable) | Upstream connected and not `INIT`/`HANDOFF`; allowed in `BOT_MODE` (bot control) or `CLIENT_MODE` |
 
 Disable spectators with `spectator.enabled: false` in `config.json`.
@@ -208,7 +215,10 @@ Disable spectators with `spectator.enabled: false` in `config.json`.
 | Phase | `map_chunk` behavior |
 | :--- | :--- |
 | **Bot session (cache)** | [ChunkCache](file:///home/seb/flayerproxy/src/state/ChunkCache.js) stores only chunks within view distance of the bot view center (`update_view_position` or player position + `update_view_distance`). Out-of-view chunks are skipped on ingest and pruned via `forgetOutsideView`. |
-| **Handoff replay** | [StateReplayer](file:///home/seb/flayerproxy/src/replay/StateReplayer.js) + `getChunksForReplay()` send **only** in-view cached chunks (nearest-first). |
+| **Priming** | [SessionManager._primeChunksNearBot](file:///home/seb/flayerproxy/src/session/SessionManager.js) waits until in-view count ≥ `minChunksForHandoff(viewDistance)` (or timeout). |
+| **Handoff replay** | [StateReplayer](file:///home/seb/flayerproxy/src/replay/StateReplayer.js) + `getChunksForReplay()` send **only** in-view cached chunks (nearest-first); warns if below minimum. |
+| **HANDOFF live** | [handoffSync.installHandoffLiveChunkForward](file:///home/seb/flayerproxy/src/utils/handoffSync.js) forwards live chunks to the play client until [ClientBridge](file:///home/seb/flayerproxy/src/proxy/ClientBridge.js) starts. |
+| **After replay** | `ackChunkBatchToServer` sends `chunk_batch_received` upstream. |
 | **CLIENT_MODE bridge** | [ClientBridge](file:///home/seb/flayerproxy/src/proxy/ClientBridge.js) forwards **all** upstream `map_chunk` packets. May send `update_view_position` so the client accepts chunks outside its local cache radius. |
 
 Chunks are **server-pushed**; the bot/client mainly acks via `chunk_batch_received` and movement/view packets.
@@ -221,6 +231,10 @@ Chunks are **server-pushed**; the bot/client mainly acks via `chunk_batch_receiv
 
 - **Movement:** Vanilla spectator free-cam is largely client-side. The proxy cannot rely on dropping C2S alone; [SpectatorHub](file:///home/seb/flayerproxy/src/spectator/SpectatorHub.js) locks the camera to the bot entity (`camera` packet), snaps position on movement C2S, and runs a 1s correction loop.
 - **Idle swing:** The server does not echo the bot’s own arm swing. [BotIdleBehavior](file:///home/seb/flayerproxy/src/session/BotIdleBehavior.js) → [ServerConnection._emitBotSwingAnimation](file:///home/seb/flayerproxy/src/session/ServerConnection.js) → `botVisual` → spectator `animation` fan-out.
+
+### Auto logout (bot mode only)
+
+[BotAutoLogout](file:///home/seb/flayerproxy/src/session/BotAutoLogout.js) disconnects upstream on damage or disallowed players (`config.bot.autoLogout`). No automatic reconnect until a play client joins **25566**: [SessionManager._preparePlayLogin](file:///home/seb/flayerproxy/src/session/SessionManager.js) → `_startAutoLogoutReconnect` (clear cache, reconnect, 12s chunk prime) during configuration; handoff shows a system chat notice. Spectators are rejected while the bot is offline.
 
 ### Bot idle (no play client)
 
@@ -238,7 +252,7 @@ The main entry point for the application. Loads system config, logs play and spe
 
 | Function | Description |
 |---|---|
-| `shutdown(signal)` | Gracefully stops the proxy and exits the node process. |
+| `shutdown(signal)` | `SessionManager.stop()` with graceful client disconnects; duplicate signal guard. |
 
 #### 📄 [src/config.js](file:///home/seb/flayerproxy/src/config.js)
 
@@ -263,16 +277,20 @@ Orchestrates the dual-mode proxy state machine: `INIT` ↔ `BOT_MODE` ↔ `HANDO
 | `constructor(config)` | Initializes state machine, play proxy, optional spectator proxy/hub, and replayer. |
 | `start()` | Connects upstream bot, starts play proxy (25566), and spectator proxy (25568) if enabled. |
 | `_scheduleReconnect(delaySec)` | Schedules a timed reconnect sequence if the connection is lost. |
-| `_setupServerEvents()` | Hooks upstream server events (`connected`, `disconnected`, `kicked`, `error`, `death`, `respawn`). |
-| `_primeChunksNearBot()` | Triggers server movement packets to verify that the chunk cache is loaded near the bot before handing off. |
+| `_setupServerEvents()` | Hooks upstream server events (`connected`, `disconnected`, `kicked`, `error`, `death`, `respawn`, `autoLogout`). |
+| `_startAutoLogoutReconnect()` | After auto logout: clear cache, reconnect bot, `_waitForBotSessionReady`, registry, `_primeChunksNearBot` (12s), stash handoff chat notice. |
+| `_preparePlayLogin(client)` | `ProxyServer` `beforeConfigReplay`: reconnect if bot offline; else re-prime chunks when awaiting auto-logout handoff. |
+| `_chunkHandoffCounts()` | Returns `{ cx, cz, viewDistance, count, min }` for priming/replay logging. |
+| `_primeChunksNearBot(waitMs?)` | `confirmServerPosition` until in-view cache ≥ `minChunksForHandoff` or timeout (1.5s default, 12s after auto logout). |
+| `_waitForBotSessionReady()` | Polls until connected + `configReady` + play `login` cached. |
 | `_refreshClientAfterBotRespawn()` | Re-aligns position and client view in case the bot respawns while a client is connected. |
-| `_clientSlotStatus()` | Returns whether the play port may accept a new login (single client, `BOT_MODE` only). |
+| `_clientSlotStatus()` | Play slot: single client; allows login while bot offline after auto logout; “Reconnecting…” during reconnect promise. |
 | `_spectatorSlotStatus()` | Returns whether the spectator port may accept logins (connected, not `INIT`/`HANDOFF`; `BOT_MODE` with bot control or `CLIENT_MODE`). |
 | `_rejectClient(client, reason)` | Kicks play client and releases `ProxyServer.activeClient` slot. |
 | `_onClientConnect(client)` | Validates play slot, then handoff `BOT_MODE` → `CLIENT_MODE`. |
 | `_cleanupClient()` | Stops bridge, releases play client slot, clears `currentClient`. |
 | `_transitionTo(newState)` | Transitions the machine state and logs status summaries. |
-| `stop()` | Gracefully halts all services. |
+| `stop()` | Graceful play/spectator disconnects, upstream disconnect, closes listeners. |
 
 #### 🧩 [ServerConnection](file:///home/seb/flayerproxy/src/session/ServerConnection.js) `class` extends `EventEmitter`
 
@@ -286,7 +304,7 @@ Manages the persistent Mineflayer bot connection to the target server.
 | `_setupPacketCapture()` | Hooks play packets and routes them directly to the state cache. |
 | `_setupBotEvents()` | Listens for bot lifecycle events; creates [BotIdleBehavior](file:///home/seb/flayerproxy/src/session/BotIdleBehavior.js) on spawn. |
 | `_emitBotSwingAnimation(hand)` | Emits `botVisual` (`animation` packet) so spectators see idle swings (server does not echo self-swing). |
-| `setBotControl(enabled)` | Enables/disables physics; starts/stops [BotIdleBehavior](file:///home/seb/flayerproxy/src/session/BotIdleBehavior.js). |
+| `setBotControl(enabled)` | Enables/disables physics; starts/stops [BotIdleBehavior](file:///home/seb/flayerproxy/src/session/BotIdleBehavior.js) and [BotAutoLogout](file:///home/seb/flayerproxy/src/session/BotAutoLogout.js). |
 | `setClientDrivesChunkBatchAck(clientDrives)` | Delegates chunk batch acknowledgement control between client and Mineflayer. |
 | `flushChunkBatchAck()` | Unblocks the server chunk sender. |
 | `refreshProxyClientPermissions(client)` | Sends player permissions status packets. |
@@ -322,7 +340,17 @@ Intercepts Mineflayer's chunk batch acknowledgement listeners to prevent double-
 
 | Function | Description |
 |---|---|
-| `performHandoff({...})` | Coordinates the sequential handoff sequence: installs temporary upstream forwarding rules, primes nearby chunks, triggers the [StateReplayer](file:///home/seb/flayerproxy/src/replay/StateReplayer.js), aligns player coordinates/permissions, and spawns the [ClientBridge](file:///home/seb/flayerproxy/src/proxy/ClientBridge.js). |
+| `performHandoff({...})` | `installHandoffUpstreamRelay` + `installHandoffLiveChunkForward` → `primeChunks` → `replayer.replay` → `ackChunkBatchToServer` → position sync → `player_loaded` → remove relay → [ClientBridge](file:///home/seb/flayerproxy/src/proxy/ClientBridge.js). |
+
+#### 🧩 [BotAutoLogout](file:///home/seb/flayerproxy/src/session/BotAutoLogout.js) `class`
+
+Disconnects the bot in `BOT_MODE` when `config.bot.autoLogout` triggers fire. Started/stopped with `setBotControl`.
+
+| Method | Description |
+|---|---|
+| `constructor(bot, botConfig, isActive, onLogout, authUsername)` | `allowedPlayers` + bot username always allowed. |
+| `start()` / `stop()` | Arms `entityHurt`, `playerJoined`, `entitySpawn` listeners. |
+| `_trigger(kind)` | Once: `onLogout` → SessionManager sets reason, suppresses reconnect, kicks spectators, `serverConn.disconnect()`. |
 
 #### 🧩 [BotIdleBehavior](file:///home/seb/flayerproxy/src/session/BotIdleBehavior.js) `class`
 
@@ -348,9 +376,9 @@ Listens for connection attempts from standard Minecraft Java clients.
 
 | Method | Description |
 |---|---|
-| `constructor(config, onClientConnect, worldState, canAcceptClient)` | Play proxy; optional `canAcceptClient()` gate from [SessionManager](file:///home/seb/flayerproxy/src/session/SessionManager.js). |
+| `constructor(config, onClientConnect, worldState, canAcceptClient, preparePlayLogin)` | Play proxy; slot gate + optional async hook before config replay. |
 | `releaseClient(client)` | Clears `activeClient` if it matches (used on reject/disconnect). |
-| `start()` | `mc.createServer` on `config.proxy.port`; **reserves single slot on `login`**; replays raw config on `login_acknowledged`; `playerJoin` only for reserved client. |
+| `start()` | `mc.createServer` on `config.proxy.port`; **reserves single slot on `login`**; `installConfigurationJoin` on `login_acknowledged` (sync handler + `beforeConfigReplay`); `playerJoin` only for reserved client. |
 | `updateRegistryCodec(codec)` | Replaces the registry codec object in the protocol handler options. |
 | `stop()` | Disconnects active client and closes listener. |
 
@@ -367,7 +395,7 @@ Manages bidirectional packet pipelines when in `CLIENT_MODE`.
 | `_playerBlockCoordsForView()`                    | Returns coordinates representing the client player's view anchor.                                                                                                                                  |
 | `_ensureViewIncludesChunk(chunkX, chunkZ)`       | Ensures the client's view includes target coordinates prior to sending map chunks.                                                                                                                 |
 | `enableMovement()`                               | Authorizes client movement and syncs view center alignment.                                                                                                                                        |
-| `start()`                                        | Sets up packet intercept listeners; filters orphan `tracked_waypoint` updates via [waypointRelay.js](file:///home/seb/flayerproxy/src/utils/waypointRelay.js). |
+| `start()`                                        | `setClientDrivesChunkBatchAck(true)` + `flushChunkBatchAck`; blocks `cookie_request` / `store_cookie` S2C; filters orphan `tracked_waypoint` via [waypointRelay.js](file:///home/seb/flayerproxy/src/utils/waypointRelay.js). |
 | `_shouldForwardPlayerInfo(data)`                 | Filters latency updates for unknown players.                                                                                                                                                       |
 | `stop()`                                         | Tears down the forwarding pipe.                                                                                                                                                                    |
 
@@ -629,17 +657,21 @@ Replays the cached world state to a connecting play or spectator client.
 | 10 | Spawned entities (metadata, passengers, effects) |
 | 11 | XP, health, and status effects |
 | 12 | Full inventory (`window_items`) |
+| — | `POST_REPLAY_SETTLE_MS` delay before handoff position sync (vanilla “Loading Terrain” window) |
 
 #### 📄 [replayChunks.js](file:///home/seb/flayerproxy/src/replay/replayChunks.js) `functions`
 
 | Function | Description |
 |---|---|
-| `replayChunks(write, writeRaw, chunks, center, totalCached)` | Loops through chunk arrays, sending raw chunk/light buffers and block overlay edits, and issues a final `chunk_batch_finished` packet. |
+| `replayChunks(write, writeRaw, chunks, center, totalCached, viewDistance?)` | Sends cached `map_chunk` (raw when available), `chunk_batch_finished` with `batchSize`; warns if below `minChunksForHandoff`. |
 
 #### 📄 [replayHelpers.js](file:///home/seb/flayerproxy/src/replay/replayHelpers.js) `functions`
 
-| Function | Description |
+| Function / constant | Description |
 |---|---|
+| `minChunksForHandoff(viewDistance)` | Minimum in-view cached chunks before handoff (capped radius 4, at least 9). |
+| `POST_REPLAY_SETTLE_MS` | ~2500 ms delay after replay completes. |
+| `CHUNK_YIELD_EVERY` | Yields event loop every N chunks during replay. |
 | `yieldEventLoop()` | Yields the event loop using `setImmediate`. |
 | `replayPacketData(client, name, data)` | Overrides `enforcesSecureChat` to `false` for clients connecting without secure Mojang keys. |
 | `getPlayerChunkCenter(playerState, misc, bot)` | Resolves chunk coordinates for position center checks. |
@@ -672,16 +704,33 @@ Replays the cached world state to a connecting play or spectator client.
 | Function | Description |
 |---|---|
 | `disconnectReasonText(reason)` | Formats error reason arguments into plain text strings. |
+| `buildDisconnectPayload(reason)` | Builds disconnect/chat payload for graceful end. |
 | `wrapClientEnd(client)` | Wraps connection end methods to prevent formatting exceptions. |
-| `safeEndClient(client, reason)` | Disconnects client sockets. |
+| `gracefulEndClient(client, reason)` | Config replay end + delayed `end` for vanilla login race safety. |
+| `rejectProxyLogin(client, reason)` | Removes `login_acknowledged` listeners before disconnect. |
+| `disconnectServerClients(server, reason)` | Ends all clients on a listen socket. |
+| `closeServerListenSocket(server)` | Closes proxy listener. |
+| `safeEndClient(client, reason)` | Immediate disconnect (errors). |
 
-#### 📄 [handoffSync.js](file:///home/seb/flayerproxy/src/utils/handoffSync.js) `functions`
+#### 📄 [configReplay.js](file:///home/seb/flayerproxy/src/utils/configReplay.js) `functions`
 
 | Function | Description |
 |---|---|
-| `installHandoffUpstreamRelay(client, serverConn, log)` | Pipes chunk batch and player loaded packets directly to the server connection during handoff. |
-| `removeHandoffUpstreamRelay(client, handler)` | Removes the handoff forwarding pipe. |
-| `sendPermissionStatusToClient(client, permissionStatus, log)` | Sends the player's OP status packet to the client. |
+| `installConfigurationJoin(client, server, worldState, log, opts?)` | Replaces vanilla config on `login_acknowledged`; optional `beforeConfigReplay` async hook; ordered replay + `finish_configuration`. |
+| `rejectProxyLogin(client, reason)` | Reject play/spectator login with safe disconnect. |
+| `replayConfigToClient(client, worldState, log)` | Replays cached config entries (`writeRaw` for registry/custom payload). Skips `cookie_request`. |
+
+#### 📄 [handoffSync.js](file:///home/seb/flayerproxy/src/utils/handoffSync.js) `functions`
+
+| Function / constant | Description |
+|---|---|
+| `LEVEL_CHUNKS_LOAD_START` | `game_state_change` reason 13 for replay. |
+| `installHandoffUpstreamRelay(client, serverConn, log)` | Client C2S → upstream: `chunk_batch_received`, `player_loaded`. |
+| `removeHandoffUpstreamRelay(client, handler)` | Removes upstream relay listener. |
+| `ackChunkBatchToServer(serverConn, log)` | Sends `chunk_batch_received` on bot connection after replay. |
+| `installHandoffLiveChunkForward(client, serverConn, worldState, log)` | Subscribes `serverPacket` → play client for chunks/batch/view during `HANDOFF`. |
+| `removeHandoffLiveChunkForward(serverConn, handler)` | Removes live forward listener (in `performHandoff` `finally`). |
+| `sendPermissionStatusToClient(client, permissionStatus, log)` | Sends cached OP `entity_status` to the play client. |
 
 #### 📄 [logger.js](file:///home/seb/flayerproxy/src/utils/logger.js) `functions`
 

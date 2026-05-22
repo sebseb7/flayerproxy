@@ -1,10 +1,13 @@
 /**
  * Replay upstream configuration packets to proxy clients after login_acknowledged.
- * Runs on prepend (before login.js) with client.state = configuration so packet IDs match.
- * Preserves upstream receive order (registry_data before tags). login.js only sends finish_configuration.
+ * Replaces minecraft-protocol login.js onClientLoginAck (empty registry + finish_configuration)
+ * so replay is not followed by conflicting vanilla packets.
  */
 
-const CONFIGURATION_STATE = 'configuration';
+const states = require('minecraft-protocol/src/states');
+const { safeEndClient } = require('./clientDisconnect');
+
+const CONFIGURATION_STATE = states.CONFIGURATION;
 
 /** Upstream configuration S2C to capture (receive order preserved). */
 const CONFIG_CAPTURE_NAMES = new Set([
@@ -29,8 +32,8 @@ const CONFIG_SKIP_REPLAY = new Set([
   'transfer',
 ]);
 
-/** Prefer writeRaw — payload includes restBuffer / NBT that clone+write cannot round-trip */
-const CONFIG_WIRE_REPLAY = new Set(['registry_data', 'custom_payload']);
+/** Captured wire bytes only for these — everything else is re-encoded on the proxy serializer. */
+const CONFIG_WIRE_ONLY = new Set(['registry_data', 'custom_payload']);
 
 function payloadForWrite(name, data) {
   if (name !== 'custom_payload' || data == null) return data;
@@ -39,6 +42,30 @@ function payloadForWrite(name, data) {
     return { ...data, data: Buffer.from(data.data) };
   }
   return data;
+}
+
+/**
+ * @param {object} client - minecraft-protocol server client
+ * @param {string} name
+ * @param {object|null} data
+ * @param {Buffer|null} buffer
+ */
+function writeConfigPacket(client, name, data, buffer) {
+  if (CONFIG_WIRE_ONLY.has(name) && buffer?.length) {
+    client.writeRaw(buffer);
+    return;
+  }
+  if (data != null) {
+    const packetBuf = client.serializer.createPacketBuffer({
+      name,
+      params: payloadForWrite(name, data),
+    });
+    client.writeRaw(packetBuf);
+    return;
+  }
+  if (buffer?.length) {
+    client.writeRaw(buffer);
+  }
 }
 
 /**
@@ -63,7 +90,6 @@ function replayConfigToClient(client, worldState, log) {
     return false;
   }
 
-  // login.js onClientLoginAck has not run yet; serializer must use configuration mappings.
   if (client.state !== CONFIGURATION_STATE) {
     client.state = CONFIGURATION_STATE;
   }
@@ -74,11 +100,7 @@ function replayConfigToClient(client, worldState, log) {
     if (data == null && !buffer?.length) continue;
 
     try {
-      if (CONFIG_WIRE_REPLAY.has(name) && buffer?.length) {
-        client.writeRaw(buffer);
-      } else if (data != null) {
-        client.write(name, payloadForWrite(name, data));
-      }
+      writeConfigPacket(client, name, data, buffer);
       sent++;
     } catch (err) {
       if (log) log.error(`Config replay '${name}' for ${client.username}:`, err.message);
@@ -91,7 +113,52 @@ function replayConfigToClient(client, worldState, log) {
   return sent > 0;
 }
 
+/**
+ * End a login that cannot proceed. Removes vanilla login_acknowledged handlers first —
+ * otherwise login.js still sends registry/finish_configuration after end() and desyncs the client.
+ */
+function rejectProxyLogin(client, reason) {
+  client.removeAllListeners('login_acknowledged');
+  client.removeAllListeners('finish_configuration');
+  safeEndClient(client, reason);
+}
+
+/**
+ * Take over configuration after login_acknowledged (removes vanilla login.js handler).
+ * Handler is registered synchronously on login so ack is never missed; optional
+ * beforeConfigReplay runs first (e.g. wait for bot reconnect after auto-logout).
+ *
+ * @param {object} client
+ * @param {import('minecraft-protocol').Server} mcServer
+ * @param {import('../state/WorldStateCache').WorldStateCache} worldState
+ * @param {import('../utils/logger').Logger} log
+ * @param {{ beforeConfigReplay?: () => Promise<void> }} [hooks]
+ */
+function installConfigurationJoin(client, mcServer, worldState, log, hooks = {}) {
+  client.removeAllListeners('login_acknowledged');
+  client.once('login_acknowledged', () => {
+    (async () => {
+      try {
+        if (hooks.beforeConfigReplay) {
+          await hooks.beforeConfigReplay();
+        }
+        replayConfigToClient(client, worldState, log);
+        client.once('finish_configuration', () => {
+          client.state = states.PLAY;
+          mcServer.emit('playerJoin', client);
+        });
+        client.write('finish_configuration', {});
+      } catch (err) {
+        log.error(`Configuration join failed for ${client.username}:`, err.message);
+        rejectProxyLogin(client, err.message || 'Configuration failed');
+      }
+    })();
+  });
+}
+
 module.exports = {
   CONFIG_CAPTURE_NAMES,
   replayConfigToClient,
+  rejectProxyLogin,
+  installConfigurationJoin,
 };

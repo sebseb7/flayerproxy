@@ -67,7 +67,8 @@ class ClientBridge {
       'paddle_boat',
     ]);
 
-    this._blockedServerPackets = new Set();
+    // Upstream cookie packets are for the bot connection; re-encoding breaks proxy clients.
+    this._blockedServerPackets = new Set(['cookie_request', 'store_cookie']);
 
     /** Locator waypoints the play client has seen (replay + live track) */
     this._knownWaypointKeys = new Set(worldState.misc.getKnownWaypointKeys());
@@ -237,7 +238,7 @@ class ClientBridge {
         if (this.client.state !== 'play') return;
 
         // update_view_position must arrive before map_chunk in the same batch (ChunkMap.java)
-        if (buffer && RAW_FORWARD_PACKETS.has(name)) {
+        if (buffer?.length && RAW_FORWARD_PACKETS.has(name)) {
           this.client.writeRaw(buffer);
           return;
         }

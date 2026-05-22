@@ -189,7 +189,7 @@ class StateReplayer {
     write('chunk_batch_start', {});
     const totalCached = ws.chunks.size;
     const chunks = ws.chunks.getChunksForReplay(center.chunkX, center.chunkZ, viewDistance);
-    await replayChunks(write, writeRaw, chunks, center, totalCached);
+    await replayChunks(write, writeRaw, chunks, center, totalCached, viewDistance);
 
     // 10. Entities
     const entities = ws.entities.getAllEntities();

@@ -3,6 +3,16 @@ const CHUNK_YIELD_EVERY = 32;
 /** Vanilla keeps "Loading Terrain" at least ~2s after chunks start loading */
 const POST_REPLAY_SETTLE_MS = 2500;
 
+/**
+ * Minimum in-view cached chunks before handoff replay (avoids "Loading Terrain" with 1 chunk).
+ * @param {number} viewDistance
+ */
+function minChunksForHandoff(viewDistance) {
+  const vd = Math.max(viewDistance ?? 10, 2);
+  const radius = Math.min(vd, 4);
+  return Math.max(9, (2 * radius + 1) ** 2);
+}
+
 function yieldEventLoop() {
   return new Promise((resolve) => setImmediate(resolve));
 }
@@ -99,6 +109,7 @@ module.exports = {
   TELEPORT_CONFIRM_TIMEOUT_MS,
   CHUNK_YIELD_EVERY,
   POST_REPLAY_SETTLE_MS,
+  minChunksForHandoff,
   yieldEventLoop,
   replayPacketData,
   getPlayerChunkCenter,

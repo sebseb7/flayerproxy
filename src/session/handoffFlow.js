@@ -2,6 +2,9 @@ const { createLogger } = require('../utils/logger');
 const {
   installHandoffUpstreamRelay,
   removeHandoffUpstreamRelay,
+  ackChunkBatchToServer,
+  installHandoffLiveChunkForward,
+  removeHandoffLiveChunkForward,
   sendPermissionStatusToClient,
 } = require('../utils/handoffSync');
 const { ClientBridge } = require('../proxy/ClientBridge');
@@ -23,11 +26,13 @@ const log = createLogger('Session');
  */
 async function performHandoff({ client, serverConn, worldState, replayer, proxyServer, primeChunks, isHandoffState }) {
   const upstreamRelay = installHandoffUpstreamRelay(client, serverConn, log);
+  const liveChunkForward = installHandoffLiveChunkForward(client, serverConn, worldState, log);
 
   try {
     await primeChunks();
     // Replay cached state (placeNewPlayer order: teleport → level info → chunks)
     await replayer.replay(client);
+    ackChunkBatchToServer(serverConn, log);
 
     if (!isHandoffState()) return null;
 
@@ -61,6 +66,8 @@ async function performHandoff({ client, serverConn, worldState, replayer, proxyS
     log.error('Error during handoff:', err);
     removeHandoffUpstreamRelay(client, upstreamRelay);
     return null;
+  } finally {
+    removeHandoffLiveChunkForward(serverConn, liveChunkForward);
   }
 }
 

@@ -7,7 +7,7 @@ const {
   closeServerListenSocket,
 } = require('../utils/clientDisconnect');
 const { disableInboundChatValidation } = require('../utils/chatRelay');
-const { replayConfigToClient } = require('../utils/configReplay');
+const { installConfigurationJoin, rejectProxyLogin } = require('../utils/configReplay');
 
 const log = createLogger('SpectatorProxy');
 
@@ -48,17 +48,16 @@ class SpectatorProxyServer {
 
     this.server.on('login', (client) => {
       wrapClientEnd(client);
+      client.removeAllListeners('login_acknowledged');
 
       const slot = this.canAcceptClient?.() ?? { ok: true };
       if (!slot.ok) {
         log.warn(`Rejecting spectator ${client.username || 'client'}: ${slot.reason}`);
-        client.end(slot.reason);
+        rejectProxyLogin(client, slot.reason);
         return;
       }
 
-      client.prependOnceListener('login_acknowledged', () => {
-        replayConfigToClient(client, this.worldState, log);
-      });
+      installConfigurationJoin(client, this.server, this.worldState, log);
     });
 
     this.server.on('playerJoin', (client) => {

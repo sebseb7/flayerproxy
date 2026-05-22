@@ -31,8 +31,6 @@ For class-level file mapping, see [codebase_map.md](codebase_map.md).
 
 ## 1. Connection Handshake & Protocol Transition
 
-## 1. Connection Handshake & Protocol Transition
-
 When a client initiates a connection to a Minecraft server, it starts in the **Handshake** protocol. This is handled by [ServerHandshakePacketListenerImpl](file:///home/seb/flayerproxy/serversSrc/net/minecraft/server/network/ServerHandshakePacketListenerImpl.java).
 
 ```mermaid
@@ -307,7 +305,16 @@ stateDiagram-v2
     CLIENT_MODE --> INIT : upstream disconnect
 ```
 
-While in **`BOT_MODE`**, the bot holds the upstream session, runs optional anti-AFK idle actions, and [WorldStateCache](src/state/WorldStateCache.js) records S2C play packets. Spectators on **25568** can attach in parallel without changing this state.
+While in **`BOT_MODE`**, the bot holds the upstream session, runs optional anti-AFK idle actions, optional [BotAutoLogout](src/session/BotAutoLogout.js), and [WorldStateCache](src/state/WorldStateCache.js) records S2C play packets. Spectators on **25568** can attach in parallel without changing this state.
+
+### Auto logout and play-port reconnect
+
+| Event | Behavior |
+| :--- | :--- |
+| Trigger (`onDamage` / `onPlayer`) | Bot disconnects upstream; `_suppressReconnect` blocks auto-reconnect; spectators kicked with `Bot Auto disconnected`. |
+| Play login while bot offline | `_clientSlotStatus` allows login; `_preparePlayLogin` runs on `login_acknowledged` **before** config replay. |
+| `_startAutoLogoutReconnect` | `worldState.clear()`, reconnect bot, wait for config/login cache, `_primeChunksNearBot` (12s), stash chat notice for handoff. |
+| Handoff after reconnect | Same as normal handoff; longer chunk prime window; system chat on join. |
 
 ---
 
@@ -323,23 +330,32 @@ sequenceDiagram
     participant SM as SessionManager
     participant SC as ServerConnection (bot)
     participant SR as StateReplayer
+    participant HS as handoffSync
     participant Server as Upstream server
 
-    Note over SM,SC: BOT_MODE
+    Note over SM,SC: BOT_MODE (or bot reconnecting after auto logout)
     Player->>PS: TCP + login
-    PS->>PS: Reserve single activeClient on login
-    PS->>SM: _onClientConnect
+    PS->>PS: login_acknowledged → preparePlayLogin (if auto logout)
+    PS->>SM: config replay → playerJoin → _onClientConnect
     Note over SM: HANDOFF
     SM->>SC: setBotControl(false)
+    SM->>SM: _primeChunksNearBot (min in-view chunk count)
+    SM->>HS: installHandoffUpstreamRelay + live chunk forward
     SM->>SR: replay(client)
-    SR->>Player: login, difficulty, abilities, recipes, position
-    Player-->>SR: teleport_confirm
-    SR->>Player: player_info, border, time, chunks (in-view only)
-    SR->>Player: entities, health, inventory
+    SR->>Player: login … chunks, entities, health, inventory
+    Note over SR: POST_REPLAY_SETTLE_MS
+    HS->>Server: chunk_batch_received (after replay)
+    par HANDOFF live stream
+        Server->>SC: map_chunk (bot connection)
+        SC->>Player: handoffSync live forward
+    and Replay + settle
+        SR->>Player: cached state
+    end
     SM->>SC: syncProxyClientPosition, confirmServerPosition
-    SM->>Server: position_look, player_loaded
+    SM->>Server: player_loaded
+    HS->>HS: remove upstream relay
     Note over SM: CLIENT_MODE
-    SM->>Player: ClientBridge bidirectional pipe
+    SM->>Player: ClientBridge (client drives chunk_batch_received)
 ```
 
 **Replay order** (aligned with vanilla `PlayerList.placeNewPlayer` where possible):
@@ -358,7 +374,7 @@ sequenceDiagram
 
 After replay, the bridge forwards almost all upstream S2C packets. `tracked_waypoint` updates are filtered until the client has the waypoint key (from replay or a live `track`). Chunks and registry-heavy packets use `writeRaw` when listed in [RAW_FORWARD_PACKETS](src/constants/rawPackets.js). Client movement C2S is translated and sent upstream via the bot.
 
-**Config phase on proxy clients:** On `login_acknowledged` (prepend, before `finish_configuration`), [configReplay.js](src/utils/configReplay.js) sets **configuration** state and replays cached packets in **upstream receive order** (`registry_data` first, then `tags`, …). `registry_data` uses `writeRaw` when a buffer was captured; other packets use `client.write()`. `server.options.registryCodec` is left empty so login.js only sends `finish_configuration`. Spectators are rejected until `configReady`.
+**Config phase on proxy clients:** On `login_acknowledged`, [configReplay.js](src/utils/configReplay.js) replaces vanilla `login.js` config handling (handler registered on proxy `login`, not after async work): optional `beforeConfigReplay` → `preparePlayLogin` (auto-logout reconnect + chunk prime) → replay upstream packets in receive order (`registry_data` / `custom_payload` from captured wire bytes; others re-encoded on the proxy serializer) → `finish_configuration`. `cookie_request` is not replayed. Play bridge blocks upstream `cookie_request` / `store_cookie` (bot-only). Spectators are rejected until `configReady`.
 
 ---
 
@@ -428,8 +444,12 @@ Chunks are **server-pushed**; the bot and proxy clients acknowledge with `chunk_
 | Phase | What happens to `map_chunk` |
 | :--- | :--- |
 | **Upstream → cache** (`BOT_MODE` / `CLIENT_MODE`) | Store only if within view distance of bot view center (`update_view_position` or player position + `update_view_distance`). Out-of-view entries pruned (`forgetOutsideView`). |
-| **Handoff / spectator replay** | `getChunksForReplay(center, viewDistance)` — in-view cached chunks only, nearest-first |
+| **Priming** (`_primeChunksNearBot`) | If in-view cache count &lt; `minChunksForHandoff(viewDistance)` (e.g. 81 for vd=10, capped radius 4), `confirmServerPosition` and wait for upstream `map_chunk` on the bot connection (1.5s default, 12s after auto logout). |
+| **Handoff replay** | `getChunksForReplay(center, viewDistance)` — in-view cached chunks only, nearest-first; warns if below minimum; `chunk_batch_finished` with `batchSize = chunks.length`. |
+| **`HANDOFF` live** | [handoffSync.js](src/utils/handoffSync.js) forwards live `map_chunk`, `update_light`, batch markers, and `update_view_position` to the play client before `ClientBridge` starts. |
 | **`CLIENT_MODE` live bridge** | Forward **all** upstream `map_chunk`; may send `update_view_position` first so vanilla accepts chunks outside the replayed set |
+
+After replay, the proxy sends **`chunk_batch_received`** upstream (replay batches are client-local; the server still needs an ack to continue streaming). `ClientBridge.start()` sets client-driven acks and calls `flushChunkBatchAck()`.
 
 Block/light deltas (`block_change`, `multi_block_change`, `update_light`) are merged into cached columns via [chunkMerge.js](src/state/chunkMerge.js). Binary fields must remain Node `Buffer` instances (not `Uint8Array` after `structuredClone`) for prismarine-chunk.
 
@@ -451,9 +471,18 @@ Defined in [rawPackets.js](src/constants/rawPackets.js). Avoids NBT/chunk re-ser
 
 [ServerConnection](src/session/ServerConnection.js) emits every play S2C packet as `serverPacket(name, data, buffer)` after [WorldStateCache.handleServerPacket](src/state/WorldStateCache.js). [ClientBridge](src/proxy/ClientBridge.js) and [SpectatorHub](src/spectator/SpectatorHub.js) subscribe separately.
 
-### Handoff-only upstream relay
+### Handoff helpers ([handoffSync.js](src/utils/handoffSync.js))
 
-During `HANDOFF`, [handoffSync.js](src/utils/handoffSync.js) may forward client `chunk_batch_received` and `player_loaded` directly upstream before the bridge starts.
+| Function | Role |
+| :--- | :--- |
+| `installHandoffUpstreamRelay` | Client → server: `chunk_batch_received`, `player_loaded` during `HANDOFF`. |
+| `installHandoffLiveChunkForward` | Server → client: live chunks/batch/view packets on `serverPacket` during `HANDOFF`. |
+| `ackChunkBatchToServer` | After replay, sends `chunk_batch_received` on the bot upstream connection. |
+| `sendPermissionStatusToClient` | Replays cached OP `entity_status` after position sync. |
+
+### Graceful disconnect ([clientDisconnect.js](src/utils/clientDisconnect.js))
+
+`rejectProxyLogin` removes `login_acknowledged` listeners before `end`. Shutdown uses `gracefulEndClient` + config replay end + delayed socket close so vanilla handlers do not race disconnect.
 
 ---
 

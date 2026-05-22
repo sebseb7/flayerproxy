@@ -7,7 +7,7 @@ const {
   closeServerListenSocket,
 } = require('../utils/clientDisconnect');
 const { disableInboundChatValidation } = require('../utils/chatRelay');
-const { replayConfigToClient } = require('../utils/configReplay');
+const { installConfigurationJoin, rejectProxyLogin } = require('../utils/configReplay');
 
 const log = createLogger('ProxyServer');
 
@@ -17,12 +17,14 @@ class ProxyServer {
    * @param {(client: object) => void} onClientConnect
    * @param {import('../state/WorldStateCache').WorldStateCache} worldState
    * @param {() => { ok: boolean, reason?: string }} [canAcceptClient]
+   * @param {(client: object) => Promise<void>} [preparePlayLogin]
    */
-  constructor(config, onClientConnect, worldState, canAcceptClient) {
+  constructor(config, onClientConnect, worldState, canAcceptClient, preparePlayLogin) {
     this.config = config;
     this.onClientConnect = onClientConnect;
     this.worldState = worldState;
     this.canAcceptClient = canAcceptClient;
+    this.preparePlayLogin = preparePlayLogin;
     this.server = null;
     this.activeClient = null;
   }
@@ -53,6 +55,7 @@ class ProxyServer {
 
     this.server.on('login', (client) => {
       wrapClientEnd(client);
+      client.removeAllListeners('login_acknowledged');
 
       const slot = this.canAcceptClient?.() ?? {
         ok: !this.activeClient,
@@ -61,7 +64,7 @@ class ProxyServer {
       if (!slot.ok || this.activeClient) {
         const reason = slot.reason || 'Only one client can connect at a time.';
         log.warn(`Rejecting login for ${client.username || 'client'}: ${reason}`);
-        client.end(reason);
+        rejectProxyLogin(client, reason);
         return;
       }
 
@@ -71,8 +74,11 @@ class ProxyServer {
         this.releaseClient(client);
       });
 
-      client.prependOnceListener('login_acknowledged', () => {
-        replayConfigToClient(client, this.worldState, log);
+      // Register login_acknowledged before reconnect finishes — client sends ack immediately.
+      installConfigurationJoin(client, this.server, this.worldState, log, {
+        beforeConfigReplay: this.preparePlayLogin
+          ? () => this.preparePlayLogin(client)
+          : undefined,
       });
     });
 
@@ -81,7 +87,7 @@ class ProxyServer {
 
       if (this.activeClient !== client) {
         log.warn(`Rejecting playerJoin for ${client.username} — not the active client`);
-        client.end('Only one client can connect at a time.');
+        rejectProxyLogin(client, 'Only one client can connect at a time.');
         return;
       }
 

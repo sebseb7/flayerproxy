@@ -23,7 +23,7 @@ const SPECTATOR_ALLOWED_C2S = new Set([
 /**
  * S2C packets dropped on spectator fan-out (not session-ordered waypoints — those use waypointRelay).
  */
-const SPECTATOR_BLOCKED_S2C = new Set([]);
+const SPECTATOR_BLOCKED_S2C = new Set(['cookie_request', 'store_cookie']);
 
 /** @deprecated unused; waypoints use cache replay + shouldForwardWaypointToClient */
 const SESSION_ORDERED_BLOCKED_S2C = SPECTATOR_BLOCKED_S2C;

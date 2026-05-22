@@ -6,10 +6,23 @@ const { SpectatorHub } = require('../spectator/SpectatorHub');
 const { WorldStateCache } = require('../state/WorldStateCache');
 const { StateReplayer } = require('../replay/StateReplayer');
 const { performHandoff } = require('./handoffFlow');
+const { minChunksForHandoff } = require('../replay/replayHelpers');
 const { removeHandoffUpstreamRelay } = require('../utils/handoffSync');
-const { disconnectReasonText, gracefulEndClient, disconnectServerClients, closeServerListenSocket } = require('../utils/clientDisconnect');
+const {
+  disconnectReasonText,
+  buildDisconnectPayload,
+  gracefulEndClient,
+  disconnectServerClients,
+  closeServerListenSocket,
+} = require('../utils/clientDisconnect');
 
 const log = createLogger('Session');
+
+const AUTO_LOGOUT_SPECTATOR_MSG = 'Bot Auto disconnected';
+const AUTO_LOGOUT_PLAY_WAIT_MSG = 'Bot Auto disconnected. Reconnecting…';
+const AUTO_LOGOUT_RECONNECT_TIMEOUT_MS = 90_000;
+const CHUNK_PRIME_MS_DEFAULT = 1500;
+const CHUNK_PRIME_MS_AFTER_AUTO_LOGOUT = 12_000;
 
 /**
  * Session states
@@ -35,6 +48,12 @@ class SessionManager {
     this.state = State.INIT;
     this._shuttingDown = false;
     this._suppressReconnect = false;
+    /** @type {string|null} Set after auto-logout until bot is back */
+    this._autoLogoutReason = null;
+    /** @type {string|null} Shown in play client chat on next handoff */
+    this._pendingAutoLogoutNotice = null;
+    /** @type {Promise<void>|null} */
+    this._autoLogoutReconnectPromise = null;
     this._reconnectTimer = null;
 
     // Core components
@@ -45,6 +64,7 @@ class SessionManager {
       (client) => this._onClientConnect(client),
       this.worldState,
       () => this._clientSlotStatus(),
+      (client) => this._preparePlayLogin(client),
     );
     this.replayer = new StateReplayer(this.worldState, this.serverConn);
 
@@ -107,34 +127,15 @@ class SessionManager {
   _setupServerEvents() {
     this.serverConn.on('connected', () => {
       log.info('Server connection established');
-      // Empty codec: login.js only sends finish_configuration; full config order is replayed on join.
-      if (this.worldState.isConfigReady()) {
-        this.proxyServer.updateRegistryCodec({});
-        this.spectatorProxy?.updateRegistryCodec({});
-        const entries = this.worldState.getConfigReplayEntries();
-        const registryCount = entries.filter((p) => p.name === 'registry_data').length;
-        log.info(
-          `Config replay ready (${entries.length} packets, ${registryCount} registries)`
-        );
-      } else {
-        const registryCodec = this.worldState.buildRegistryCodec();
-        if (registryCodec) {
-          this.proxyServer.updateRegistryCodec(registryCodec);
-          this.spectatorProxy?.updateRegistryCodec(registryCodec);
-          log.info('Registry codec ready (parsed fallback, no ordered config capture)');
-        } else {
-          this.proxyServer.updateRegistryCodec({});
-          this.spectatorProxy?.updateRegistryCodec({});
-          log.warn('No registry_data captured from server — proxy clients will use minecraft-data defaults');
-        }
-      }
+      this._applyRegistryToProxies();
       this._transitionTo(State.BOT_MODE);
     });
 
     this.serverConn.on('autoLogout', (reason) => {
       log.warn(`Auto logout triggered: ${reason}`);
+      this._autoLogoutReason = reason;
       this._suppressReconnect = true;
-      this.spectatorHub?.kickAll(`Auto logout: ${reason}`);
+      this.spectatorHub?.kickAll(AUTO_LOGOUT_SPECTATOR_MSG);
       this.serverConn.disconnect();
     });
 
@@ -154,7 +155,9 @@ class SessionManager {
       this._transitionTo(State.INIT);
       if (this._suppressReconnect) {
         this._suppressReconnect = false;
-        log.info('Auto logout complete — not reconnecting (restart npm start to rejoin)');
+        log.info(
+          'Auto logout — bot offline until a player connects on the play port to reconnect',
+        );
         return;
       }
       this._scheduleReconnect(5);
@@ -194,40 +197,170 @@ class SessionManager {
     });
   }
 
+  _applyRegistryToProxies() {
+    if (this.worldState.isConfigReady()) {
+      this.proxyServer.updateRegistryCodec({});
+      this.spectatorProxy?.updateRegistryCodec({});
+      const entries = this.worldState.getConfigReplayEntries();
+      const registryCount = entries.filter((p) => p.name === 'registry_data').length;
+      log.info(
+        `Config replay ready (${entries.length} packets, ${registryCount} registries)`
+      );
+    } else {
+      const registryCodec = this.worldState.buildRegistryCodec();
+      if (registryCodec) {
+        this.proxyServer.updateRegistryCodec(registryCodec);
+        this.spectatorProxy?.updateRegistryCodec(registryCodec);
+        log.info('Registry codec ready (parsed fallback, no ordered config capture)');
+      } else {
+        this.proxyServer.updateRegistryCodec({});
+        this.spectatorProxy?.updateRegistryCodec({});
+        log.warn('No registry_data captured from server — proxy clients will use minecraft-data defaults');
+      }
+    }
+  }
+
+  async _waitForBotSessionReady() {
+    const deadline = Date.now() + AUTO_LOGOUT_RECONNECT_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      if (
+        this.serverConn.connected &&
+        this.worldState.isConfigReady() &&
+        this.worldState.player.getState().loginPacket
+      ) {
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    throw new Error('Timed out waiting for bot session data (config/login)');
+  }
+
+  _connectBotAndWait() {
+    if (this.serverConn.connected) return Promise.resolve();
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error('Timed out waiting for bot to connect'));
+      }, AUTO_LOGOUT_RECONNECT_TIMEOUT_MS);
+
+      const cleanup = () => {
+        clearTimeout(timeout);
+        this.serverConn.removeListener('connected', onConnected);
+        this.serverConn.removeListener('kicked', onKicked);
+        this.serverConn.removeListener('error', onError);
+      };
+
+      const onConnected = () => {
+        cleanup();
+        resolve();
+      };
+      const onKicked = (reason) => {
+        cleanup();
+        reject(new Error(`Bot kicked while connecting: ${disconnectReasonText(reason)}`));
+      };
+      const onError = (err) => {
+        cleanup();
+        reject(err instanceof Error ? err : new Error(String(err)));
+      };
+
+      this.serverConn.once('connected', onConnected);
+      this.serverConn.once('kicked', onKicked);
+      this.serverConn.once('error', onError);
+      this.serverConn.connect();
+    });
+  }
+
   /**
-   * Ask the server for chunks at the bot's current position if the cache is empty there.
+   * Reconnect upstream after auto-logout; cache config, login, and chunks before play handoff.
    */
-  async _primeChunksNearBot() {
+  async _startAutoLogoutReconnect() {
+    if (this._autoLogoutReconnectPromise) {
+      return this._autoLogoutReconnectPromise;
+    }
+
+    this._autoLogoutReconnectPromise = (async () => {
+      try {
+        if (!this.serverConn.connected) {
+          log.info('Play client connected — reconnecting bot after auto logout…');
+          this.worldState.clear();
+          await this._connectBotAndWait();
+        }
+        await this._waitForBotSessionReady();
+        this._applyRegistryToProxies();
+        await this._primeChunksNearBot(CHUNK_PRIME_MS_AFTER_AUTO_LOGOUT);
+        if (this._autoLogoutReason) {
+          this._pendingAutoLogoutNotice = this._autoLogoutReason;
+        }
+        log.info('Bot ready for play handoff after auto logout');
+      } finally {
+        this._autoLogoutReconnectPromise = null;
+      }
+    })();
+
+    return this._autoLogoutReconnectPromise;
+  }
+
+  _chunkHandoffCounts() {
     const bot = this.serverConn.bot;
-    if (!bot?.entity?.position) return;
+    if (!bot?.entity?.position) return null;
 
     const cx = Math.floor(bot.entity.position.x / 16);
     const cz = Math.floor(bot.entity.position.z / 16);
+    const viewDistance = this.worldState.misc.viewDistance?.viewDistance
+      ?? this.config.bot?.viewDistance
+      ?? 10;
+    const count = this.worldState.chunks.getChunksForReplay(cx, cz, viewDistance).length;
+    const min = minChunksForHandoff(viewDistance);
+    return { cx, cz, viewDistance, count, min };
+  }
 
-    if (this.worldState.chunks.getChunksForReplay(cx, cz, 2).length > 0) {
+  /**
+   * Ask the server for chunks at the bot's current position until enough are cached for replay.
+   * @param {number} [waitMs]
+   */
+  async _primeChunksNearBot(waitMs = CHUNK_PRIME_MS_DEFAULT) {
+    const stats = this._chunkHandoffCounts();
+    if (!stats) return;
+
+    const { cx, cz, viewDistance, min } = stats;
+    let { count } = stats;
+
+    if (count >= min) {
+      log.info(`Handoff cache ready: ${count}/${min} chunks at (${cx}, ${cz})`);
       return;
     }
 
-    log.info(`No cached chunks at bot (${cx}, ${cz}) — nudging server chunk loader...`);
-    // Server has no serverbound view-center packet; movement triggers ChunkMap.move().
+    log.info(`Priming chunks at (${cx}, ${cz}): ${count}/${min} cached — nudging server...`);
     this.serverConn.confirmServerPosition();
 
     const rawClient = this.serverConn.rawClient;
     if (!rawClient) return;
 
     await new Promise((resolve) => {
-      const timeout = setTimeout(() => {
+      const finish = (label) => {
+        clearTimeout(timeout);
         rawClient.removeListener('packet', onPacket);
+        count = this.worldState.chunks.getChunksForReplay(cx, cz, viewDistance).length;
+        if (count >= min) {
+          log.info(`Primed ${count}/${min} chunks for handoff (${label})`);
+        } else if (count > 0) {
+          log.warn(
+            `Only ${count}/${min} chunks cached after ${waitMs}ms — terrain may load slowly after handoff`,
+          );
+        } else {
+          log.warn(`No chunks cached after ${waitMs}ms — client may stay on Loading Terrain`);
+        }
         resolve();
-      }, 1500);
+      };
+
+      const timeout = setTimeout(() => finish('timeout'), waitMs);
 
       const onPacket = (data, meta) => {
         if (meta.state !== 'play' || meta.name !== 'map_chunk') return;
-        if (this.worldState.chunks.getChunksForReplay(cx, cz, 2).length > 0) {
-          clearTimeout(timeout);
-          rawClient.removeListener('packet', onPacket);
-          log.info('Received chunks from server for handoff');
-          resolve();
+        count = this.worldState.chunks.getChunksForReplay(cx, cz, viewDistance).length;
+        if (count >= min) {
+          finish('ready');
         }
       };
 
@@ -254,12 +387,46 @@ class SessionManager {
   }
 
   /**
-   * Whether a new Java client may take the single proxy slot.
-   * @returns {{ ok: boolean, reason?: string }}
+   * Reconnect upstream when a play client joins after auto-logout (awaited inside login_acknowledged).
    */
+  async _preparePlayLogin(client) {
+    const awaiting =
+      this._autoLogoutReason || this._pendingAutoLogoutNotice;
+    if (!awaiting) return;
+
+    if (!this.serverConn.connected) {
+      log.info(`Play client ${client.username} joining — starting bot reconnect after auto logout`);
+      await this._startAutoLogoutReconnect();
+      return;
+    }
+
+    await this._primeChunksNearBot(CHUNK_PRIME_MS_AFTER_AUTO_LOGOUT);
+  }
+
   _clientSlotStatus() {
     if (this.currentClient || this.proxyServer.activeClient) {
       return { ok: false, reason: 'Only one client can connect at a time.' };
+    }
+
+    const awaitingPlayAfterAutoLogout =
+      this._autoLogoutReason || this._pendingAutoLogoutNotice;
+
+    if (this._autoLogoutReconnectPromise) {
+      return { ok: false, reason: AUTO_LOGOUT_PLAY_WAIT_MSG };
+    }
+
+    if (awaitingPlayAfterAutoLogout && !this.serverConn.connected) {
+      return { ok: true };
+    }
+
+    if (!this.serverConn.connected) {
+      return {
+        ok: false,
+        reason:
+          this.state === State.INIT
+            ? 'Reconnecting to server. Try again in a moment.'
+            : 'Proxy is not connected to the server.',
+      };
     }
     if (this.state === State.INIT) {
       return {
@@ -284,6 +451,11 @@ class SessionManager {
    * @returns {{ ok: boolean, reason?: string }}
    */
   _spectatorSlotStatus() {
+    const awaitingPlayAfterAutoLogout =
+      this._autoLogoutReason || this._pendingAutoLogoutNotice || this._autoLogoutReconnectPromise;
+    if (awaitingPlayAfterAutoLogout && !this.serverConn.connected) {
+      return { ok: false, reason: AUTO_LOGOUT_SPECTATOR_MSG };
+    }
     if (!this.serverConn.connected) {
       return { ok: false, reason: 'Proxy is not connected to the server.' };
     }
@@ -317,6 +489,29 @@ class SessionManager {
     return { ok: false, reason: 'Spectator mode is unavailable.' };
   }
 
+  _formatAutoLogoutLabel(reason) {
+    if (reason === 'damage') return 'took damage';
+    if (typeof reason === 'string' && reason.startsWith('player:')) {
+      return `player ${reason.slice('player:'.length)}`;
+    }
+    return reason;
+  }
+
+  _notifyPlayClientAutoLogoutReconnect(client, reason) {
+    const label = this._formatAutoLogoutLabel(reason);
+    const text = `FlayerProxy: Bot auto-disconnected (${label}). Reconnected — starting handoff…`;
+    try {
+      if (client.state === 'play' && !client.ended) {
+        client.write('system_chat', {
+          content: buildDisconnectPayload(client, text),
+          isActionBar: false,
+        });
+      }
+    } catch (err) {
+      log.warn(`Could not send auto-logout notice to ${client.username}: ${err.message}`);
+    }
+  }
+
   /**
    * Handle a new Java client connection from the proxy server.
    */
@@ -325,6 +520,14 @@ class SessionManager {
       this._rejectClient(client, 'Only one client can connect at a time.');
       return;
     }
+
+    const afterAutoLogout = !!this._pendingAutoLogoutNotice;
+    if (afterAutoLogout) {
+      this._notifyPlayClientAutoLogoutReconnect(client, this._pendingAutoLogoutNotice);
+      this._pendingAutoLogoutNotice = null;
+      this._autoLogoutReason = null;
+    }
+
     if (this.state !== State.BOT_MODE || this.currentClient) {
       this._rejectClient(client, 'Another client session is active.');
       return;
@@ -353,7 +556,10 @@ class SessionManager {
       worldState: this.worldState,
       replayer: this.replayer,
       proxyServer: this.proxyServer,
-      primeChunks: () => this._primeChunksNearBot(),
+      primeChunks: () =>
+        this._primeChunksNearBot(
+          afterAutoLogout ? CHUNK_PRIME_MS_AFTER_AUTO_LOGOUT : CHUNK_PRIME_MS_DEFAULT,
+        ),
       isHandoffState: () => this.state === State.HANDOFF,
     });
 
@@ -416,6 +622,8 @@ class SessionManager {
       this._reconnectTimer = null;
     }
     log.info('Shutting down FlayerProxy...');
+    this._autoLogoutReason = null;
+    this._pendingAutoLogoutNotice = null;
 
     const shutdownReason = 'Proxy shutting down';
     this._cleanupClient();

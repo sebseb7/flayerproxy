@@ -96,7 +96,9 @@ While no play client is connected (`BOT_MODE`), the bot can quit upstream when:
 - **`onDamage`** — the bot takes damage (`entityHurt` on the bot entity).
 - **`onPlayer`** — any player not in `allowedPlayers` joins the server or spawns in range (tab list + entity spawn). The bot’s own username is always allowed.
 
-Auto logout is **disabled** during handoff and while a play client controls the session (`HANDOFF` / `CLIENT_MODE`). After a trigger, the proxy **does not** auto-reconnect; restart `npm start` to join again.
+Auto logout is **disabled** during handoff and while a play client controls the session (`HANDOFF` / `CLIENT_MODE`). After a trigger the bot disconnects upstream and stays offline (no background reconnect). **Spectators** are rejected with `Bot Auto disconnected`.
+
+**Reconnect:** Join on the **play port** (25566). During configuration, `login_acknowledged` runs `_preparePlayLogin`: reconnect the bot if needed, replay upstream config, prime the chunk cache (up to ~12s), then finish configuration. You get a system chat notice on handoff, then the normal replay → `CLIENT_MODE` flow. If terrain was sparse, handoff also streams live `map_chunk` from the bot connection and sends `chunk_batch_received` upstream after replay so the server keeps sending chunks.
 
 ---
 
@@ -192,7 +194,7 @@ Edit `config.json` in the project root:
     │   ├── BotAutoLogout.js     # Damage / player auto-disconnect
     │   ├── ChunkAckManager.js
     │   ├── MovementRelay.js
-    │   └── handoffFlow.js
+    │   └── handoffFlow.js       # performHandoff + handoffSync hooks
     ├── state/
     │   ├── WorldStateCache.js
     │   ├── ChunkCache.js
@@ -204,6 +206,9 @@ Edit `config.json` in the project root:
     │   └── replayHelpers.js
     ├── sniffer/                 # Optional MITM logger (25567)
     └── utils/
+        ├── configReplay.js      # login_acknowledged config replay
+        ├── handoffSync.js       # HANDOFF relays + chunk ack
+        └── clientDisconnect.js  # Graceful proxy disconnect
 ```
 
 ---
@@ -237,7 +242,7 @@ npm install
    - **Play:** Direct connect to `127.0.0.1:25566` (or your `proxy.port`).
    - **Spectate:** Direct connect to `127.0.0.1:25568` (or your `spectator.port`).
 
-Only **one** play client can be connected at a time. Wait for the bot to be in the world (`BOT_MODE`) before joining to play.
+Only **one** play client can be connected at a time. Wait for the bot to be in the world (`BOT_MODE`) before joining to play. After **auto logout**, the bot is offline until you connect on the play port; the login screen may show “Reconnecting…” while the bot reconnects.
 
 ### Packet sniffer (optional)
 
@@ -251,9 +256,13 @@ Connect the Java client to **25567** to log decrypted traffic to `logs/sniffer/`
 
 ## 🧪 Technical Notes
 
-- **Registry replay:** Configuration-phase `registry_data` (and related packets) are captured from the upstream server and replayed with `writeRaw` to joining play and spectator clients so registries match the real server.
-- **Chunk batches:** During handoff, the proxy may forward client `chunk_batch_received` upstream before the full bridge starts, so the server continues streaming chunks.
+- **Registry replay:** Configuration-phase `registry_data` (and related packets) are captured from the upstream server and replayed with `writeRaw` to joining play and spectator clients so registries match the real server. `cookie_request` is skipped in config replay; play bridge blocks `cookie_request` / `store_cookie` on the proxy client.
+- **Play login race:** `login_acknowledged` is handled synchronously on proxy `login`; `preparePlayLogin` (auto-logout reconnect + chunk prime) runs in `beforeConfigReplay` so the client is not stuck on “Joining World”.
+- **Chunk priming:** Before handoff replay, `_primeChunksNearBot` waits for enough in-view cached chunks (`minChunksForHandoff`, typically a 9×9 area) via `confirmServerPosition` and upstream `map_chunk` capture. Default wait 1.5s; **12s** after auto-logout reconnect.
+- **Handoff terrain:** Replay sends in-view cached chunks + `chunk_batch_finished`, then `chunk_batch_received` is sent upstream, live `map_chunk` is forwarded during `HANDOFF`, and the client gets a short post-replay settle delay before position sync.
+- **Chunk batches:** During handoff, client `chunk_batch_received` / `player_loaded` may be forwarded upstream before `ClientBridge` starts; the bridge then owns client-driven batch acks (`flushChunkBatchAck` on start).
 - **Keep-alive:** The bot answers upstream keep-alives; the proxy avoids duplicating them on the local play client to prevent sequence kicks.
 - **Handoff position:** Replay sends `position`, waits for `teleport_confirm`, then syncs again before enabling movement — avoids falling or desync on join.
 - **Raw forwarding:** `map_chunk`, lights, chunk batch markers, and `update_view_position` use `writeRaw` where possible to avoid NBT/chunk re-encoding issues.
+- **Graceful shutdown:** Ctrl+C sends disconnect payloads to play/spectator clients, replays config end where needed, then closes sockets after a short delay so vanilla login handlers do not race `client.end()`.
 
