@@ -234,7 +234,7 @@ Chunks are **server-pushed**; the bot/client mainly acks via `chunk_batch_receiv
 
 ### Auto logout (bot mode only)
 
-[BotAutoLogout](file:///home/seb/flayerproxy/src/session/BotAutoLogout.js) disconnects upstream on damage or disallowed players (`config.bot.autoLogout`). No automatic reconnect until a play client joins **25566**: [SessionManager._preparePlayLogin](file:///home/seb/flayerproxy/src/session/SessionManager.js) → `_startAutoLogoutReconnect` (clear cache, reconnect, 12s chunk prime) during configuration; handoff shows a system chat notice. Spectators are rejected while the bot is offline.
+[BotAutoLogout](file:///home/seb/flayerproxy/src/session/BotAutoLogout.js) disconnects upstream on damage or disallowed player entities in range (`config.bot.autoLogout`). No automatic reconnect until a play client joins **25566**: [SessionManager._preparePlayLogin](file:///home/seb/flayerproxy/src/session/SessionManager.js) → `_startAutoLogoutReconnect` (clear cache, reconnect, 12s chunk prime) during configuration; handoff shows a system chat notice. Spectators are rejected while the bot is offline.
 
 ### Bot idle (no play client)
 
@@ -349,7 +349,7 @@ Disconnects the bot in `BOT_MODE` when `config.bot.autoLogout` triggers fire. St
 | Method | Description |
 |---|---|
 | `constructor(bot, botConfig, isActive, onLogout, authUsername)` | `allowedPlayers` + bot username always allowed. |
-| `start()` / `stop()` | Arms `entityHurt`, `playerJoined`, `entitySpawn` listeners. |
+| `start()` / `stop()` | Arms `entityHurt` and `entitySpawn` listeners. |
 | `_trigger(kind)` | Once: `onLogout` → SessionManager sets reason, suppresses reconnect, kicks spectators, `serverConn.disconnect()`. |
 
 #### 🧩 [BotIdleBehavior](file:///home/seb/flayerproxy/src/session/BotIdleBehavior.js) `class`

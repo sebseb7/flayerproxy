@@ -94,7 +94,7 @@ Works in **`BOT_MODE`** (watch bot + idle behavior) and **`CLIENT_MODE`** (watch
 While no play client is connected (`BOT_MODE`), the bot can quit upstream when:
 
 - **`onDamage`** — the bot takes damage (`entityHurt` on the bot entity).
-- **`onPlayer`** — any player not in `allowedPlayers` joins the server or spawns in range (tab list + entity spawn). The bot’s own username is always allowed.
+- **`onPlayer`** — any player entity not in `allowedPlayers` spawns in range. The bot’s own username is always allowed.
 
 Auto logout is **disabled** during handoff and while a play client controls the session (`HANDOFF` / `CLIENT_MODE`). After a trigger the bot disconnects upstream and stays offline (no background reconnect). **Spectators** are rejected with `Bot Auto disconnected`.
 

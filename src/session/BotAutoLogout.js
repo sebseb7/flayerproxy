@@ -25,7 +25,6 @@ class BotAutoLogout {
     if (authUsername) allowed.push(authUsername);
     this._allowed = this._normalizeAllowed(allowed);
     this._onEntityHurt = (entity) => this._handleEntityHurt(entity);
-    this._onPlayerJoined = (player) => this._handlePlayerSeen(player?.username);
     this._onEntitySpawn = (entity) => this._handleEntitySpawn(entity);
   }
 
@@ -56,23 +55,22 @@ class BotAutoLogout {
         `player=${!!this._autoLogoutConfig().onPlayer}, allowed=${this._allowed.size})`,
     );
     this.bot.on('entityHurt', this._onEntityHurt);
-    this.bot.on('playerJoined', this._onPlayerJoined);
     this.bot.on('entitySpawn', this._onEntitySpawn);
-    this._scanExistingPlayers();
+    this._scanExistingPlayerEntities();
   }
 
   stop() {
     if (!this._enabled) return;
     this._enabled = false;
     this.bot.removeListener('entityHurt', this._onEntityHurt);
-    this.bot.removeListener('playerJoined', this._onPlayerJoined);
     this.bot.removeListener('entitySpawn', this._onEntitySpawn);
   }
 
-  _scanExistingPlayers() {
+  _scanExistingPlayerEntities() {
     if (!this._autoLogoutConfig().onPlayer) return;
-    for (const player of Object.values(this.bot.players || {})) {
-      this._handlePlayerSeen(player?.username);
+    for (const entity of Object.values(this.bot.entities || {})) {
+      if (entity?.type !== 'player' || !entity.username) continue;
+      this._handlePlayerSeen(entity.username);
     }
   }
 
