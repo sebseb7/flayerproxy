@@ -4,6 +4,10 @@ const nbt = require('prismarine-nbt');
 const UUID = require('uuid-1345');
 const { sanitizeTagForWrite } = require('./anvilBlockEntity');
 const { listOfCompounds } = require('./chunkAnvilEncode');
+const {
+  villagerTypeName,
+  villagerProfessionName,
+} = require('./entityVillagerRegistries');
 
 /**
  * Vanilla entity column layout (vanillaEntityExample/session-* entities/*.mca).
@@ -25,8 +29,24 @@ function vec3DoubleTag(x, y, z) {
   return nbt.list({ type: 'double', value: [x ?? 0, y ?? 0, z ?? 0] });
 }
 
+function normalizeDegrees(deg) {
+  return ((deg % 360) + 360) % 360;
+}
+
 function rotationTag(yaw, pitch) {
-  return nbt.list({ type: 'float', value: [yaw ?? 0, pitch ?? 0] });
+  return nbt.list({
+    type: 'float',
+    value: [normalizeDegrees(yaw ?? 0), normalizeDegrees(pitch ?? 0)],
+  });
+}
+
+/** Motion for Anvil from tracked velocity (sync_entity_position / entity_velocity). */
+function motionComponents(spawn) {
+  if (spawn.velocityKnown && spawn.velocity) {
+    const { x = 0, y = 0, z = 0 } = spawn.velocity;
+    return [x, y, z];
+  }
+  return [0, 0, 0];
 }
 
 function protocolUuidToBuffer(uuid) {
@@ -86,6 +106,14 @@ function isBoat(id) {
   return id.includes('_boat');
 }
 
+function isMinecart(id) {
+  return id.includes('minecart');
+}
+
+function isPassengerCarrier(id) {
+  return isBoat(id) || isMinecart(id);
+}
+
 function isItemFrame(id) {
   return id === 'minecraft:item_frame' || id === 'minecraft:glow_item_frame';
 }
@@ -103,7 +131,7 @@ function isProjectile(id) {
 }
 
 function isLivingMob(id) {
-  if (isBoat(id) || isItemFrame(id) || isProjectile(id)) return false;
+  if (isBoat(id) || isItemFrame(id) || isProjectile(id) || isMinecart(id)) return false;
   if (id === 'minecraft:item' || id === 'minecraft:experience_orb') return false;
   return true;
 }
@@ -169,12 +197,12 @@ function itemStackTag(protocolItem, version) {
 /** Universal fields present on vanilla examples (boat, frame, chicken). */
 function baseEntityTags(spawn, id) {
   const [yaw, pitch] = spawnRotationDegrees(spawn);
-  const vel = spawn.velocity ?? {};
+  const [mx, my, mz] = motionComponents(spawn);
   return {
     id: nbt.string(id),
     UUID: uuidIntArrayTag(spawn.objectUUID ?? spawn.uuid),
     Pos: vec3DoubleTag(spawn.x, spawn.y, spawn.z),
-    Motion: vec3DoubleTag(vel.x, vel.y, vel.z),
+    Motion: vec3DoubleTag(mx, my, mz),
     Rotation: rotationTag(yaw, pitch),
     Air: nbt.short(300),
     Fire: nbt.short(0),
@@ -238,6 +266,12 @@ function applyLivingMobTags(value, tracked, version, id) {
 
   value.HurtTime = nbt.short(0);
   value.DeathTime = nbt.short(0);
+  value.HurtByTimestamp = nbt.int(0);
+  value.AbsorptionAmount = nbt.float(0);
+  value.FallFlying = nbt.byte(0);
+  value.LeftHanded = nbt.byte(0);
+  value.CanPickUpLoot = nbt.byte(0);
+  value.PersistenceRequired = nbt.byte(0);
 
   if (id === 'minecraft:chicken') {
     value.Brain = nbt.comp({ memories: nbt.comp({}) });
@@ -246,13 +280,119 @@ function applyLivingMobTags(value, tracked, version, id) {
     value.ForcedAge = nbt.int(0);
     value.InLove = nbt.byte(0);
     value.IsChickenJockey = nbt.byte(0);
-    value.FallFlying = nbt.byte(0);
-    value.LeftHanded = nbt.byte(0);
-    value.CanPickUpLoot = nbt.byte(0);
-    value.PersistenceRequired = nbt.byte(0);
-    value.AbsorptionAmount = nbt.float(0);
-    value.HurtByTimestamp = nbt.int(0);
     value.EggLayTime = nbt.int(0);
+  }
+
+  if (id === 'minecraft:villager' || id === 'minecraft:zombie_villager') {
+    applyVillagerTags(value, tracked, version);
+  }
+
+  applyEquipmentTags(value, tracked, version);
+}
+
+function applyVillagerTags(value, tracked, version) {
+  const vdKey = metadataKeyIndex(version, 'minecraft:villager', 'villager_data');
+  const vdEntry = vdKey >= 0 ? metaEntry(tracked.metadata, vdKey) : null;
+  const vd = vdEntry?.value;
+  if (!vd) return;
+
+  value.VillagerData = nbt.comp({
+    type: nbt.string(villagerTypeName(vd.villagerType)),
+    profession: nbt.string(villagerProfessionName(vd.villagerProfession)),
+    level: nbt.int(vd.level ?? 1),
+  });
+  value.Xp = nbt.int(0);
+  if (value.Age == null) value.Age = nbt.int(0);
+  if (value.ForcedAge == null) value.ForcedAge = nbt.int(0);
+  value.FoodLevel = nbt.int(0);
+  value.Gossips = listOfCompounds([]);
+  value.Inventory = listOfCompounds([]);
+  if (!value.Brain) {
+    value.Brain = nbt.comp({ memories: nbt.comp({}) });
+  }
+}
+
+/** Protocol equipment slot index → vanilla 1.21 NBT equipment key. */
+const EQUIPMENT_SLOT_NAMES = {
+  0: 'mainhand',
+  1: 'offhand',
+  2: 'feet',
+  3: 'legs',
+  4: 'chest',
+  5: 'head',
+  6: 'body',
+  7: 'saddle',
+};
+
+function equipmentStackTag(protocolItem, version) {
+  if (!protocolItem || protocolItem.itemId < 0 || protocolItem.itemCount <= 0) {
+    return null;
+  }
+  const stack = simpleItemStack(protocolItem, version);
+  if (!stack) return null;
+  const inner = stack.value ?? stack;
+  const idTag = inner.id;
+  const countTag = inner.count;
+  if (!idTag || !countTag) return null;
+  return nbt.comp({
+    id: idTag,
+    count: countTag,
+  });
+}
+
+/**
+ * Vanilla 1.21+ entity equipment: equipment.mainhand + drop_chances.mainhand (not HandItems).
+ */
+function applyEquipmentTags(value, tracked, version) {
+  const equipments = tracked.equipment?.equipments;
+  if (!equipments?.length) return;
+
+  const equipmentComp = {};
+  const dropChances = {};
+
+  for (const { slot, item } of equipments) {
+    const name = EQUIPMENT_SLOT_NAMES[slot];
+    if (!name) continue;
+    const stackTag = equipmentStackTag(item, version);
+    if (!stackTag) continue;
+    equipmentComp[name] = stackTag;
+    dropChances[name] = nbt.float(2);
+  }
+
+  if (Object.keys(equipmentComp).length) {
+    value.equipment = nbt.comp(equipmentComp);
+    value.drop_chances = nbt.comp(dropChances);
+  }
+}
+
+/** Husk/zombie fields from vanilla entity columns. */
+function applyZombieFamilyTags(value, id) {
+  if (id !== 'minecraft:husk' && id !== 'minecraft:zombie' && id !== 'minecraft:zombie_villager') {
+    return;
+  }
+  if (!value.Brain) {
+    value.Brain = nbt.comp({ memories: nbt.comp({}) });
+  }
+  value.CanBreakDoors = nbt.byte(0);
+  value.DrownedConversionTime = nbt.int(-1);
+  value.IsBaby = nbt.byte(0);
+  value.InWaterTime = nbt.int(-1);
+  value.CanPickUpLoot = nbt.byte(id === 'minecraft:husk' ? 1 : 0);
+  value.PersistenceRequired = nbt.byte(id === 'minecraft:husk' ? 1 : 0);
+}
+
+function attachPassengerTags(value, tracked, version, lookupEntity, idStr) {
+  if (!isPassengerCarrier(idStr) || !tracked.passengers?.passengers?.length) return;
+
+  const passengerTags = [];
+  for (const pid of tracked.passengers.passengers) {
+    const row = lookupEntity(pid);
+    if (!row) continue;
+    const tag = entityNbtFromTracked(row, version, lookupEntity, { asPassenger: true });
+    if (tag) passengerTags.push(tag);
+  }
+  if (passengerTags.length) {
+    value.Passengers = listOfCompounds(passengerTags);
   }
 }
 
@@ -286,21 +426,13 @@ function entityNbtFromTracked(tracked, version, lookupEntity, ctx = {}) {
     applyItemFrameTags(value, tracked, version);
   } else if (isLivingMob(idStr)) {
     applyLivingMobTags(value, tracked, version, idStr);
+    applyZombieFamilyTags(value, idStr);
   } else if (isProjectile(idStr)) {
     applyProjectileItem(value, tracked, version);
   }
 
-  if (!ctx.asPassenger && isBoat(idStr) && tracked.passengers?.passengers?.length) {
-    const passengerTags = [];
-    for (const pid of tracked.passengers.passengers) {
-      const row = lookupEntity(pid);
-      if (!row) continue;
-      const tag = entityNbtFromTracked(row, version, lookupEntity, { asPassenger: true });
-      if (tag) passengerTags.push(tag);
-    }
-    if (passengerTags.length) {
-      value.Passengers = listOfCompounds(passengerTags);
-    }
+  if (!ctx.asPassenger) {
+    attachPassengerTags(value, tracked, version, lookupEntity, idStr);
   }
 
   const sanitized = sanitizeTagForWrite({ type: 'compound', value });

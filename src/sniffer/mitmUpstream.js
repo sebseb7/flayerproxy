@@ -74,6 +74,7 @@ function startUpstream(session, config, cleanup, callbacks) {
 
     session.packetLog.logPacket('S2C', meta, data, buffer, {
       leg: 'backend',
+      dir: 'S2C',
       action: forwarded,
       clientState: session.client.state,
       upstreamState: upstream.state,

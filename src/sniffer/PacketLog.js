@@ -9,6 +9,7 @@ const { createLogger } = require('../utils/logger');
 const { buildDecodedPacketRecord, buildDecodedDumpFileName } = require('./decodedPacketDump');
 const { summarizePacket, serializePacketFull } = require('./packetSummarize');
 const { resolvePacketName } = require('./packetMeta');
+const { logMotionPacketConsole, MOTION_PACKET_NAMES } = require('./motionPacketConsole');
 
 const pktConsole = createLogger('PktTrace');
 
@@ -53,7 +54,9 @@ class PacketLog {
     this.includePayload = opts.includePayload !== false;
     this.logEveryPacket = opts.logEveryPacket !== false;
     this.consolePacketLog = opts.consolePacketLog !== false;
+    this.motionConsoleLog = opts.motionConsoleLog !== false;
     this.tracePayloadMaxLen = opts.tracePayloadMaxLen ?? 8192;
+    this.version = opts.version ?? null;
     this.sessionId = opts.sessionId;
     this._seq = 0;
     this._traceSeq = 0;
@@ -272,6 +275,16 @@ class PacketLog {
       });
     }
 
+    if (this.motionConsoleLog && MOTION_PACKET_NAMES.has(packetName)) {
+      logMotionPacketConsole(
+        { version: this.version },
+        meta,
+        data,
+        rawBuffer,
+        { leg, dir, action: entry.action, forwarded: entry.forwarded },
+      );
+    }
+
     if (CHUNK_PACKETS.has(packetName) && !this.logEveryPacket) {
       this._writeChunk(entry);
       return;
@@ -406,4 +419,4 @@ function buildSpillRef(obj, spillFile) {
   return ref;
 }
 
-module.exports = { PacketLog, CHUNK_PACKETS, LARGE_PACKETS };
+module.exports = { PacketLog, CHUNK_PACKETS, LARGE_PACKETS, MOTION_PACKET_NAMES };

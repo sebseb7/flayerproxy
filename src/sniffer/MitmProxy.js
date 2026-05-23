@@ -354,10 +354,15 @@ class MitmProxy {
 
     sortLoginPending(session.pendingS2C);
     const heldLogin = [];
+    const skippedFromQueue = [];
     for (const item of session.pendingS2C) {
       const { meta } = item;
-      if (meta.name === 'encryption_begin') continue;
+      if (meta.name === 'encryption_begin') {
+        skippedFromQueue.push({ meta, reason: 'handled separately (mitm encryption_begin)' });
+        continue;
+      }
       if (meta.name === 'compress' && meta.state === states.LOGIN) {
+        skippedFromQueue.push({ meta, reason: 'login compress sent before Java encryption_begin' });
         continue;
       }
       heldLogin.push(item);
@@ -366,12 +371,49 @@ class MitmProxy {
     const { login: afterCrypto, config: heldConfig } = partitionAfterCrypto(heldLogin);
     session.pendingConfig.push(...heldConfig);
 
+    const formatHeldPacket = ({ meta }) => `${meta.state}.${meta.name}`;
+
+    if (skippedFromQueue.length) {
+      log.info(
+        `Held S2C queue (${session.username}): ${skippedFromQueue.length} packet(s) excluded before flush`,
+      );
+      for (const { meta, reason } of skippedFromQueue) {
+        log.info(`  excluded: ${formatHeldPacket({ meta })} — ${reason}`);
+      }
+    }
+
+    if (heldConfig.length) {
+      log.info(
+        `Held S2C queue (${session.username}): ${heldConfig.length} configuration packet(s) deferred until login_acknowledged`,
+      );
+      for (const { meta } of heldConfig) {
+        log.info(`  deferred: ${formatHeldPacket({ meta })}`);
+      }
+    }
+
+    const toRelay = afterCrypto.filter((p) => p.meta.name === 'success');
+    const dropped = afterCrypto.filter((p) => p.meta.name !== 'success');
+    if (dropped.length) {
+      log.warn(
+        `Held S2C queue (${session.username}): ${dropped.length} packet(s) removed without relay (only login.success is flushed)`,
+      );
+      for (const { meta } of dropped) {
+        log.warn(`  dropped: ${formatHeldPacket({ meta })}`);
+      }
+    }
+
     session.holdS2C = false;
     session.waitingJavaCrypto = false;
     session.packetLog.writeMeta({ type: 'java_crypto_ready' });
     log.info(`Login phase ready for ${session.username}`);
 
-    for (const { data, meta, buffer } of afterCrypto.filter((p) => p.meta.name === 'success')) {
+    if (toRelay.length) {
+      log.info(
+        `Held S2C queue (${session.username}): relaying ${toRelay.length} login.success packet(s)`,
+      );
+    }
+
+    for (const { data, meta, buffer } of toRelay) {
       try {
         const method = relayToJava(session.client, meta, data, buffer);
         traceTx(session.packetLog, 'java', 'S2C', meta, buffer, {

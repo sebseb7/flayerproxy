@@ -177,6 +177,12 @@ class EntityRegionCache {
     return this._updatePosition(data.entityId, data.x, data.z);
   }
 
+  handleEntityVelocity(data) {
+    if (data.entityId === this.playerEntityId) return this._emptyTouch();
+    this.entities.handleEntityVelocity(data);
+    return this._touchEntity(data.entityId);
+  }
+
   handleEntityHeadRotation(data) {
     if (data.entityId === this.playerEntityId) return this._emptyTouch();
     const entity = this.entities.entities.get(data.entityId);
@@ -202,7 +208,7 @@ class EntityRegionCache {
       entityId,
       spawnData: sanitizeSpawnEntity(ent.spawnData),
       metadata: ent.metadata,
-      equipment: ent.equipment,
+      equipment: EntityCache.equipmentSnapshot(ent.equipment),
       effects: ent.effects,
       passengers: ent.passengers,
     };

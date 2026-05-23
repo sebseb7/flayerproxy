@@ -35,6 +35,7 @@ const ENTITY_PACKETS = new Set([
   'rel_entity_move',
   'entity_move_look',
   'sync_entity_position',
+  'entity_velocity',
   'entity_head_rotation',
 ]);
 
@@ -210,6 +211,9 @@ class SnifferWorldCapture {
         break;
       case 'sync_entity_position':
         this._markEntityDirty(this.entities.handleSyncEntityPosition(data));
+        break;
+      case 'entity_velocity':
+        this._markEntityDirty(this.entities.handleEntityVelocity(data));
         break;
       case 'entity_head_rotation':
         this._markEntityDirty(this.entities.handleEntityHeadRotation(data));
