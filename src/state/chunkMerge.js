@@ -1,4 +1,6 @@
+const zlib = require('zlib');
 const ChunkLoader = require('prismarine-chunk');
+const nbt = require('prismarine-nbt');
 
 const DEFAULT_WORLD = { minY: -64, worldHeight: 384 };
 
@@ -80,6 +82,119 @@ function dimensionNameFromLogin(loginPacket) {
   return names[d] ?? 'overworld';
 }
 
+const { anvilBlockEntityId, stubBlockEntityValue } = require('../sniffer/anvilBlockEntity');
+
+/**
+ * @param {import('prismarine-chunk').Chunk} column
+ * @param {{ x: number, y: number, z: number }} localPos
+ * @param {number} [typeId] - map_chunk blockEntities[].type
+ */
+function resolveBlockEntityId(column, localPos, typeId) {
+  const block = column.getBlock(localPos);
+  const blockName = block?.name?.replace(/^minecraft:/, '');
+  return anvilBlockEntityId(blockName, typeId);
+}
+
+/**
+ * Block entity id for Anvil from the block at this chunk-local position.
+ * @param {import('prismarine-chunk').Chunk} column
+ * @param {{ x: number, y: number, z: number }} localPos
+ */
+function blockEntityIdFromBlock(column, localPos) {
+  return resolveBlockEntityId(column, localPos);
+}
+
+/**
+ * map_chunk / tile_entity_data NBT may be a Buffer or a protocol compound tree.
+ * @param {Buffer|Uint8Array|object|null|undefined} nbtData
+ * @returns {Record<string, object>|null}
+ */
+function parseBlockEntityNbtPayload(nbtData) {
+  if (nbtData == null) return null;
+  if (nbtData.type === 'compound') {
+    if (!nbtData.value || !Object.keys(nbtData.value).length) return null;
+    return { ...nbtData.value };
+  }
+  const buf = asBuffer(nbtData);
+  if (!buf?.length) return null;
+  const attempts = [buf];
+  try {
+    attempts.push(zlib.gunzipSync(buf));
+  } catch {
+    /* not gzipped */
+  }
+  for (const data of attempts) {
+    try {
+      const root = nbt.parseUncompressed(data);
+      if (root?.type === 'compound' && root.value) return { ...root.value };
+    } catch {
+      /* try next */
+    }
+  }
+  return null;
+}
+
+/**
+ * @param {import('prismarine-chunk').Chunk} column
+ * @param {object} blockEntity - map_chunk blockEntities[] entry
+ * @param {number} chunkX
+ * @param {number} chunkZ
+ */
+function applyMapChunkBlockEntity(column, blockEntity, chunkX, chunkZ) {
+  if (blockEntity.x === undefined) return;
+
+  const pos = {
+    x: blockEntity.x & 0xf,
+    y: blockEntity.y,
+    z: blockEntity.z & 0xf,
+  };
+  const entityId = resolveBlockEntityId(column, pos, blockEntity.type);
+  let value = parseBlockEntityNbtPayload(blockEntity.nbtData);
+  if (!value) {
+    if (!entityId) return;
+    value = stubBlockEntityValue(entityId);
+  }
+  value.x = nbt.int(chunkX * 16 + pos.x);
+  value.y = nbt.int(blockEntity.y);
+  value.z = nbt.int(chunkZ * 16 + pos.z);
+  const resolvedId = entityId ?? blockEntityIdFromBlock(column, pos);
+  if (!resolvedId) return;
+  if (!value.id) {
+    value.id = nbt.string(resolvedId);
+  }
+  column.setBlockEntity(pos, { type: 'compound', name: '', value });
+}
+
+/**
+ * Late sign/chest updates after the chunk was sent.
+ * @param {import('prismarine-chunk').Chunk} column
+ * @param {object} packet - tile_entity_data
+ * @param {number} chunkX
+ * @param {number} chunkZ
+ */
+function applyTileEntityData(column, packet, chunkX, chunkZ) {
+  const loc = packet.location;
+  if (!loc || loc.x == null) return;
+  if (chunkX !== Math.floor(loc.x / 16) || chunkZ !== Math.floor(loc.z / 16)) return;
+
+  const pos = { x: loc.x & 0xf, y: loc.y, z: loc.z & 0xf };
+  const entityId = resolveBlockEntityId(column, pos, packet.action);
+  let value = parseBlockEntityNbtPayload(packet.nbtData);
+  if (!value) {
+    if (!entityId) return;
+    value = stubBlockEntityValue(entityId);
+  }
+  value.x = nbt.int(loc.x);
+  value.y = nbt.int(loc.y);
+  value.z = nbt.int(loc.z);
+  const resolvedId = entityId ?? blockEntityIdFromBlock(column, pos);
+  if (!resolvedId) return;
+  if (!value.id) {
+    value.id = nbt.string(resolvedId);
+  }
+  column.setBlockEntity(pos, { type: 'compound', name: '', value });
+}
+
 /**
  * @param {string} version
  * @param {{ minY: number, worldHeight: number }} worldBounds
@@ -114,12 +229,13 @@ function loadColumnFromMapChunk(packet, version, worldBounds) {
     );
   }
   if (packet.blockEntities?.length) {
+    const chunkX = packet.x ?? 0;
+    const chunkZ = packet.z ?? 0;
     for (const blockEntity of packet.blockEntities) {
-      if (blockEntity.x !== undefined) {
-        column.setBlockEntity(
-          { x: blockEntity.x & 0xf, y: blockEntity.y, z: blockEntity.z & 0xf },
-          blockEntity
-        );
+      try {
+        applyMapChunkBlockEntity(column, blockEntity, chunkX, chunkZ);
+      } catch {
+        /* skip malformed block entity payload */
       }
     }
   }
@@ -201,6 +317,12 @@ module.exports = {
   prepareMapChunkParams,
   worldBoundsForDimension,
   dimensionNameFromLogin,
+  blockEntityIdFromBlock,
+  resolveBlockEntityId,
+  stubBlockEntityValue,
+  parseBlockEntityNbtPayload,
+  applyMapChunkBlockEntity,
+  applyTileEntityData,
   createEmptyColumn,
   loadColumnFromMapChunk,
   exportMapChunkPacket,

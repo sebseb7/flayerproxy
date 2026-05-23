@@ -1,6 +1,15 @@
 const { createLogger } = require('../utils/logger');
-const { toByteAngle, sanitizeSpawnEntity } = require('../utils/angles');
+const { degreesToByteAngle, sanitizeSpawnEntity } = require('../utils/angles');
 const log = createLogger('EntityCache');
+
+function applyVelocity(spawnData, velocity) {
+  spawnData.velocity = {
+    x: velocity?.x ?? 0,
+    y: velocity?.y ?? 0,
+    z: velocity?.z ?? 0,
+  };
+  spawnData.velocityKnown = true;
+}
 
 /**
  * Tracks entities received from the server.
@@ -14,8 +23,11 @@ class EntityCache {
 
   handleSpawnEntity(data) {
     const entityId = data.entityId;
+    const spawnData = { ...data, velocityKnown: false };
+    // spawn_entity.velocity is lpVec3 on 1.21.9+ wire — not used for Anvil Motion.
+    delete spawnData.velocity;
     this.entities.set(entityId, {
-      spawnData: { ...data },
+      spawnData,
       metadata: null,
       equipment: null,
       effects: [],
@@ -25,15 +37,29 @@ class EntityCache {
 
   handleEntityMetadata(data) {
     const entity = this.entities.get(data.entityId);
-    if (entity) {
-      entity.metadata = { ...data };
+    if (!entity) return;
+    if (!entity.metadata?.metadata) {
+      entity.metadata = { entityId: data.entityId, metadata: [] };
+    }
+    for (const entry of data.metadata ?? []) {
+      const idx = entity.metadata.metadata.findIndex((e) => e.key === entry.key);
+      if (idx >= 0) entity.metadata.metadata[idx] = entry;
+      else entity.metadata.metadata.push(entry);
     }
   }
 
   handleEntityEquipment(data) {
     const entity = this.entities.get(data.entityId);
-    if (entity) {
-      entity.equipment = { ...data };
+    if (!entity) return;
+    if (!entity.equipment?.slots) {
+      entity.equipment = { entityId: data.entityId, slots: new Map() };
+    }
+    for (const { slot, item } of data.equipments ?? []) {
+      if (!item || item.itemId < 0 || item.itemCount <= 0) {
+        entity.equipment.slots.delete(slot);
+      } else {
+        entity.equipment.slots.set(slot, item);
+      }
     }
   }
 
@@ -89,11 +115,18 @@ class EntityCache {
       if (data.x !== undefined) entity.spawnData.x = data.x;
       if (data.y !== undefined) entity.spawnData.y = data.y;
       if (data.z !== undefined) entity.spawnData.z = data.z;
-      // sync_entity_position uses f32 degrees; spawn_entity expects i8 byte angles
-      if (data.yaw !== undefined) entity.spawnData.yaw = toByteAngle(data.yaw);
-      if (data.pitch !== undefined) entity.spawnData.pitch = toByteAngle(data.pitch);
+      if (data.dx !== undefined || data.dy !== undefined || data.dz !== undefined) {
+        applyVelocity(entity.spawnData, { x: data.dx, y: data.dy, z: data.dz });
+      }
+      if (data.onGround !== undefined) entity.spawnData.onGround = data.onGround;
+      // sync_entity_position yaw/pitch are f32 degrees — never treat as i8 bytes (90° ≠ byte 90)
+      if (data.yaw !== undefined) entity.spawnData.yaw = degreesToByteAngle(data.yaw);
+      if (data.pitch !== undefined) entity.spawnData.pitch = degreesToByteAngle(data.pitch);
     }
   }
+
+  /** Ignored for Anvil Motion — lpVec3 entity_velocity is not mapped to blocks/tick. */
+  handleEntityVelocity(_data) {}
 
   handleRelEntityMove(data) {
     const entity = this.entities.get(data.entityId);
@@ -127,6 +160,18 @@ class EntityCache {
     }
   }
 
+  /** @param {object|null} equipment */
+  static equipmentSnapshot(equipment) {
+    if (!equipment?.slots) return equipment;
+    return {
+      entityId: equipment.entityId,
+      equipments: [...equipment.slots.entries()].map(([slot, item]) => ({
+        slot,
+        item,
+      })),
+    };
+  }
+
   /**
    * Get all entities for replay.
    * Returns spawn packets + metadata + equipment + effects.
@@ -138,7 +183,7 @@ class EntityCache {
         entityId,
         spawnData: sanitizeSpawnEntity(entity.spawnData),
         metadata: entity.metadata,
-        equipment: entity.equipment,
+        equipment: EntityCache.equipmentSnapshot(entity.equipment),
         effects: entity.effects,
         passengers: entity.passengers,
       });

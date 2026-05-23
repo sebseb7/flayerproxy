@@ -12,7 +12,7 @@
     "port": 25566,
     "onlineMode": true,
     "maxClients": 1,
-    "clientViewDistance": 7
+    "clientViewDistance": 5
   },
   "spectator": {
     "enabled": true,
@@ -27,7 +27,7 @@
     "logDir": "logs/sniffer",
     "chunkLogDir": "logs/sniffer/chunks",
     "includePayload": true,
-    "logEveryPacket": false,
+    "logEveryPacket": true,
     "sessionLog": false,
     "chunkLog": false,
     "consolePacketLog": false,
@@ -41,12 +41,12 @@
     "antiAfk": true,
     "antiAfkMinInterval": 1500,
     "antiAfkMaxInterval": 6000,
-    "viewDistance": 7,
+    "viewDistance": 5,
     "autoLogout": {
       "enabled": true,
       "onDamage": true,
       "onPlayer": true,
-      "belowY": 64,
+      "belowY": 60,
       "allowedPlayers": ["tobbop2", "craftery85", "sebgreenbus"]
     }
   },

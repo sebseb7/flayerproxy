@@ -8,6 +8,7 @@ const {
   applyBlockChange,
   applyUpdateLight,
   applyMultiBlockChange,
+  applyTileEntityData,
 } = require('./chunkMerge');
 
 const log = createLogger('ChunkCache');
@@ -23,6 +24,7 @@ class ChunkCache {
    */
   constructor(maxChunks = 1024, options = {}) {
     this.maxChunks = maxChunks;
+    this.retainAllChunks = options.retainAllChunks === true;
     this.version = options.version ?? '1.21.10';
     this.getWorldBounds = options.getWorldBounds ?? (() => worldBoundsForDimension(this.version));
     /** @type {Map<string, object>} key "x,z" -> stored chunk */
@@ -65,7 +67,11 @@ class ChunkCache {
    * @param {object} [view] - { centerChunkX, centerChunkZ, viewDistance }
    */
   handleMapChunk(data, _rawBuffer, view) {
-    if (view?.centerChunkX != null && view.viewDistance != null) {
+    if (
+      !this.retainAllChunks &&
+      view?.centerChunkX != null &&
+      view.viewDistance != null
+    ) {
       if (
         !isChunkWithinViewDistance(
           view.centerChunkX,
@@ -81,8 +87,9 @@ class ChunkCache {
     }
 
     const key = this._key(data.x, data.z);
+    const packetData = normalizeMapChunkPacket(structuredClone(data));
     this.chunks.set(key, {
-      packetData: normalizeMapChunkPacket(structuredClone(data)),
+      packetData,
       column: null,
     });
     this._touch(key);
@@ -129,6 +136,7 @@ class ChunkCache {
       const column = this._ensureColumn(stored);
       applyBlockChange(column, data);
       this._syncPacketFromColumn(stored);
+      this._touch(this._key(chunkX, chunkZ));
     } catch (err) {
       log.warn(`block_change merge failed for ${chunkX},${chunkZ}: ${err.message}`);
     }
@@ -146,8 +154,30 @@ class ChunkCache {
       const column = this._ensureColumn(stored);
       applyMultiBlockChange(column, data);
       this._syncPacketFromColumn(stored);
+      this._touch(key);
     } catch (err) {
       log.warn(`multi_block_change merge failed for ${chunkX},${chunkZ}: ${err.message}`);
+    }
+  }
+
+  /**
+   * Merge tile_entity_data (sign text, chest contents, etc.) into a cached column.
+   */
+  handleTileEntityData(data) {
+    const loc = data.location;
+    if (!loc || loc.x == null) return;
+    const chunkX = Math.floor(loc.x / 16);
+    const chunkZ = Math.floor(loc.z / 16);
+    const key = this._key(chunkX, chunkZ);
+    const stored = this.chunks.get(key);
+    if (!stored) return;
+    try {
+      const column = this._ensureColumn(stored);
+      applyTileEntityData(column, data, chunkX, chunkZ);
+      this._syncPacketFromColumn(stored);
+      this._touch(key);
+    } catch (err) {
+      log.warn(`tile_entity_data merge failed for ${chunkX},${chunkZ}: ${err.message}`);
     }
   }
 
@@ -218,8 +248,59 @@ class ChunkCache {
     return this.chunks.has(this._key(chunkX, chunkZ));
   }
 
+  hasChunk(chunkX, chunkZ) {
+    return this.chunks.has(this._key(chunkX, chunkZ));
+  }
+
+  /**
+   * @returns {{ x: number, z: number, packetData: object, column: import('prismarine-chunk').Chunk }|null}
+   */
+  getExportEntry(chunkX, chunkZ) {
+    const stored = this.chunks.get(this._key(chunkX, chunkZ));
+    if (!stored) return null;
+    normalizeMapChunkPacket(stored.packetData);
+    const column = this._ensureColumn(stored);
+    this._syncPacketFromColumn(stored);
+    return {
+      x: chunkX,
+      z: chunkZ,
+      packetData: stored.packetData,
+      column,
+    };
+  }
+
+  /**
+   * Drop in-memory column after incremental exporter idle timeout.
+   * @param {number} chunkX
+   * @param {number} chunkZ
+   */
+  unloadChunk(chunkX, chunkZ) {
+    const key = this._key(chunkX, chunkZ);
+    this.chunks.delete(key);
+    this.accessOrder = this.accessOrder.filter((k) => k !== key);
+  }
+
   get size() {
     return this.chunks.size;
+  }
+
+  /**
+   * Chunks for reference-format world export (merged prismarine columns).
+   * @returns {{ x: number, z: number, packetData: object, column: import('prismarine-chunk').Chunk }[]}
+   */
+  getAllPackets() {
+    const result = [];
+    for (const [key, stored] of this.chunks) {
+      const [x, z] = key.split(',').map(Number);
+      normalizeMapChunkPacket(stored.packetData);
+      result.push({
+        x,
+        z,
+        packetData: stored.packetData,
+        column: this._ensureColumn(stored),
+      });
+    }
+    return result;
   }
 
   _touch(key) {
