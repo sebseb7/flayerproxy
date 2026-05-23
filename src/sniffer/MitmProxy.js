@@ -1,3 +1,4 @@
+const path = require('path');
 const mc = require('minecraft-protocol');
 const { createLogger } = require('../utils/logger');
 const { PacketLog } = require('./PacketLog');
@@ -12,6 +13,7 @@ const {
   flushPendingConfig,
 } = require('./mitmLoginBridge');
 const { createMitmSession, createSessionCleanup } = require('./mitmSession');
+const { SnifferWorldCapture } = require('./SnifferWorldCapture');
 const { startStatusPipe, startUpstream } = require('./mitmUpstream');
 const { logDeserializerError } = require('./mitmWireErrors');
 
@@ -58,6 +60,9 @@ class MitmProxy {
       log.info(`Upstream auth: ${sniffer.upstreamAuth || 'microsoft'}`);
       log.info(`Logs: ${sniffer.logDir}`);
       if (sniffer.chunkLogDir)       log.info(`Chunk logs: ${sniffer.chunkLogDir}`);
+      if (sniffer.saveLevel !== false) {
+        log.info(`Level saves: ${path.resolve(sniffer.saveLevelDir)} (on disconnect)`);
+      }
       log.info(`Per-packet trace: console=${sniffer.consolePacketLog !== false} every=${sniffer.logEveryPacket !== false}`);
     });
 
@@ -77,7 +82,16 @@ class MitmProxy {
 
     client.removeAllListeners('login_start');
 
-    const session = createMitmSession(client, null);
+    const sniffer = this.config.sniffer;
+    const worldCapture =
+      sniffer.saveLevel !== false
+        ? new SnifferWorldCapture({
+            version: this.config.server.version,
+            maxChunks: sniffer.saveLevelMaxChunks,
+            enabled: true,
+          })
+        : null;
+    const session = createMitmSession(client, null, worldCapture);
     this.activeSession = session;
 
     const cleanup = createSessionCleanup(session, this);

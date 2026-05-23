@@ -25,6 +25,9 @@ try {
       logEveryPacket: true,
       consolePacketLog: true,
       tracePayloadMaxLen: 600,
+      saveLevel: true,
+      saveLevelDir: path.join(__dirname, '..', '..', 'logs', 'sniffer', 'worlds'),
+      saveLevelMaxChunks: 8192,
     },
     config.sniffer,
   );
@@ -35,6 +38,9 @@ try {
   log.info(`Logs: ${path.resolve(config.sniffer.logDir)}`);
   log.info(`Chunk logs: ${path.resolve(config.sniffer.chunkLogDir)}`);
   log.info(`Packet trace: console=${config.sniffer.consolePacketLog !== false} (see *.trace.log per session)`);
+  if (config.sniffer.saveLevel !== false) {
+    log.info(`Level saves: ${path.resolve(config.sniffer.saveLevelDir)} (written when session ends)`);
+  }
 } catch (err) {
   log.error(err.message);
   process.exit(1);

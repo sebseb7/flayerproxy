@@ -1,6 +1,7 @@
 const net = require('net');
 const mc = require('minecraft-protocol');
 const { createLogger } = require('../utils/logger');
+const { CHUNK_PACKETS, META_PACKETS } = require('./SnifferWorldCapture');
 const { createPassiveClient } = require('./mitmPassiveClient');
 const { relayToJava, syncCompression } = require('./mitmRelay');
 const { flushC2sQueue } = require('./mitmSession');
@@ -78,6 +79,15 @@ function startUpstream(session, config, cleanup, callbacks) {
       upstreamState: upstream.state,
       note: holdConfigS2C ? 'waiting for Java login_acknowledged' : undefined,
     });
+
+    if (
+      session.worldCapture &&
+      meta.state === states.PLAY &&
+      (CHUNK_PACKETS.has(meta.name) || META_PACKETS.has(meta.name))
+    ) {
+      session.worldCapture.handleServerPacket(meta.name, data);
+    }
+
     syncCompression(upstream, meta.name, data);
 
     if (isLoginEncrypt) {
