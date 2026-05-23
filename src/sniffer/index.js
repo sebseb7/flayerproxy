@@ -39,7 +39,9 @@ try {
   log.info(`Chunk logs: ${path.resolve(config.sniffer.chunkLogDir)}`);
   log.info(`Packet trace: console=${config.sniffer.consolePacketLog !== false} (see *.trace.log per session)`);
   if (config.sniffer.saveLevel !== false) {
-    log.info(`Level saves: ${path.resolve(config.sniffer.saveLevelDir)} (written when session ends)`);
+    log.info(
+      `Level saves: ${path.resolve(config.sniffer.saveLevelDir)} (region/ + entities/ during session, level.dat on disconnect)`,
+    );
   }
 } catch (err) {
   log.error(err.message);

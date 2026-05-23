@@ -61,7 +61,9 @@ class MitmProxy {
       log.info(`Logs: ${sniffer.logDir}`);
       if (sniffer.chunkLogDir)       log.info(`Chunk logs: ${sniffer.chunkLogDir}`);
       if (sniffer.saveLevel !== false) {
-        log.info(`Level saves: ${path.resolve(sniffer.saveLevelDir)} (on disconnect)`);
+        log.info(
+          `Level saves: ${path.resolve(sniffer.saveLevelDir)} (region/ + entities/ during session, level.dat on disconnect)`,
+        );
       }
       log.info(`Per-packet trace: console=${sniffer.consolePacketLog !== false} every=${sniffer.logEveryPacket !== false}`);
     });
@@ -127,6 +129,15 @@ class MitmProxy {
         }
         session.username = data.username;
         session.packetLog = this._createPacketLog(session.username);
+        if (session.worldCapture) {
+          session.worldCapture.configureExport({
+            sessionId: session.packetLog.sessionId,
+            saveDir: this.config.sniffer.saveLevelDir,
+            worldName:
+              this.config.sniffer.saveLevelName ?? session.packetLog.sessionId,
+          });
+          log.info(`World export: ${session.worldCapture.worldDir}`);
+        }
         log.info(`Client connected ${addr} → ${session.packetLog.filePath}`);
         log.info(`Trace log: ${session.packetLog.traceFilePath}`);
         session.packetLog.writeMeta({ type: 'username', username: data.username });

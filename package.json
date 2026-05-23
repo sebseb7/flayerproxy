@@ -16,7 +16,6 @@
     "minecraft-data": "^3.110.2",
     "minecraft-protocol": "^1.66.2",
     "mineflayer": "^4.37.1",
-    "prismarine-chunk": "^1.40.0",
-    "prismarine-world": "^3.7.0"
+    "prismarine-chunk": "^1.40.0"
   }
 }

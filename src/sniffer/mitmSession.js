@@ -1,7 +1,6 @@
 const { traceBridge, traceRelay } = require('./packetTrace');
 const { relayPacket } = require('./mitmRelay');
 const { shouldRelayC2SToUpstream } = require('./mitmLoginBridge');
-const { exportSessionWorld } = require('./levelSaveExporter');
 const { createLogger } = require('../utils/logger');
 
 const log = createLogger('Sniffer');
@@ -75,6 +74,10 @@ function createSessionCleanup(session, proxy) {
     if (session.cleaned) return;
     session.cleaned = true;
 
+    if (session.worldCapture) {
+      session.worldCapture.enabled = false;
+    }
+
     if (session.statusPipe) {
       try { session.statusPipe.client.destroy(); } catch (_) {}
       try { session.statusPipe.upstream.destroy(); } catch (_) {}
@@ -90,15 +93,12 @@ function createSessionCleanup(session, proxy) {
     const sniffer = proxy.config?.sniffer ?? {};
     let worldSavePath = null;
 
-    if (session.worldCapture?.chunkCount > 0 && sniffer.saveLevel !== false) {
+    const hasWorld =
+      (session.worldCapture?.regionChunkCount ?? 0) > 0 ||
+      (session.worldCapture?.entityRegionChunkCount ?? 0) > 0;
+    if (hasWorld && sniffer.saveLevel !== false) {
       try {
-        const snapshot = session.worldCapture.getExportSnapshot();
-        const result = await exportSessionWorld({
-          snapshot,
-          saveDir: sniffer.saveLevelDir,
-          sessionId: packetLog?.sessionId ?? `session-${Date.now()}`,
-          worldName: sniffer.saveLevelName ?? packetLog?.sessionId,
-        });
+        const result = await session.worldCapture.finalizeExport();
         worldSavePath = result?.worldDir ?? null;
       } catch (err) {
         log.error(`World save failed: ${err.message}`);
@@ -110,7 +110,8 @@ function createSessionCleanup(session, proxy) {
         type: 'session_stats',
         reason,
         username: session.username,
-        worldChunks: session.worldCapture?.chunkCount ?? 0,
+        worldChunks: session.worldCapture?.regionChunkCount ?? 0,
+        entityChunks: session.worldCapture?.entityRegionChunkCount ?? 0,
         worldSavePath,
       });
       packetLog.close(reason);

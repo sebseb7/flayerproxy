@@ -1,7 +1,7 @@
 const net = require('net');
 const mc = require('minecraft-protocol');
 const { createLogger } = require('../utils/logger');
-const { CHUNK_PACKETS, META_PACKETS } = require('./SnifferWorldCapture');
+const { CHUNK_PACKETS, ENTITY_PACKETS, META_PACKETS } = require('./SnifferWorldCapture');
 const { createPassiveClient } = require('./mitmPassiveClient');
 const { relayToJava, syncCompression } = require('./mitmRelay');
 const { flushC2sQueue } = require('./mitmSession');
@@ -83,7 +83,9 @@ function startUpstream(session, config, cleanup, callbacks) {
     if (
       session.worldCapture &&
       meta.state === states.PLAY &&
-      (CHUNK_PACKETS.has(meta.name) || META_PACKETS.has(meta.name))
+      (CHUNK_PACKETS.has(meta.name) ||
+        ENTITY_PACKETS.has(meta.name) ||
+        META_PACKETS.has(meta.name))
     ) {
       session.worldCapture.handleServerPacket(meta.name, data);
     }

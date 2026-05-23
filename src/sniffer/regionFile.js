@@ -12,28 +12,39 @@ const SECTOR_BYTES = 4096;
  */
 function encodeChunkPayload(chunkTag) {
   const payload = nbt.writeUncompressed({ type: 'compound', name: '', value: chunkTag });
-  return zlib.gzipSync(payload);
+  return zlib.gzipSync(payload, { level: zlib.constants.Z_BEST_SPEED });
+}
+
+/** Vanilla entity regions use zlib (compression type 2). */
+function encodeEntityChunkPayload(chunkTag) {
+  const payload = nbt.writeUncompressed({ type: 'compound', name: '', value: chunkTag });
+  return zlib.deflateSync(payload, { level: zlib.constants.Z_BEST_SPEED });
 }
 
 /**
- * Write one chunk into a region file (create file/regions as needed).
+ * Load or allocate a region file buffer.
  * @param {string} regionPath
+ */
+function loadRegionBuffer(regionPath) {
+  if (fs.existsSync(regionPath)) {
+    return fs.readFileSync(regionPath);
+  }
+  const buf = Buffer.alloc(SECTOR_BYTES * 2);
+  buf.fill(0);
+  return buf;
+}
+
+/**
+ * Patch one gzip chunk payload into an in-memory region buffer.
+ * @param {Buffer} buf
  * @param {number} chunkX
  * @param {number} chunkZ
- * @param {object} chunkTag
+ * @param {Buffer} payload
+ * @returns {Buffer}
  */
-function writeRegionChunk(regionPath, chunkX, chunkZ, chunkTag) {
-  const payload = encodeChunkPayload(chunkTag);
+function patchRegionBuffer(buf, chunkX, chunkZ, payload, compressionType = 1) {
   const sectorCount = Math.ceil((5 + payload.length) / SECTOR_BYTES);
   const totalSize = sectorCount * SECTOR_BYTES;
-
-  let buf;
-  if (fs.existsSync(regionPath)) {
-    buf = fs.readFileSync(regionPath);
-  } else {
-    buf = Buffer.alloc(SECTOR_BYTES * 2);
-    buf.fill(0);
-  }
 
   const localX = chunkX & 31;
   const localZ = chunkZ & 31;
@@ -62,7 +73,7 @@ function writeRegionChunk(regionPath, chunkX, chunkZ, chunkTag) {
 
   const sectorOffset = writeSector * SECTOR_BYTES;
   buf.writeUInt32BE(payload.length + 1, sectorOffset);
-  buf.writeUInt8(1, sectorOffset + 4);
+  buf.writeUInt8(compressionType, sectorOffset + 4);
   payload.copy(buf, sectorOffset + 5);
 
   if (buf.length < sectorOffset + totalSize) {
@@ -71,7 +82,13 @@ function writeRegionChunk(regionPath, chunkX, chunkZ, chunkTag) {
     buf = grown;
   }
 
-  fs.writeFileSync(regionPath, buf);
+  return buf;
 }
 
-module.exports = { writeRegionChunk, encodeChunkPayload, SECTOR_BYTES };
+module.exports = {
+  encodeChunkPayload,
+  encodeEntityChunkPayload,
+  loadRegionBuffer,
+  patchRegionBuffer,
+  SECTOR_BYTES,
+};
