@@ -88,9 +88,9 @@ class McaIncrementalExporter {
         logEach,
       });
       if (columns > 0 && !logEach && columns > 1) {
-        this.log.debug(
-          `${this.columnLabel}: patched ${columns} column(s) in ${byRegion.size} region(s) [${this._formatRegionSummary(byRegion)}] (${reason})`,
-        );
+        //this.log.debug(
+        //  `${this.columnLabel}: patched ${columns} column(s) in ${byRegion.size} region(s) [${this._formatRegionSummary(byRegion)}] (${reason})`,
+        //);
       }
     });
   }
@@ -136,9 +136,9 @@ class McaIncrementalExporter {
         chunkTag,
       });
       this.columnsWritten++;
-      if (opts.logEach) {
-        this.log.debug(`${this.columnLabel} ${entry.x},${entry.z} patched (${reason})`);
-      }
+      //if (opts.logEach) {
+      //  this.log.debug(`${this.columnLabel} ${entry.x},${entry.z} patched (${reason})`);
+      //}
     }
 
     if (!updates.length) {

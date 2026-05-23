@@ -22,13 +22,18 @@
   },
   "sniffer": {
     "port": 25567,
-    "onlineMode": false,
+    "onlineMode": true,
     "upstreamAuth": "microsoft",
     "logDir": "logs/sniffer",
     "chunkLogDir": "logs/sniffer/chunks",
     "includePayload": true,
-    "logEveryPacket": true,
-    "consolePacketLog": false
+    "logEveryPacket": false,
+    "sessionLog": false,
+    "chunkLog": false,
+    "consolePacketLog": false,
+    "saveLevel": true,
+    "saveLevelDir": "logs/sniffer/worlds",
+    "saveLevelPerSession": false
   },
   "bot": {
     "logMovement": true,

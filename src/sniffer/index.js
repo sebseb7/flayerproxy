@@ -27,6 +27,7 @@ try {
       tracePayloadMaxLen: 600,
       saveLevel: true,
       saveLevelDir: path.join(__dirname, '..', '..', 'logs', 'sniffer', 'worlds'),
+      saveLevelPerSession: false,
       saveLevelMaxChunks: 8192,
     },
     config.sniffer,
@@ -36,8 +37,12 @@ try {
   log.info(`Client online-mode: ${config.sniffer.onlineMode}`);
   log.info(`Upstream auth: ${config.sniffer.upstreamAuth}`);
   log.info(`Logs: ${path.resolve(config.sniffer.logDir)}`);
-  log.info(`Chunk logs: ${path.resolve(config.sniffer.chunkLogDir)}`);
-  log.info(`Packet trace: console=${config.sniffer.consolePacketLog !== false} (see *.trace.log per session)`);
+  if (config.sniffer.chunkLog !== false) {
+    log.info(`Chunk logs: ${path.resolve(config.sniffer.chunkLogDir)}`);
+  }
+  log.info(
+    `Packet log: every=${config.sniffer.logEveryPacket !== false}, session=${config.sniffer.sessionLog !== false}, chunk=${config.sniffer.chunkLog !== false}, console=${config.sniffer.consolePacketLog !== false}`,
+  );
   if (config.sniffer.saveLevel !== false) {
     log.info(
       `Level saves: ${path.resolve(config.sniffer.saveLevelDir)} (region/ + entities/ during session, level.dat on disconnect)`,

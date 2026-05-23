@@ -156,6 +156,18 @@ function yawToFacing(deg) {
   return 4;
 }
 
+/** spawn_entity.objectData / metadata.direction → vanilla Facing byte (Direction.get3DDataValue). */
+function itemFrameFacingByte(spawn, tracked, version, entityId) {
+  const dirKey = metadataKeyIndex(version, entityId, 'direction');
+  const dirEntry = dirKey >= 0 ? metaEntry(tracked.metadata, dirKey) : null;
+  const fromMeta = dirEntry?.value;
+  if (typeof fromMeta === 'number' && fromMeta >= 0 && fromMeta <= 5) return fromMeta;
+  if (typeof spawn.objectData === 'number' && spawn.objectData >= 0 && spawn.objectData <= 5) {
+    return spawn.objectData;
+  }
+  return yawToFacing(spawnRotationDegrees(spawn)[0]);
+}
+
 function simpleItemStack(protocolItem, version) {
   if (!protocolItem) return null;
   const stack = itemStackTag(protocolItem, version);
@@ -216,15 +228,10 @@ function baseEntityTags(spawn, id) {
 function applyItemFrameTags(value, tracked, version) {
   const spawn = tracked.spawnData;
   const md = tracked.metadata;
-  const dirKey = metadataKeyIndex(version, value.id.value, 'direction');
   const itemKey = metadataKeyIndex(version, value.id.value, 'item');
   const rotKey = metadataKeyIndex(version, value.id.value, 'rotation');
 
-  const dirEntry = dirKey >= 0 ? metaEntry(md, dirKey) : null;
-  let facing = dirEntry?.value;
-  if (typeof facing !== 'number') {
-    facing = yawToFacing(spawnRotationDegrees(spawn)[0]);
-  }
+  const facing = itemFrameFacingByte(spawn, tracked, version, value.id.value);
 
   value.Facing = nbt.byte(facing);
   value.block_pos = nbt.intArray([
@@ -489,4 +496,5 @@ module.exports = {
   entityIdFromType,
   protocolUuidToBuffer,
   topLevelEntitiesForChunk,
+  itemFrameFacingByte,
 };

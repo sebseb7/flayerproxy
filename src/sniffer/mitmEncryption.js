@@ -13,10 +13,8 @@ const states = mc.states;
  * @returns {Promise<void>} resolves when Java leg encryption is active
  */
 function enableJavaEncryption(client, server, options, packetLog) {
-  const onlineMode = options['online-mode'] === true;
-
   return new Promise((resolve, reject) => {
-    const serverId = onlineMode ? crypto.randomBytes(4).toString('hex') : '-';
+    const serverId = '-';
     client.verifyToken = crypto.randomBytes(4);
     const publicKeyStrArr = server.serverKey.exportKey('pkcs8-public-pem').split('\n');
     let publicKeyStr = '';
@@ -39,7 +37,8 @@ function enableJavaEncryption(client, server, options, packetLog) {
       serverId,
       publicKey: client.publicKey,
       verifyToken: client.verifyToken,
-      shouldAuthenticate: onlineMode,
+      // MITM: upstream uses bot Microsoft auth; Java leg must not require Mojang hasJoined on sniffer keys.
+      shouldAuthenticate: false,
     });
     if (packetLog) {
       traceTx(packetLog, 'java', 'S2C', { state: states.LOGIN, name: 'encryption_begin' }, null, {

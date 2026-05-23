@@ -1,5 +1,6 @@
 const path = require('path');
 const mc = require('minecraft-protocol');
+const { createMitmSnifferServer } = require('./mitmCreateServer');
 const { createLogger } = require('../utils/logger');
 const { PacketLog } = require('./PacketLog');
 const { formatTracePayload, traceBridge, traceRelay, traceTx } = require('./packetTrace');
@@ -13,6 +14,11 @@ const {
   flushPendingConfig,
 } = require('./mitmLoginBridge');
 const { createMitmSession, createSessionCleanup } = require('./mitmSession');
+const { resolveSaveLevelWorldName } = require('./serverWorldSignature');
+const {
+  stripVanillaLoginHandlers,
+  ensureClientConfigurationState,
+} = require('./mitmStripVanillaLogin');
 const { SnifferWorldCapture } = require('./SnifferWorldCapture');
 const { startStatusPipe, startUpstream } = require('./mitmUpstream');
 const { logDeserializerError } = require('./mitmWireErrors');
@@ -36,7 +42,7 @@ class MitmProxy {
 
   start() {
     const sniffer = this.config.sniffer;
-    this.server = mc.createServer({
+    this.server = createMitmSnifferServer({
       host: sniffer.host || '0.0.0.0',
       'online-mode': sniffer.onlineMode === true,
       port: sniffer.port,
@@ -59,13 +65,17 @@ class MitmProxy {
       );
       log.info(`Upstream auth: ${sniffer.upstreamAuth || 'microsoft'}`);
       log.info(`Logs: ${sniffer.logDir}`);
-      if (sniffer.chunkLogDir)       log.info(`Chunk logs: ${sniffer.chunkLogDir}`);
+      if (sniffer.chunkLog !== false && sniffer.chunkLogDir) {
+        log.info(`Chunk logs: ${sniffer.chunkLogDir}`);
+      }
       if (sniffer.saveLevel !== false) {
         log.info(
           `Level saves: ${path.resolve(sniffer.saveLevelDir)} (region/ + entities/ during session, level.dat on disconnect)`,
         );
       }
-      log.info(`Per-packet trace: console=${sniffer.consolePacketLog !== false} every=${sniffer.logEveryPacket !== false}`);
+      log.info(
+        `Packet files: logEveryPacket=${sniffer.logEveryPacket !== false} (trace.log + session jsonl per packet), console=${sniffer.consolePacketLog !== false}`,
+      );
     });
 
     this.server.on('error', (err) => {
@@ -82,8 +92,6 @@ class MitmProxy {
       return;
     }
 
-    client.removeAllListeners('login_start');
-
     const sniffer = this.config.sniffer;
     const worldCapture =
       sniffer.saveLevel !== false
@@ -95,6 +103,7 @@ class MitmProxy {
         : null;
     const session = createMitmSession(client, null, worldCapture);
     this.activeSession = session;
+    stripVanillaLoginHandlers(client);
 
     const cleanup = createSessionCleanup(session, this);
 
@@ -130,16 +139,24 @@ class MitmProxy {
         session.username = data.username;
         session.packetLog = this._createPacketLog(session.username);
         if (session.worldCapture) {
+          const worldName = resolveSaveLevelWorldName(
+            this.config.sniffer,
+            this.config.server,
+            session.packetLog.sessionId,
+          );
           session.worldCapture.configureExport({
             sessionId: session.packetLog.sessionId,
             saveDir: this.config.sniffer.saveLevelDir,
-            worldName:
-              this.config.sniffer.saveLevelName ?? session.packetLog.sessionId,
+            worldName,
           });
-          log.info(`World export: ${session.worldCapture.worldDir}`);
+          log.info(`World export: ${session.worldCapture.worldDir} (server ${worldName})`);
         }
-        log.info(`Client connected ${addr} → ${session.packetLog.filePath}`);
-        log.info(`Trace log: ${session.packetLog.traceFilePath}`);
+        log.info(
+          `Client connected ${addr}${session.packetLog.filePath ? ` → ${session.packetLog.filePath}` : ' (no session jsonl)'}`,
+        );
+        if (session.packetLog.traceFilePath) {
+          log.info(`Trace log: ${session.packetLog.traceFilePath}`);
+        }
         session.packetLog.writeMeta({ type: 'username', username: data.username });
         session.packetLog.writeMeta({ type: 'handshake_intent', mode: 'login' });
         this._startUpstream(session, cleanup);
@@ -157,17 +174,14 @@ class MitmProxy {
       });
 
       if (meta.name === 'login_acknowledged') {
-        client.state = states.CONFIGURATION;
+        stripVanillaLoginHandlers(client);
+        ensureClientConfigurationState(client);
         this._relayC2S(session, meta, data, buffer);
         session.javaLoginAcknowledged = true;
         if (session.upstream?.state === states.LOGIN) {
           session.upstream.state = states.CONFIGURATION;
         }
-        try {
-          flushPendingConfig(session);
-        } catch (err) {
-          log.error(`login_acknowledged flush error: ${err.message}`);
-        }
+        this._maybeFlushConfig(session);
         return;
       }
 
@@ -196,6 +210,8 @@ class MitmProxy {
       version: this.config.server.version,
       includePayload: sniffer.includePayload,
       logEveryPacket: sniffer.logEveryPacket,
+      sessionLog: sniffer.sessionLog,
+      chunkLog: sniffer.chunkLog,
       consolePacketLog: sniffer.consolePacketLog,
       tracePayloadMaxLen: sniffer.tracePayloadMaxLen,
     });
@@ -384,23 +400,14 @@ class MitmProxy {
 
     if (heldConfig.length) {
       log.info(
-        `Held S2C queue (${session.username}): ${heldConfig.length} configuration packet(s) deferred until login_acknowledged`,
+        `Held S2C queue (${session.username}): ${heldConfig.length} configuration packet(s) queued until post-login flush`,
       );
       for (const { meta } of heldConfig) {
-        log.info(`  deferred: ${formatHeldPacket({ meta })}`);
+        log.info(`  queued: ${formatHeldPacket({ meta })}`);
       }
     }
 
-    const toRelay = afterCrypto.filter((p) => p.meta.name === 'success');
-    const dropped = afterCrypto.filter((p) => p.meta.name !== 'success');
-    if (dropped.length) {
-      log.warn(
-        `Held S2C queue (${session.username}): ${dropped.length} packet(s) removed without relay (only login.success is flushed)`,
-      );
-      for (const { meta } of dropped) {
-        log.warn(`  dropped: ${formatHeldPacket({ meta })}`);
-      }
-    }
+    const toRelay = afterCrypto;
 
     session.holdS2C = false;
     session.waitingJavaCrypto = false;
@@ -409,10 +416,11 @@ class MitmProxy {
 
     if (toRelay.length) {
       log.info(
-        `Held S2C queue (${session.username}): relaying ${toRelay.length} login.success packet(s)`,
+        `Held S2C queue (${session.username}): relaying ${toRelay.length} login-phase packet(s)`,
       );
     }
 
+    sortLoginPending(toRelay);
     for (const { data, meta, buffer } of toRelay) {
       try {
         const method = relayToJava(session.client, meta, data, buffer);
@@ -420,15 +428,31 @@ class MitmProxy {
           action: 'post_crypto_flush',
           bridge: 'backend→java',
           method,
-          note: 'held login success',
+          note: `held login ${meta.state}.${meta.name}`,
           payload: formatTracePayload(
             session.packetLog.buildFullPacketPayload(data, buffer, null),
             session.packetLog.tracePayloadMaxLen,
           ),
         });
       } catch (err) {
-        log.error(`S2C success flush error: ${err.message}`);
+        log.error(`S2C login flush error (${meta.name}): ${err.message}`);
       }
+    }
+
+    this._maybeFlushConfig(session);
+  }
+
+  _maybeFlushConfig(session) {
+    if (!session.javaLoginAcknowledged || !session.javaCryptoReady) return;
+    if (!session.pendingConfig.length) return;
+    ensureClientConfigurationState(session.client);
+    log.info(
+      `Flushing ${session.pendingConfig.length} configuration packet(s) → Java for ${session.username}`,
+    );
+    try {
+      flushPendingConfig(session);
+    } catch (err) {
+      log.error(`configuration flush error: ${err.message}`);
     }
   }
 

@@ -45,7 +45,9 @@ function queueHeldS2C(session, data, meta, buffer) {
 }
 
 function flushPendingConfig(session) {
+  const { ensureClientConfigurationState } = require('./mitmStripVanillaLogin');
   const { traceTx } = require('./packetTrace');
+  ensureClientConfigurationState(session.client);
   for (const { data, meta, buffer } of session.pendingConfig) {
     const method = relayToJava(session.client, meta, data, buffer);
     traceTx(session.packetLog, 'java', 'S2C', meta, buffer, {

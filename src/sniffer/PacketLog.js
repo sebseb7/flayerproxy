@@ -9,8 +9,6 @@ const { createLogger } = require('../utils/logger');
 const { buildDecodedPacketRecord, buildDecodedDumpFileName } = require('./decodedPacketDump');
 const { summarizePacket, serializePacketFull } = require('./packetSummarize');
 const { resolvePacketName } = require('./packetMeta');
-const { logMotionPacketConsole, MOTION_PACKET_NAMES } = require('./motionPacketConsole');
-
 const pktConsole = createLogger('PktTrace');
 
 /** JSONL lines longer than this go to sessionDir/line-NNNNNN.jsonl with a short ref in the main log. */
@@ -53,8 +51,11 @@ class PacketLog {
   constructor(opts) {
     this.includePayload = opts.includePayload !== false;
     this.logEveryPacket = opts.logEveryPacket !== false;
+    this.sessionLog =
+      opts.sessionLog === true || (opts.sessionLog !== false && this.logEveryPacket);
+    this.chunkLog =
+      opts.chunkLog === true || (opts.chunkLog !== false && this.logEveryPacket);
     this.consolePacketLog = opts.consolePacketLog !== false;
-    this.motionConsoleLog = opts.motionConsoleLog !== false;
     this.tracePayloadMaxLen = opts.tracePayloadMaxLen ?? 8192;
     this.version = opts.version ?? null;
     this.sessionId = opts.sessionId;
@@ -64,28 +65,36 @@ class PacketLog {
     const dir = path.resolve(opts.logDir);
     fs.mkdirSync(dir, { recursive: true });
     const file = path.join(dir, `${opts.sessionId}.jsonl`);
+    this.filePath = this.sessionLog ? file : null;
     this._spillDir = path.join(dir, opts.sessionId);
-    fs.mkdirSync(this._spillDir, { recursive: true });
+    if (this.sessionLog) {
+      fs.mkdirSync(this._spillDir, { recursive: true });
+    }
     this._spillCount = 0;
-    this._stream = fs.createWriteStream(file, { flags: 'a' });
+    this._stream = this.sessionLog ? fs.createWriteStream(file, { flags: 'a' }) : null;
     const traceFile = path.join(dir, `${opts.sessionId}.trace.log`);
-    this._traceStream = fs.createWriteStream(traceFile, { flags: 'a' });
-    this.traceFilePath = traceFile;
+    this.traceFilePath = this.logEveryPacket ? traceFile : null;
+    this._traceStream = this.logEveryPacket
+      ? fs.createWriteStream(traceFile, { flags: 'a' })
+      : null;
     this._closed = false;
-    this.filePath = file;
-    this.spillDir = this._spillDir;
+    this.spillDir = this.sessionLog ? this._spillDir : null;
 
     const chunkDir = path.resolve(opts.chunkLogDir ?? path.join(dir, 'chunks'));
-    fs.mkdirSync(chunkDir, { recursive: true });
     const chunkFile = path.join(chunkDir, `${opts.sessionId}.jsonl`);
+    this.chunkFilePath = this.chunkLog ? chunkFile : null;
     this._chunkSpillDir = path.join(chunkDir, opts.sessionId);
-    fs.mkdirSync(this._chunkSpillDir, { recursive: true });
+    if (this.chunkLog) {
+      fs.mkdirSync(chunkDir, { recursive: true });
+      fs.mkdirSync(this._chunkSpillDir, { recursive: true });
+    }
     this._chunkSpillCount = 0;
-    this._chunkStream = fs.createWriteStream(chunkFile, { flags: 'a' });
-    this.chunkFilePath = chunkFile;
-    this.chunkSpillDir = this._chunkSpillDir;
-    this._decodedDumpDir = path.join(this._chunkSpillDir, 'decoded');
-    fs.mkdirSync(this._decodedDumpDir, { recursive: true });
+    this._chunkStream = this.chunkLog ? fs.createWriteStream(chunkFile, { flags: 'a' }) : null;
+    this.chunkSpillDir = this.chunkLog ? this._chunkSpillDir : null;
+    this._decodedDumpDir = this.chunkLog ? path.join(this._chunkSpillDir, 'decoded') : null;
+    if (this._decodedDumpDir) {
+      fs.mkdirSync(this._decodedDumpDir, { recursive: true });
+    }
     this._pendingTraceDecodedFile = null;
     this._pendingTracePacketName = null;
 
@@ -97,12 +106,12 @@ class PacketLog {
       version: opts.version,
     };
     this.writeMeta(sessionStart);
-    this._writeChunkMeta(sessionStart);
+    if (this.chunkLog) this._writeChunkMeta(sessionStart);
   }
 
   writeMeta(record) {
     const row = { ...record, t: new Date().toISOString() };
-    this._write(row);
+    if (this.sessionLog) this._write(row);
     const { traceMeta } = require('./packetTrace');
     traceMeta(this, record);
   }
@@ -163,19 +172,21 @@ class PacketLog {
       );
       if (decodedFile) entry.decodedFile = decodedFile;
     }
-    this._write(entry);
-    this._recordTrace({
-      type: 'trace',
-      event: 'parse_error',
-      t: entry.t,
-      leg: entry.leg,
-      dir,
-      state,
-      name: 'parse_error',
-      rawBytes: frame?.length,
-      action: entry.forwarded,
-      note: entry.field ?? entry.error,
-    });
+    if (this.logEveryPacket) {
+      this._write(entry);
+      this._recordTrace({
+        type: 'trace',
+        event: 'parse_error',
+        t: entry.t,
+        leg: entry.leg,
+        dir,
+        state,
+        name: 'parse_error',
+        rawBytes: frame?.length,
+        action: entry.forwarded,
+        note: entry.field ?? entry.error,
+      });
+    }
   }
 
   logOpaque(dir, bytes, extra = {}) {
@@ -213,6 +224,8 @@ class PacketLog {
    * @param {'java'|'backend'} [leg] - which TCP/session leg was decoded
    */
   logPacket(dir, meta, data, rawBuffer, extra = {}) {
+    if (!this.logEveryPacket && !this.sessionLog && !this.chunkLog) return;
+
     const leg = extra.leg ?? (dir === 'C2S' ? 'java' : 'backend');
     const nameInfo = resolvePacketName(meta, extra);
     const entry = {
@@ -254,7 +267,7 @@ class PacketLog {
     }
 
     const skipTrace = entry.action === 'relay';
-    if (!skipTrace) {
+    if (this.logEveryPacket && !skipTrace) {
       this._recordTrace({
         type: 'trace',
         event: 'rx',
@@ -275,22 +288,15 @@ class PacketLog {
       });
     }
 
-    if (this.motionConsoleLog && MOTION_PACKET_NAMES.has(packetName)) {
-      logMotionPacketConsole(
-        { version: this.version },
-        meta,
-        data,
-        rawBuffer,
-        { leg, dir, action: entry.action, forwarded: entry.forwarded },
-      );
-    }
-
-    if (CHUNK_PACKETS.has(packetName) && !this.logEveryPacket) {
-      this._writeChunk(entry);
+    if (!this.logEveryPacket) {
+      if (this.chunkLog && CHUNK_PACKETS.has(packetName)) {
+        this._writeChunk(entry);
+      }
       return;
     }
+
     this._write(entry);
-    if (CHUNK_PACKETS.has(packetName) && this.logEveryPacket) {
+    if (CHUNK_PACKETS.has(packetName)) {
       this._writeChunk(entry);
     }
   }
@@ -310,6 +316,7 @@ class PacketLog {
 
   /** Every successfully parsed packet with params or wire bytes gets a decoded/ artifact. */
   _maybeDumpDecodedPacket(seq, nameInfo, data, rawBuffer) {
+    if (!this.chunkLog || !this._decodedDumpDir) return null;
     if (!rawBuffer?.length && data == null) return null;
     const fileName = buildDecodedDumpFileName(seq, nameInfo, data);
     const record = buildDecodedPacketRecord(nameInfo.name, data, rawBuffer, nameInfo);
@@ -327,7 +334,7 @@ class PacketLog {
 
   /** Plain-text + optional console line for every packet/bridge (no spill). */
   _recordTrace(e) {
-    if (this._closed) return;
+    if (this._closed || !this._traceStream) return;
     const seq = e.seq ?? ++this._traceSeq;
     if (e.seq == null) e.seq = seq;
     if (!e.t) e.t = new Date().toISOString();
@@ -342,15 +349,15 @@ class PacketLog {
     if (this._closed) return;
     const end = { type: 'session_end', reason: reason || 'closed' };
     this.writeMeta(end);
-    this._writeChunkMeta(end);
+    if (this.chunkLog) this._writeChunkMeta(end);
     this._closed = true;
-    this._stream.end();
-    this._traceStream.end();
-    this._chunkStream.end();
+    this._stream?.end();
+    this._traceStream?.end();
+    this._chunkStream?.end();
   }
 
   _write(obj) {
-    if (this._closed) return;
+    if (this._closed || !this.sessionLog || !this._stream) return;
     this._emitLine(obj, {
       spillDir: this._spillDir,
       spillCountRef: () => ++this._spillCount,
@@ -359,7 +366,7 @@ class PacketLog {
   }
 
   _writeChunk(obj) {
-    if (this._closed) return;
+    if (this._closed || !this.chunkLog || !this._chunkStream) return;
     this._emitLine(obj, {
       spillDir: this._chunkSpillDir,
       spillCountRef: () => ++this._chunkSpillCount,
@@ -379,10 +386,12 @@ class PacketLog {
   }
 
   _writeRaw(line) {
+    if (!this._stream) return;
     this._stream.write(`${line}\n`);
   }
 
   _writeChunkRaw(line) {
+    if (!this._chunkStream) return;
     this._chunkStream.write(`${line}\n`);
   }
 }
@@ -419,4 +428,4 @@ function buildSpillRef(obj, spillFile) {
   return ref;
 }
 
-module.exports = { PacketLog, CHUNK_PACKETS, LARGE_PACKETS, MOTION_PACKET_NAMES };
+module.exports = { PacketLog, CHUNK_PACKETS, LARGE_PACKETS };

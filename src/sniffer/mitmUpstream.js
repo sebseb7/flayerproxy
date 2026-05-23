@@ -62,15 +62,11 @@ function startUpstream(session, config, cleanup, callbacks) {
   upstream.on('packet', (data, meta, buffer) => {
     const isLoginEncrypt =
       meta.name === 'encryption_begin' && meta.state === states.LOGIN;
-    const holdConfigS2C =
-      meta.state === states.CONFIGURATION && !session.javaLoginAcknowledged;
     const forwarded = isLoginEncrypt
       ? 'mitm'
-      : holdConfigS2C
-        ? 'hold_java_ack'
-        : session.holdS2C
-          ? 'hold'
-          : 'relay';
+      : session.holdS2C
+        ? 'hold'
+        : 'relay';
 
     session.packetLog.logPacket('S2C', meta, data, buffer, {
       leg: 'backend',
@@ -78,7 +74,6 @@ function startUpstream(session, config, cleanup, callbacks) {
       action: forwarded,
       clientState: session.client.state,
       upstreamState: upstream.state,
-      note: holdConfigS2C ? 'waiting for Java login_acknowledged' : undefined,
     });
 
     if (
@@ -104,11 +99,6 @@ function startUpstream(session, config, cleanup, callbacks) {
         note: 'held; upstream encrypt waits for Java sniffer encryption_begin',
       });
       callbacks.onEncryptionBegin?.(session);
-      return;
-    }
-
-    if (holdConfigS2C) {
-      queueHeldS2C(session, data, meta, buffer);
       return;
     }
 
