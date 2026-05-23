@@ -12,6 +12,7 @@ const autoVersion = require('minecraft-protocol/src/client/autoVersion');
 const pluginChannels = require('minecraft-protocol/src/client/pluginChannels');
 const versionChecking = require('minecraft-protocol/src/client/versionChecking');
 const uuid = require('minecraft-protocol/src/datatypes/uuid');
+const { patchClientItemNbt } = require('./protocol/installItemNbtPatch');
 
 /**
  * Upstream leg: Microsoft auth + keepalive only. No encrypt plugin (Java drives upstream encrypt).
@@ -31,6 +32,7 @@ function createPassiveClient(options) {
   const Client = options.Client || DefaultClientImpl;
 
   const client = new Client(false, version.minecraftVersion, options.customPackets, hideErrors);
+  patchClientItemNbt(client);
 
   tcpDns(client, options);
 

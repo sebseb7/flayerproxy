@@ -1,6 +1,7 @@
 const path = require('path');
 const mc = require('minecraft-protocol');
 const { createMitmSnifferServer } = require('./mitmCreateServer');
+const { patchClientItemNbt } = require('./protocol/installItemNbtPatch');
 const { createLogger } = require('../utils/logger');
 const { PacketLog } = require('./PacketLog');
 const { formatTracePayload, traceBridge, traceRelay, traceTx } = require('./packetTrace');
@@ -103,6 +104,7 @@ class MitmProxy {
         : null;
     const session = createMitmSession(client, null, worldCapture);
     this.activeSession = session;
+    patchClientItemNbt(client);
     stripVanillaLoginHandlers(client);
 
     const cleanup = createSessionCleanup(session, this);
