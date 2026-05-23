@@ -7,10 +7,12 @@ const { EntityRegionCache } = require('./entityRegionCache');
 const {
   worldBoundsForDimension,
   dimensionNameFromLogin,
+  dimensionNameFromWorldState,
 } = require('../state/chunkMerge');
 const { IncrementalRegionExporter } = require('./incrementalRegionExporter');
 const { IncrementalEntityExporter } = require('./incrementalEntityExporter');
 const { writeLevelDat } = require('./levelSaveExporter');
+const { regionSubdirForDimension } = require('./dimensionStorage');
 
 const CHUNK_PACKETS = new Set([
   'map_chunk',
@@ -49,7 +51,7 @@ const META_PACKETS = new Set([
 
 /**
  * Accumulates decoded terrain + entities from sniffer S2C play packets and writes
- * region/ and entities/ incrementally.
+ * Vanilla per-dimension region/ and entities/ trees (DIM-1, DIM1) incrementally.
  */
 class SnifferWorldCapture {
   constructor(opts) {
@@ -90,14 +92,14 @@ class SnifferWorldCapture {
     this.exporter = new IncrementalRegionExporter({
       worldDir: this.worldDir,
       version: this.version,
-      dimensionName: this.dimensionName,
+      getDimensionName: () => this.dimensionName,
       getWorldBounds,
       onUnloadChunk: (x, z) => this.chunks.unloadChunk(x, z),
     });
     this.entityExporter = new IncrementalEntityExporter({
       worldDir: this.worldDir,
       version: this.version,
-      dimensionName: this.dimensionName,
+      getDimensionName: () => this.dimensionName,
       getWorldBounds,
     });
     void this.exporter.ensureRegionDir();
@@ -227,7 +229,7 @@ class SnifferWorldCapture {
     switch (name) {
       case 'login':
         this.loginPacket = { ...data };
-        this.dimensionName = dimensionNameFromLogin(data);
+        this._applyDimensionFromName(dimensionNameFromLogin(data));
         if (data.entityId != null) {
           this.playerEntityId = data.entityId;
           this.entities.setPlayerEntityId(data.entityId);
@@ -238,18 +240,74 @@ class SnifferWorldCapture {
         break;
       case 'spawn_position':
         this.spawnPosition = { ...data };
+        this._applyDimensionFromName(data.globalPos?.dimensionName);
         break;
       case 'update_time':
         this.time = { ...data };
         break;
       case 'respawn':
-        if (data.dimension) {
-          this.dimensionName = dimensionNameFromLogin({ dimension: data.dimension });
+        if (data.worldState) {
+          if (this.loginPacket) {
+            this.loginPacket = { ...this.loginPacket, worldState: data.worldState };
+          }
+          const next = dimensionNameFromWorldState(data.worldState);
+          if (next) this._applyDimensionFromName(next);
+        } else if (data.dimension) {
+          this._applyDimensionFromName(
+            dimensionNameFromLogin({ dimension: data.dimension }),
+          );
         }
         break;
       default:
         break;
     }
+  }
+
+  /**
+   * @param {string} [dimensionName] - with or without `minecraft:` prefix
+   */
+  _applyDimensionFromName(dimensionName) {
+    if (!dimensionName) return;
+    const next = dimensionName.replace(/^minecraft:/, '');
+    if (next === this.dimensionName) return;
+    void this._switchDimension(next);
+  }
+
+  /**
+   * Flush the previous dimension, then point exporters at the new DIM-* folders.
+   * @param {string} nextDimension
+   */
+  async _switchDimension(nextDimension) {
+    if (this.exporter) {
+      await this.exporter.flushAll();
+      this.exporter.setRegionSubdir(
+        regionSubdirForDimension(nextDimension, 'region'),
+      );
+      void this.exporter.ensureRegionDir();
+    }
+    if (this.entityExporter) {
+      await this.entityExporter.flushAll();
+      this.entityExporter.setRegionSubdir(
+        regionSubdirForDimension(nextDimension, 'entities'),
+      );
+      void this.entityExporter.ensureRegionDir();
+    }
+
+    this.dimensionName = nextDimension;
+    this.chunks.clear();
+    this.entities.clear();
+    this._resetExporterHotState(this.exporter);
+    this._resetExporterHotState(this.entityExporter);
+  }
+
+  /** Drop pending hot-column sync state without flushing (dimension changed). */
+  _resetExporterHotState(exporter) {
+    if (!exporter) return;
+    if (exporter.syncTimer != null) {
+      clearInterval(exporter.syncTimer);
+      exporter.syncTimer = null;
+    }
+    exporter.hot.clear();
   }
 
   _patchTerrainChunk(x, z) {
@@ -383,8 +441,14 @@ class SnifferWorldCapture {
       worldDir: this.worldDir,
       chunkCount,
       entityChunkCount: entityChunks,
-      regionDir: path.join(this.worldDir, 'region'),
-      entitiesDir: path.join(this.worldDir, 'entities'),
+      regionDir: path.join(
+        this.worldDir,
+        regionSubdirForDimension(this.dimensionName, 'region'),
+      ),
+      entitiesDir: path.join(
+        this.worldDir,
+        regionSubdirForDimension(this.dimensionName, 'entities'),
+      ),
     };
   }
 

@@ -1,6 +1,7 @@
 'use strict';
 
 const { worldBoundsForDimension } = require('../state/chunkMerge');
+const { regionSubdirForDimension } = require('./dimensionStorage');
 const { encodeEntityRegionChunkTag } = require('./entityRegionWrite');
 const { encodeEntityChunkPayload } = require('./regionFile');
 const { McaIncrementalExporter } = require('./mcaIncrementalExporter');
@@ -11,14 +12,17 @@ const ENTITY_SYNC_INTERVAL_MS = 2_000;
 class IncrementalEntityExporter extends McaIncrementalExporter {
   constructor(opts) {
     const version = opts.version;
-    const dimensionName = opts.dimensionName ?? 'overworld';
+    const getDimensionName =
+      opts.getDimensionName ?? (() => opts.dimensionName ?? 'overworld');
     const getWorldBounds =
       opts.getWorldBounds ??
-      (() => worldBoundsForDimension(version, dimensionName));
+      (() => worldBoundsForDimension(version, getDimensionName()));
 
     super({
       worldDir: opts.worldDir,
-      regionSubdir: 'entities',
+      getRegionSubdir:
+        opts.getRegionSubdir ??
+        (() => regionSubdirForDimension(getDimensionName(), 'entities')),
       version,
       logModule: 'EntityExport',
       columnLabel: 'Entity chunk',
@@ -28,7 +32,7 @@ class IncrementalEntityExporter extends McaIncrementalExporter {
       compressionType: 2,
       getEncodeOpts: () => ({
         version,
-        dimensionName,
+        dimensionName: getDimensionName(),
         worldBounds: getWorldBounds(),
       }),
       encodeColumnTag: (entry, encodeOpts) =>

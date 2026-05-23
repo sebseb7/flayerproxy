@@ -186,11 +186,19 @@ class ChunkCache {
    * @returns {import('prismarine-chunk').Chunk}
    */
   _ensureColumn(stored) {
+    const bounds = this.getWorldBounds();
+    if (
+      stored.column &&
+      (stored.column.minY !== bounds.minY ||
+        stored.column.worldHeight !== bounds.worldHeight)
+    ) {
+      stored.column = null;
+    }
     if (!stored.column) {
       stored.column = loadColumnFromMapChunk(
         stored.packetData,
         this.version,
-        this.getWorldBounds()
+        bounds,
       );
     }
     return stored.column;

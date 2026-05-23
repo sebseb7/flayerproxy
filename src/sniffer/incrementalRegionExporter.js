@@ -1,6 +1,7 @@
 'use strict';
 
 const { worldBoundsForDimension } = require('../state/chunkMerge');
+const { regionSubdirForDimension } = require('./dimensionStorage');
 const { encodeReferenceChunkTag } = require('./chunkRegionWrite');
 const { McaIncrementalExporter } = require('./mcaIncrementalExporter');
 
@@ -8,14 +9,17 @@ const { McaIncrementalExporter } = require('./mcaIncrementalExporter');
 class IncrementalRegionExporter extends McaIncrementalExporter {
   constructor(opts) {
     const version = opts.version;
-    const dimensionName = opts.dimensionName ?? 'overworld';
+    const getDimensionName =
+      opts.getDimensionName ?? (() => opts.dimensionName ?? 'overworld');
     const getWorldBounds =
       opts.getWorldBounds ??
-      (() => worldBoundsForDimension(version, dimensionName));
+      (() => worldBoundsForDimension(version, getDimensionName()));
 
     super({
       worldDir: opts.worldDir,
-      regionSubdir: 'region',
+      getRegionSubdir:
+        opts.getRegionSubdir ??
+        (() => regionSubdirForDimension(getDimensionName(), 'region')),
       version,
       logModule: 'RegionExport',
       columnLabel: 'Chunk',
@@ -23,7 +27,7 @@ class IncrementalRegionExporter extends McaIncrementalExporter {
       onUnloadColumn: opts.onUnloadChunk,
       getEncodeOpts: () => ({
         version,
-        dimensionName,
+        dimensionName: getDimensionName(),
         worldBounds: getWorldBounds(),
       }),
       encodeColumnTag: (entry, encodeOpts) =>

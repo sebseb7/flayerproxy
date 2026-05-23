@@ -115,8 +115,14 @@ function blockEntitiesFromPacket(packet, chunkX, chunkZ) {
 function mapChunkToReferenceAnvilTag(packet, bounds, version, column) {
   const chunkX = packet.x ?? 0;
   const chunkZ = packet.z ?? 0;
-  const merged =
-    column ?? loadColumnFromMapChunk(packet, version, bounds);
+  let merged = column;
+  if (
+    merged &&
+    (merged.minY !== bounds.minY || merged.worldHeight !== bounds.worldHeight)
+  ) {
+    merged = null;
+  }
+  merged = merged ?? loadColumnFromMapChunk(packet, version, bounds);
 
   const { columnToAnvilChunkTag } = createChunkAnvilEncoder(version);
   const blockEntities = blockEntitiesFromPacket(packet, chunkX, chunkZ);

@@ -4,6 +4,13 @@ const nbt = require('prismarine-nbt');
 
 const DEFAULT_WORLD = { minY: -64, worldHeight: 384 };
 
+/** Vanilla vertical bounds when registry lookup is unavailable (e.g. 1.21.x). */
+const DIMENSION_BOUNDS = {
+  overworld: { minY: -64, worldHeight: 384 },
+  the_nether: { minY: 0, worldHeight: 256 },
+  the_end: { minY: 0, worldHeight: 256 },
+};
+
 /**
  * prismarine-chunk uses smart-buffer, which requires Node Buffers.
  * structuredClone (and some decoders) produce Uint8Array instead.
@@ -56,11 +63,16 @@ function prepareMapChunkParams(packetData) {
  * @param {string} [dimensionName]
  */
 function worldBoundsForDimension(version, dimensionName = 'overworld') {
+  const key = String(dimensionName).replace(/^minecraft:/, '');
+  const known = DIMENSION_BOUNDS[key];
+  if (known) {
+    return { ...known };
+  }
+
   try {
     const registry = require('prismarine-registry')(version);
     const dim =
-      registry.dimensionsByName[dimensionName] ??
-      registry.dimensionsByName[dimensionName.replace(/^minecraft:/, '')];
+      registry.dimensionsByName?.[key] ?? registry.dimensionsByName?.[dimensionName];
     if (dim) {
       return { minY: dim.minY, worldHeight: dim.height };
     }
@@ -71,10 +83,27 @@ function worldBoundsForDimension(version, dimensionName = 'overworld') {
 }
 
 /**
+ * @param {{ name?: string, dimension?: string|number }|null|undefined} worldState
+ * @returns {string|null}
+ */
+function dimensionNameFromWorldState(worldState) {
+  if (!worldState) return null;
+  if (typeof worldState.name === 'string') {
+    return worldState.name.replace(/^minecraft:/, '');
+  }
+  if (worldState.dimension != null) {
+    return dimensionNameFromLogin({ dimension: worldState.dimension });
+  }
+  return null;
+}
+
+/**
  * @param {object} loginPacket
  * @returns {string}
  */
 function dimensionNameFromLogin(loginPacket) {
+  const fromState = dimensionNameFromWorldState(loginPacket?.worldState);
+  if (fromState) return fromState;
   if (!loginPacket?.dimension) return 'overworld';
   const d = loginPacket.dimension;
   if (typeof d === 'string') return d.replace(/^minecraft:/, '');
@@ -312,11 +341,13 @@ function applyMultiBlockChange(column, packet) {
 
 module.exports = {
   DEFAULT_WORLD,
+  DIMENSION_BOUNDS,
   asBuffer,
   normalizeMapChunkPacket,
   prepareMapChunkParams,
   worldBoundsForDimension,
   dimensionNameFromLogin,
+  dimensionNameFromWorldState,
   blockEntityIdFromBlock,
   resolveBlockEntityId,
   stubBlockEntityValue,

@@ -15,7 +15,8 @@ class McaIncrementalExporter {
   /**
    * @param {object} opts
    * @param {string} opts.worldDir
-   * @param {string} opts.regionSubdir - e.g. 'region' or 'entities'
+   * @param {string} [opts.regionSubdir] - initial subdir, e.g. 'region' or 'DIM-1/region'
+   * @param {() => string} [opts.getRegionSubdir] - resolves subdir from current dimension
    * @param {string} opts.version
    * @param {string} opts.logModule
    * @param {string} opts.columnLabel - log prefix, e.g. 'Chunk' or 'Entity chunk'
@@ -32,14 +33,17 @@ class McaIncrementalExporter {
     this.getEncodeOpts = opts.getEncodeOpts ?? (() => ({}));
     this.onUnloadColumn = opts.onUnloadColumn ?? (() => {});
     this.syncIntervalMs = opts.syncIntervalMs ?? SYNC_INTERVAL_MS;
-
-    this.regionDir = path.join(opts.worldDir, opts.regionSubdir);
-    this.regionCache = new RegionBufferCache({
-      regionDir: this.regionDir,
-      regionIdleMs: opts.regionIdleMs ?? opts.regionFlushDelayMs,
-      encodePayload: opts.encodePayload,
-      compressionType: opts.compressionType,
-    });
+    this.regionIdleMs = opts.regionIdleMs ?? opts.regionFlushDelayMs;
+    this.encodePayload = opts.encodePayload;
+    this.compressionType = opts.compressionType;
+    this.worldDir = opts.worldDir;
+    this.getRegionSubdir =
+      opts.getRegionSubdir ?? (() => opts.regionSubdir ?? 'region');
+    /** @type {Map<string, RegionBufferCache>} subdir → cache */
+    this.regionCaches = new Map();
+    this.currentRegionSubdir = this.getRegionSubdir();
+    this.regionDir = path.join(this.worldDir, this.currentRegionSubdir);
+    this.regionCache = this._cacheForSubdir(this.currentRegionSubdir);
 
     /** @type {Map<string, { dirty: boolean, getEntry: () => object|null }>} */
     this.hot = new Map();
@@ -50,6 +54,36 @@ class McaIncrementalExporter {
 
   _key(x, z) {
     return `${x},${z}`;
+  }
+
+  /** @param {string} subdir @returns {import('./regionBufferCache').RegionBufferCache} */
+  _cacheForSubdir(subdir) {
+    let cache = this.regionCaches.get(subdir);
+    if (!cache) {
+      cache = new RegionBufferCache({
+        regionDir: path.join(this.worldDir, subdir),
+        regionIdleMs: this.regionIdleMs,
+        encodePayload: this.encodePayload,
+        compressionType: this.compressionType,
+      });
+      this.regionCaches.set(subdir, cache);
+    }
+    return cache;
+  }
+
+  /**
+   * Route new patches to another dimension folder (vanilla DIM-1 / DIM1).
+   * @param {string} subdir - e.g. 'region' or 'DIM-1/region'
+   */
+  setRegionSubdir(subdir) {
+    if (subdir === this.currentRegionSubdir) return;
+    this.currentRegionSubdir = subdir;
+    this.regionDir = path.join(this.worldDir, subdir);
+    this.regionCache = this._cacheForSubdir(subdir);
+  }
+
+  setRegionSubdirForCurrentDimension() {
+    this.setRegionSubdir(this.getRegionSubdir());
   }
 
   _enqueue(fn) {
@@ -128,7 +162,15 @@ class McaIncrementalExporter {
     const updates = [];
     for (const entry of entries) {
       if (!entry) continue;
-      const chunkTag = this.encodeColumnTag(entry, this.getEncodeOpts());
+      let chunkTag;
+      try {
+        chunkTag = this.encodeColumnTag(entry, this.getEncodeOpts());
+      } catch (err) {
+        this.log.warn(
+          `${this.columnLabel} ${entry.x},${entry.z} encode skipped: ${err.message}`,
+        );
+        continue;
+      }
       if (!chunkTag) continue;
       updates.push({
         chunkX: entry.x,
@@ -227,7 +269,9 @@ class McaIncrementalExporter {
     }
 
     await this._writeQueue;
-    await this.regionCache.flushAll();
+    for (const cache of this.regionCaches.values()) {
+      await cache.flushAll();
+    }
   }
 
   async ensureRegionDir() {
