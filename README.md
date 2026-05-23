@@ -2,17 +2,17 @@
 
 # 🎮 FlayerProxy
 
-> **A seamless Minecraft Bot-to-Proxy handoff bridge.** Keep your Minecraft character online 24/7, take control from a standard client when you join, and let others watch on a separate spectator port.
+> **A seamless Minecraft Bot-to-Proxy handoff bridge.** Keep your Minecraft character online 24/7, take control from a standard client when you join, and let others watch on a separate spectator port. Includes a packet sniffer that can also create a world download — tested on [Constantiam](https://constantiam.net/) using **1.21.10**.
 
 **Tested with:** Minecraft **1.21.10** on [Paper](https://papermc.io/).
 
 ```text
   _____ _                       ____                      
- |  ___| | __ _ _   _  ___ _ _|  _ \ _ __ _____  ___   _ 
+ |  ___| | __ _ _   _  ___ _ __|  _ \ _ __ _____  ___   _ 
  | |_  | |/ _` | | | |/ _ \ '__| |_) | '__/ _ \ \/ / | | |
  |  _| | | (_| | |_| |  __/ |  |  __/| | | (_) >  <| |_| |
  |_|   |_|\__,_|\__, |\___|_|  |_|   |_|  \___/_/\_\\__, |
-                |___/                                |___/ 
+                |___/                               |___/ 
 ```
 
 **FlayerProxy** bridges [Mineflayer](https://github.com/PrismarineJS/mineflayer) and [minecraft-protocol](https://github.com/PrismarineJS/node-minecraft-protocol). It connects a bot to your target server, caches world state, runs optional anti-AFK idle behavior when nobody is playing, and exposes local proxy servers so you can:
@@ -42,7 +42,7 @@ stateDiagram-v2
 | :--- | :--- |
 | **`INIT`** | Bot connecting; proxies may listen but play handoff waits for upstream. |
 | **`BOT_MODE`** | Bot holds the session, caches S2C packets, optional anti-AFK (look / sneak / swing), optional auto-logout (damage / other players). Spectators can watch on **25568**. |
-| **`HANDOFF`** | Play client connected on **25566**; bot physics off; [StateReplayer](src/replay/StateReplayer.js) replays cached state. |
+| **`HANDOFF`** | Play client on **25566**; bot physics off; terrain replay → live chunks → post-terrain (entities/inventory) → held `player_loaded` release ([handoffFlow.js](src/session/handoffFlow.js)). |
 | **`CLIENT_MODE`** | [ClientBridge](src/proxy/ClientBridge.js) pipes packets between your client and the bot’s upstream connection. Cache still updates. Replays cached locator waypoints on handoff; live `tracked_waypoint` updates only after a matching `track`. |
 
 Deeper protocol detail: [protocol.md](protocol.md). Implementation map: [codebase_map.md](codebase_map.md).
@@ -67,13 +67,13 @@ Caches keep handoff and spectator join smooth. Chunks are stored only within the
 
 | Cache | Packets (examples) | Notes |
 | :--- | :--- | :--- |
-| **Chunks** | `map_chunk`, `update_light`, `unload_chunk`, `block_change`, `multi_block_change` | LRU (default 1024); merges into columns via [chunkMerge.js](src/state/chunkMerge.js). |
+| **Chunks** | `map_chunk`, `update_light`, `unload_chunk`, `block_change`, `multi_block_change` | LRU (default 1024); merges into prismarine columns via [chunkMerge.js](src/state/chunkMerge.js). Handoff **re-encodes** from merged columns ([mapChunkWire.js](src/utils/mapChunkWire.js)), not stored wire bytes. |
 | **Entities** | `spawn_entity`, metadata, equipment, effects, movement, `entity_destroy` | Replay spawns for handoff / spectators. |
 | **Player** | `login`, `position`, health, XP, abilities, difficulty, respawn | Drives replay login and teleport. |
 | **Inventory** | `window_items`, `set_slot`, hotbar, cursor | Play handoff only (spectators skip inventory). |
 | **Misc** | time, weather, border, tab list, scoreboard, tags, boss bar, `tracked_waypoint` | Level info and UI sync; locator waypoints replayed on handoff. |
 
-**Replay vs live:** Handoff and spectator join send **in-view cached chunks** only. In `CLIENT_MODE`, the play bridge forwards **all** live `map_chunk` packets from the server (and may adjust `update_view_position` so the client accepts them).
+**Replay vs live:** Handoff replays **in-view cached chunks** (encoded on the proxy serializer). During `HANDOFF`, live `map_chunk` from the bot connection is also forwarded until [ClientBridge](src/proxy/ClientBridge.js) starts. In `CLIENT_MODE`, the bridge forwards **all** upstream `map_chunk` packets and keeps `update_view_position` ahead of the player so vanilla accepts chunks outside the replayed set.
 
 ---
 
@@ -99,7 +99,7 @@ While no play client is connected (`BOT_MODE`), the bot can quit upstream when:
 
 Auto logout is **disabled** during handoff and while a play client controls the session (`HANDOFF` / `CLIENT_MODE`). After a trigger the bot disconnects upstream and stays offline (no background reconnect). **Spectators** are rejected with `Bot Auto disconnected`.
 
-**Reconnect:** Join on the **play port** (25566). During configuration, `login_acknowledged` runs `_preparePlayLogin`: reconnect the bot if needed, replay upstream config, prime the chunk cache (up to ~12s), then finish configuration. You get a system chat notice on handoff, then the normal replay → `CLIENT_MODE` flow. If terrain was sparse, handoff also streams live `map_chunk` from the bot connection and sends `chunk_batch_received` upstream after replay so the server keeps sending chunks.
+**Reconnect:** Join on the **play port** (25566). During configuration, `login_acknowledged` runs `_preparePlayLogin`: reconnect the bot if needed, replay upstream config, prime the chunk cache (up to ~12s), then finish configuration. You get a system chat notice on handoff, then terrain replay → entities/inventory → release held `player_loaded` → `CLIENT_MODE`. If terrain was sparse, handoff streams live `map_chunk` and sends proxy `chunk_batch_received` upstream so the server keeps sending chunks.
 
 ---
 
@@ -122,7 +122,8 @@ Edit `config.json` in the project root:
     "host": "0.0.0.0",
     "port": 25566,
     "onlineMode": true,
-    "maxClients": 1
+    "maxClients": 1,
+    "clientViewDistance": 10
   },
   "spectator": {
     "enabled": true,
@@ -135,7 +136,9 @@ Edit `config.json` in the project root:
     "port": 25567,
     "onlineMode": false,
     "upstreamAuth": "microsoft",
-    "logDir": "logs/sniffer"
+    "logDir": "logs/sniffer",
+    "saveLevel": true,
+    "saveLevelDir": "logs/sniffer/worlds"
   },
   "bot": {
     "antiAfk": true,
@@ -163,7 +166,7 @@ Edit `config.json` in the project root:
 | :--- | :--- | :--- |
 | **`server`** | `host`, `port`, `version` | Upstream server; `version` must match (e.g. `1.21.10`). |
 | **`auth`** | `username`, `auth` | Bot credentials: `"microsoft"` or `"offline"`. |
-| **`proxy`** | `host`, `port`, `onlineMode`, `maxClients` | Play proxy (**25566**). `maxClients` is enforced as **1**. |
+| **`proxy`** | `host`, `port`, `onlineMode`, `maxClients`, `clientViewDistance` | Play proxy (**25566**). `maxClients` is **1**. `clientViewDistance` is the java render target when play has no C2S `settings` (1.21+). |
 | **`spectator`** | `enabled`, `host`, `port`, `onlineMode`, `maxClients` | Watch-only proxy (**25568**). Set `enabled: false` to disable. |
 | **`sniffer`** | `port`, `onlineMode`, `upstreamAuth`, `logDir`, … | Dev MITM on **25567**; see [protocol.md §11](protocol.md#11-packet-sniffer-development). |
 | **`bot`** | `antiAfk`, `antiAfkMinInterval`, `antiAfkMaxInterval`, `viewDistance`, `autoLogout` | Idle look/sneak/swing when no play client; chunk cache radius hint. `autoLogout`: `enabled`, `onDamage`, `onPlayer`, `belowY`, `allowedPlayers` (bot username always allowed). |
@@ -196,7 +199,8 @@ Edit `config.json` in the project root:
     │   ├── BotAutoLogout.js     # Damage / player auto-disconnect
     │   ├── ChunkAckManager.js
     │   ├── MovementRelay.js
-    │   └── handoffFlow.js       # performHandoff + handoffSync hooks
+    │   ├── tickEndRelay.js      # CLIENT_TICK_END relay for Grim
+    │   └── handoffFlow.js       # performHandoff orchestration
     ├── state/
     │   ├── WorldStateCache.js
     │   ├── ChunkCache.js
@@ -209,7 +213,11 @@ Edit `config.json` in the project root:
     ├── sniffer/                 # Optional MITM logger (25567)
     └── utils/
         ├── configReplay.js      # login_acknowledged config replay
-        ├── handoffSync.js       # HANDOFF relays + chunk ack
+        ├── handoffSync.js       # HANDOFF gate, relays, chunk ack
+        ├── handoffTrace.js      # [Handoff] structured logging
+        ├── viewDistance.js      # server/bot/java view distance sync
+        ├── playPacketWire.js    # S2C writeRaw / encoded map_chunk
+        ├── mapChunkWire.js      # handoff chunk encode helper
         └── clientDisconnect.js  # Graceful proxy disconnect
 ```
 
@@ -252,7 +260,7 @@ Only **one** play client can be connected at a time. Wait for the bot to be in t
 npm run sniffer
 ```
 
-Connect the Java client to **25567** to log decrypted traffic to `logs/sniffer/`. See [protocol.md](protocol.md).
+Connect the Java client to **25567** to log decrypted traffic to `logs/sniffer/`. When the session ends, captured `map_chunk` columns are written as a Java **1.21.10** world under `logs/sniffer/worlds/<sessionId>/` (`region/` + `level.dat`). Copy that folder into `.minecraft/saves/` and open it in Singleplayer. Set `sniffer.saveLevel: false` to disable. See [protocol.md](protocol.md).
 
 ---
 
@@ -260,11 +268,14 @@ Connect the Java client to **25567** to log decrypted traffic to `logs/sniffer/`
 
 - **Registry replay:** Configuration-phase `registry_data` (and related packets) are captured from the upstream server and replayed with `writeRaw` to joining play and spectator clients so registries match the real server. `cookie_request` is skipped in config replay; play bridge blocks `cookie_request` / `store_cookie` on the proxy client.
 - **Play login race:** `login_acknowledged` is handled synchronously on proxy `login`; `preparePlayLogin` (auto-logout reconnect + chunk prime) runs in `beforeConfigReplay` so the client is not stuck on “Joining World”.
-- **Chunk priming:** Before handoff replay, `_primeChunksNearBot` waits for enough in-view cached chunks (`minChunksForHandoff`, typically a 9×9 area) via `confirmServerPosition` and upstream `map_chunk` capture. Default wait 1.5s; **12s** after auto-logout reconnect.
-- **Handoff terrain:** Replay sends in-view cached chunks + `chunk_batch_finished`, then `chunk_batch_received` is sent upstream, live `map_chunk` is forwarded during `HANDOFF`, and the client gets a short post-replay settle delay before position sync.
-- **Chunk batches:** During handoff, client `chunk_batch_received` / `player_loaded` may be forwarded upstream before `ClientBridge` starts; the bridge then owns client-driven batch acks (`flushChunkBatchAck` on start).
+- **Chunk priming:** Before handoff replay, `_primeChunksNearBot` waits for enough in-view cached chunks (`minChunksForHandoff`) via `confirmServerPosition` and upstream `map_chunk` capture. Default wait 1.5s; **12s** after auto-logout reconnect.
+- **Handoff order:** Terrain replay first (`deferPostTerrain`), then live chunk forward + proxy `chunk_batch_received`, `confirmServerPosition`, `replayPostTerrain` (tab list, entities, inventory), then **release** any held java `player_loaded` upstream. The proxy never sends `player_loaded` itself.
+- **View distance (1.21+):** Server `simulation_distance` + `update_view_distance` are cached; bot `viewDistance` and `proxy.clientViewDistance` set upstream radius and java render/sim via [viewDistance.js](src/utils/viewDistance.js). Loaded area is roughly `(2×sim+1)²` chunks (e.g. sim=5 → ~11×11).
+- **Chunk replay encode:** Cached columns are exported with `prepareMapChunkParams` and written on the **proxy client serializer** ([mapChunkWire.js](src/utils/mapChunkWire.js)). Live/handoff S2C uses [playPacketWire.js](src/utils/playPacketWire.js) (`writeRaw` when wire bytes exist; encode `map_chunk` otherwise).
+- **Grim setbacks:** S2C `position` with relative yaw/pitch is accepted on the bot (`teleport_confirm` + `position_look`) and forwarded to the java client on the same packet (wire bytes preserved). All setbacks are forwarded — not coalesced.
+- **Chunk batches:** During `HANDOFF`, java `chunk_batch_received` / `player_loaded` relay upstream (with `player_loaded` **held** until post-terrain). `ClientBridge.start()` enables client-driven acks and `flushChunkBatchAck()`.
 - **Keep-alive:** The bot answers upstream keep-alives; the proxy avoids duplicating them on the local play client to prevent sequence kicks.
-- **Handoff position:** Replay sends `position`, waits for `teleport_confirm`, then syncs again before enabling movement — avoids falling or desync on join.
-- **Raw forwarding:** `map_chunk`, lights, chunk batch markers, and `update_view_position` use `writeRaw` where possible to avoid NBT/chunk re-encoding issues.
+- **Handoff position:** Replay sends `position` and waits for `teleport_confirm` before terrain; `confirmServerPosition` runs before post-terrain replay.
 - **Graceful shutdown:** Ctrl+C sends disconnect payloads to play/spectator clients, replays config end where needed, then closes sockets after a short delay so vanilla login handlers do not race `client.end()`.
+- **Logging:** `[Handoff]` lines in logs trace C2S/S2C during handoff ([handoffTrace.js](src/utils/handoffTrace.js)).
 
