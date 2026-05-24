@@ -3,29 +3,80 @@
 const nbt = require('prismarine-nbt');
 
 /**
- * map_chunk blockEntities[].type → Anvil entity id for Java 1.21.10.
- * Built by pairing protocol type ids with blocks at each position in session captures
- * (not legacy wiki tables — e.g. 24 is shulker, not bed).
- * Block-at-position always wins in anvilBlockEntityId(); use this only when the block is unknown.
+ * minecraft:block_entity_type registry order (Java 1.21.4).
+ * map_chunk wire type = registry index, except wire sends index + 1 when registry index >= 12.
+ * Keep in sync with libchunk/src/block_entity.c LC_BLOCK_ENTITY_REGISTRY.
  */
-const BLOCK_ENTITY_TYPE_BY_ID = {
-  0: 'minecraft:furnace',
-  1: 'minecraft:chest',
-  3: 'minecraft:ender_chest',
-  5: 'minecraft:dispenser',
-  7: 'minecraft:sign',
-  9: 'minecraft:mob_spawner',
-  12: 'minecraft:brewing_stand',
-  13: 'minecraft:enchanting_table',
-  18: 'minecraft:hopper',
-  19: 'minecraft:comparator',
-  24: 'minecraft:shulker',
-  25: 'minecraft:bed',
-  28: 'minecraft:smoker',
-  29: 'minecraft:blast_furnace',
-  30: 'minecraft:lectern',
-  34: 'minecraft:beehive',
-};
+const BLOCK_ENTITY_REGISTRY_ORDER = [
+  'furnace',
+  'chest',
+  'trapped_chest',
+  'ender_chest',
+  'jukebox',
+  'dispenser',
+  'dropper',
+  'sign',
+  'hanging_sign',
+  'mob_spawner',
+  'piston',
+  'brewing_stand',
+  'enchanting_table',
+  'end_portal',
+  'beacon',
+  'skull',
+  'daylight_detector',
+  'hopper',
+  'comparator',
+  'banner',
+  'structure_block',
+  'end_gateway',
+  'command_block',
+  'shulker_box',
+  'bed',
+  'conduit',
+  'barrel',
+  'smoker',
+  'blast_furnace',
+  'lectern',
+  'bell',
+  'jigsaw',
+  'campfire',
+  'beehive',
+  'sculk_sensor',
+  'calibrated_sculk_sensor',
+  'sculk_catalyst',
+  'sculk_shrieker',
+  'chiseled_bookshelf',
+  'brushable_block',
+  'decorated_pot',
+  'crafter',
+  'trial_spawner',
+  'vault',
+];
+
+/** @param {number} protocolTypeId */
+function blockEntityRegistryIndex(protocolTypeId) {
+  return protocolTypeId >= 12 ? protocolTypeId - 1 : protocolTypeId;
+}
+
+/** @param {number} protocolTypeId */
+function blockEntityIdFromRegistryIndex(protocolTypeId) {
+  const idx = blockEntityRegistryIndex(protocolTypeId);
+  const base = BLOCK_ENTITY_REGISTRY_ORDER[idx];
+  if (!base) return null;
+  if (base === 'shulker_box') return 'minecraft:shulker';
+  return `minecraft:${base}`;
+}
+
+/** map_chunk blockEntities[].type → Anvil entity id (see BLOCK_ENTITY_REGISTRY_ORDER). */
+const BLOCK_ENTITY_TYPE_BY_ID = Object.fromEntries(
+  BLOCK_ENTITY_REGISTRY_ORDER.flatMap((_, registryIdx) => {
+    const protocolType =
+      registryIdx >= 12 ? registryIdx + 1 : registryIdx;
+    const id = blockEntityIdFromRegistryIndex(protocolType);
+    return id ? [[protocolType, id]] : [];
+  })
+);
 
 /** Block name patterns (no namespace) → Anvil entity id. First match wins. */
 const BLOCK_NAME_TO_ENTITY_ID = [
