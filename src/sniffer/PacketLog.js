@@ -6,9 +6,8 @@ const {
   formatTracePayload,
 } = require('./packetPayload');
 const { createLogger } = require('../utils/logger');
-const { buildDecodedPacketRecord, buildDecodedDumpFileName } = require('./decodedPacketDump');
-const { summarizePacket, serializePacketFull } = require('./packetSummarize');
 const { resolvePacketName } = require('./packetMeta');
+const { ENTITY_PACKETS } = require('./SnifferWorldCapture');
 const pktConsole = createLogger('PktTrace');
 
 /** JSONL lines longer than this go to sessionDir/line-NNNNNN.jsonl with a short ref in the main log. */
@@ -22,7 +21,7 @@ const LARGE_PACKETS = new Set([
   'custom_payload',
 ]);
 
-/** Written to chunkLogDir only — keeps the main session log readable. */
+/** Raw wire dumps (chunkLog): one file per packet under chunkLogDir/<sessionId>/. */
 const CHUNK_PACKETS = new Set([
   'map_chunk',
   'chunk_data',
@@ -35,7 +34,19 @@ const CHUNK_PACKETS = new Set([
   'chunk_batch_received',
   'block_change',
   'multi_block_change',
+  'tile_entity_data',
 ]);
+
+/** Configuration-phase S2C packets stored when chunkLog is on (state-id registry for decode). */
+const CHUNK_DECODE_PACKETS = new Set(['registry_data']);
+
+function shouldChunkRawLog(chunkLog, chunkLogEntities, packetName) {
+  if (!chunkLog) return false;
+  if (CHUNK_PACKETS.has(packetName)) return true;
+  if (CHUNK_DECODE_PACKETS.has(packetName)) return true;
+  if (chunkLogEntities && ENTITY_PACKETS.has(packetName)) return true;
+  return false;
+}
 
 /**
  * Append-only JSONL packet log for login / handoff analysis.
@@ -51,10 +62,14 @@ class PacketLog {
   constructor(opts) {
     this.includePayload = opts.includePayload !== false;
     this.logEveryPacket = opts.logEveryPacket !== false;
+    this.traceLog =
+      opts.traceLog === true ||
+      (opts.traceLog !== false && this.logEveryPacket);
     this.sessionLog =
       opts.sessionLog === true || (opts.sessionLog !== false && this.logEveryPacket);
     this.chunkLog =
       opts.chunkLog === true || (opts.chunkLog !== false && this.logEveryPacket);
+    this.chunkLogEntities = opts.chunkLogEntities === true;
     this.consolePacketLog = opts.consolePacketLog !== false;
     this.tracePayloadMaxLen = opts.tracePayloadMaxLen ?? 8192;
     this.version = opts.version ?? null;
@@ -73,28 +88,31 @@ class PacketLog {
     this._spillCount = 0;
     this._stream = this.sessionLog ? fs.createWriteStream(file, { flags: 'a' }) : null;
     const traceFile = path.join(dir, `${opts.sessionId}.trace.log`);
-    this.traceFilePath = this.logEveryPacket ? traceFile : null;
-    this._traceStream = this.logEveryPacket
+    this.traceFilePath = this.traceLog ? traceFile : null;
+    this._traceStream = this.traceLog
       ? fs.createWriteStream(traceFile, { flags: 'a' })
       : null;
     this._closed = false;
     this.spillDir = this.sessionLog ? this._spillDir : null;
 
     const chunkDir = path.resolve(opts.chunkLogDir ?? path.join(dir, 'chunks'));
-    const chunkFile = path.join(chunkDir, `${opts.sessionId}.jsonl`);
-    this.chunkFilePath = this.chunkLog ? chunkFile : null;
-    this._chunkSpillDir = path.join(chunkDir, opts.sessionId);
-    if (this.chunkLog) {
-      fs.mkdirSync(chunkDir, { recursive: true });
-      fs.mkdirSync(this._chunkSpillDir, { recursive: true });
+    this._blockUpdateRawDir = this.chunkLog ? path.join(chunkDir, opts.sessionId) : null;
+    if (this._blockUpdateRawDir) {
+      fs.mkdirSync(this._blockUpdateRawDir, { recursive: true });
+      if (opts.version || opts.server) {
+        const info = {
+          sessionId: opts.sessionId,
+          version: opts.version ?? null,
+          server: opts.server ?? null,
+        };
+        fs.writeFileSync(
+          path.join(this._blockUpdateRawDir, 'session-info.json'),
+          `${JSON.stringify(info, null, 2)}\n`,
+        );
+      }
     }
-    this._chunkSpillCount = 0;
-    this._chunkStream = this.chunkLog ? fs.createWriteStream(chunkFile, { flags: 'a' }) : null;
-    this.chunkSpillDir = this.chunkLog ? this._chunkSpillDir : null;
-    this._decodedDumpDir = this.chunkLog ? path.join(this._chunkSpillDir, 'decoded') : null;
-    if (this._decodedDumpDir) {
-      fs.mkdirSync(this._decodedDumpDir, { recursive: true });
-    }
+    this._blockUpdateRawSeq = 0;
+    this._lastBlockUpdateRawMs = null;
     this._pendingTraceDecodedFile = null;
     this._pendingTracePacketName = null;
 
@@ -106,7 +124,6 @@ class PacketLog {
       version: opts.version,
     };
     this.writeMeta(sessionStart);
-    if (this.chunkLog) this._writeChunkMeta(sessionStart);
   }
 
   writeMeta(record) {
@@ -114,10 +131,6 @@ class PacketLog {
     if (this.sessionLog) this._write(row);
     const { traceMeta } = require('./packetTrace');
     traceMeta(this, record);
-  }
-
-  _writeChunkMeta(record) {
-    this._writeChunk({ ...record, t: new Date().toISOString() });
   }
 
   /**
@@ -174,6 +187,8 @@ class PacketLog {
     }
     if (this.logEveryPacket) {
       this._write(entry);
+    }
+    if (this.traceLog) {
       this._recordTrace({
         type: 'trace',
         event: 'parse_error',
@@ -267,7 +282,7 @@ class PacketLog {
     }
 
     const skipTrace = entry.action === 'relay';
-    if (this.logEveryPacket && !skipTrace) {
+    if (this.traceLog && !skipTrace) {
       this._recordTrace({
         type: 'trace',
         event: 'rx',
@@ -288,17 +303,13 @@ class PacketLog {
       });
     }
 
-    if (!this.logEveryPacket) {
-      if (this.chunkLog && CHUNK_PACKETS.has(packetName)) {
-        this._writeChunk(entry);
-      }
-      return;
+    if (shouldChunkRawLog(this.chunkLog, this.chunkLogEntities, packetName)) {
+      this._writeChunkPacketRaw(packetName, rawBuffer);
     }
 
+    if (!this.logEveryPacket) return;
+
     this._write(entry);
-    if (CHUNK_PACKETS.has(packetName)) {
-      this._writeChunk(entry);
-    }
   }
 
   /** Picked up by traceRelay after logPacket for the same wire frame. */
@@ -314,16 +325,26 @@ class PacketLog {
     return n;
   }
 
-  /** Every successfully parsed packet with params or wire bytes gets a decoded/ artifact. */
-  _maybeDumpDecodedPacket(seq, nameInfo, data, rawBuffer) {
-    if (!this.chunkLog || !this._decodedDumpDir) return null;
-    if (!rawBuffer?.length && data == null) return null;
-    const fileName = buildDecodedDumpFileName(seq, nameInfo, data);
-    const record = buildDecodedPacketRecord(nameInfo.name, data, rawBuffer, nameInfo);
-    record.seq = seq;
-    const absPath = path.join(this._decodedDumpDir, fileName);
-    fs.writeFileSync(absPath, `${JSON.stringify(record, null, 2)}\n`);
-    return `decoded/${fileName}`;
+  /** Reserved for optional decoded artifacts in the session log. */
+  _maybeDumpDecodedPacket(_seq, _nameInfo, _data, _rawBuffer) {
+    return null;
+  }
+
+  /** Write raw play-state wire bytes: chunkLogDir/<sessionId>/<timestamp>-<packetName> */
+  _writeChunkPacketRaw(packetName, rawBuffer) {
+    if (this._closed || !this._blockUpdateRawDir || !rawBuffer?.length) return;
+    const ms = Date.now();
+    if (ms === this._lastBlockUpdateRawMs) {
+      this._blockUpdateRawSeq++;
+    } else {
+      this._lastBlockUpdateRawMs = ms;
+      this._blockUpdateRawSeq = 0;
+    }
+    const fileName =
+      this._blockUpdateRawSeq === 0
+        ? `${ms}-${packetName}`
+        : `${ms}-${packetName}-${this._blockUpdateRawSeq}`;
+    fs.writeFileSync(path.join(this._blockUpdateRawDir, fileName), rawBuffer);
   }
 
   /** Full packet payload for trace lines (params + wire + decodedFile). */
@@ -349,11 +370,9 @@ class PacketLog {
     if (this._closed) return;
     const end = { type: 'session_end', reason: reason || 'closed' };
     this.writeMeta(end);
-    if (this.chunkLog) this._writeChunkMeta(end);
     this._closed = true;
     this._stream?.end();
     this._traceStream?.end();
-    this._chunkStream?.end();
   }
 
   _write(obj) {
@@ -362,15 +381,6 @@ class PacketLog {
       spillDir: this._spillDir,
       spillCountRef: () => ++this._spillCount,
       writeRaw: (line) => this._writeRaw(line),
-    });
-  }
-
-  _writeChunk(obj) {
-    if (this._closed || !this.chunkLog || !this._chunkStream) return;
-    this._emitLine(obj, {
-      spillDir: this._chunkSpillDir,
-      spillCountRef: () => ++this._chunkSpillCount,
-      writeRaw: (line) => this._writeChunkRaw(line),
     });
   }
 
@@ -390,10 +400,6 @@ class PacketLog {
     this._stream.write(`${line}\n`);
   }
 
-  _writeChunkRaw(line) {
-    if (!this._chunkStream) return;
-    this._chunkStream.write(`${line}\n`);
-  }
 }
 
 function buildPreview(obj) {
@@ -428,4 +434,11 @@ function buildSpillRef(obj, spillFile) {
   return ref;
 }
 
-module.exports = { PacketLog, CHUNK_PACKETS, LARGE_PACKETS };
+module.exports = {
+  PacketLog,
+  CHUNK_PACKETS,
+  CHUNK_DECODE_PACKETS,
+  shouldChunkRawLog,
+  LARGE_PACKETS,
+  ENTITY_PACKETS,
+};

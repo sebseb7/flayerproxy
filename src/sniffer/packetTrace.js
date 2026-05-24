@@ -54,7 +54,7 @@ function formatTracePayload(summary, maxLen) {
  * @param {object} e
  */
 function emitTrace(packetLog, e) {
-  if (!packetLog.logEveryPacket) return;
+  if (!packetLog.traceLog) return;
   packetLog._recordTrace(e);
 }
 

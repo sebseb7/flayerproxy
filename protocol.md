@@ -166,7 +166,7 @@ When the connection transitions to the **Play** state, [PlayerList.placeNewPlaye
            | <--------- Initialize Inventory Packet ----------| (Fill inventory UI slots)
 ```
 
-1. **ClientboundLoginPacket**: Sets up core game parameters (Entity ID, hardcore mode, view distance, simulation distance).
+1. **ClientboundLoginPacket**: Sets up core game parameters (Entity ID, hardcore mode, view distance). On 1.21+, **simulation distance** is also sent via `ClientboundSimulationDistancePacket` (`simulation_distance`).
 2. **ClientboundChangeDifficultyPacket & ClientboundPlayerAbilitiesPacket**: Syncs world difficulty and character flight/speed settings.
 3. **ClientboundSetHeldSlotPacket**: Syncs the player's currently selected hotbar slot.
 4. **ClientboundUpdateRecipesPacket**: Syncs stonecutter and generic crafting recipes.
@@ -340,22 +340,22 @@ sequenceDiagram
     Note over SM: HANDOFF
     SM->>SC: setBotControl(false)
     SM->>SM: _primeChunksNearBot (min in-view chunk count)
-    SM->>HS: installHandoffUpstreamRelay + live chunk forward
-    SM->>SR: replay(client)
-    SR->>Player: login … chunks, entities, health, inventory
-    Note over SR: POST_REPLAY_SETTLE_MS
-    HS->>Server: chunk_batch_received (after replay)
-    par HANDOFF live stream
-        Server->>SC: map_chunk (bot connection)
-        SC->>Player: handoffSync live forward
-    and Replay + settle
-        SR->>Player: cached state
+    HS->>HS: installHandoffUpstreamRelay (hold player_loaded)
+    SM->>SR: replay(client, deferPostTerrain)
+    SR->>Player: login … position … terrain (encoded map_chunk)
+    Note over Player: java may send player_loaded (held upstream)
+    alt No chunk_batch_received during replay
+        Player->>HS: chunk_batch_received
     end
-    SM->>SC: syncProxyClientPosition, confirmServerPosition
-    SM->>Server: player_loaded
+    HS->>HS: installHandoffLiveChunkForward
+    HS->>Server: chunk_batch_received (proxy ack)
+    SM->>SC: confirmServerPosition
+    SM->>SR: replayPostTerrain (player_info, entities, inventory)
+    HS->>Server: release held player_loaded (if any)
     HS->>HS: remove upstream relay
     Note over SM: CLIENT_MODE
-    SM->>Player: ClientBridge (client drives chunk_batch_received)
+    SM->>Player: ClientBridge.start + enableMovement
+    Player->>Server: player_loaded (java only; proxy never sends)
 ```
 
 **Replay order** (aligned with vanilla `PlayerList.placeNewPlayer` where possible):
@@ -367,12 +367,12 @@ sequenceDiagram
 5. `position` → await `teleport_confirm`
 6. `player_info`, level info (`initialize_world_border`, time, weather, `update_view_distance`)
 7. `update_view_position`, `game_state_change` (`LEVEL_CHUNKS_LOAD_START`)
-8. `chunk_batch_start` → `map_chunk` / `update_light` / block changes → `chunk_batch_finished` (**in-view cached chunks only**)
-9. Entities (`spawn_entity`, metadata, equipment, effects, passengers)
-10. `experience`, `update_health`, player effects
-11. Inventory (`window_items`, `set_slot`, …)
+8. `chunk_batch_start` → encoded `map_chunk` / lights / block changes → `chunk_batch_finished` (in-view cache, server capture, or loose capture — see [§9](#9-flayerproxy-chunk-synchronization))
+9. *(Deferred on play handoff)* tab list, entities, health, inventory — sent in `replayPostTerrain` after live chunk ack + `confirmServerPosition`
 
-After replay, the bridge forwards almost all upstream S2C packets. `tracked_waypoint` updates are filtered until the client has the waypoint key (from replay or a live `track`). Chunks and registry-heavy packets use `writeRaw` when listed in [RAW_FORWARD_PACKETS](src/constants/rawPackets.js). Client movement C2S is translated and sent upstream via the bot.
+**Play handoff (`performHandoff`):** Terrain-only `replay({ deferPostTerrain: true })`, then live chunk forward + proxy `chunk_batch_received`, `confirmServerPosition`, `replayPostTerrain`, then **release** any java `player_loaded` held during terrain (proxy never sends `player_loaded`). Upstream relay forwards `chunk_batch_received` and `teleport_confirm` throughout; `player_loaded` from java is held until post-terrain so the server does not advance before entities/inventory are on the client.
+
+After bridge start, almost all upstream S2C packets forward. `tracked_waypoint` updates are filtered until the client has the waypoint key. [RAW_FORWARD_PACKETS](src/constants/rawPackets.js) use wire bytes when captured; `map_chunk` is re-encoded from merged cache columns on the proxy serializer. Grim S2C `position` (relative yaw/pitch) is accepted on the bot and forwarded to java on the same packet. Client movement C2S is translated and sent upstream via the bot.
 
 **Config phase on proxy clients:** On `login_acknowledged`, [configReplay.js](src/utils/configReplay.js) replaces vanilla `login.js` config handling (handler registered on proxy `login`, not after async work): optional `beforeConfigReplay` → `preparePlayLogin` (auto-logout reconnect + chunk prime) → replay upstream packets in receive order (`registry_data` / `custom_payload` from captured wire bytes; others re-encoded on the proxy serializer) → `finish_configuration`. `cookie_request` is not replayed. Play bridge blocks upstream `cookie_request` / `store_cookie` (bot-only). Spectators are rejected until `configReady`.
 
@@ -441,44 +441,70 @@ The server does not echo the bot’s own arm swing. [BotIdleBehavior](src/sessio
 
 Chunks are **server-pushed**; the bot and proxy clients acknowledge with `chunk_batch_received`. The client does not request a chunk radius directly.
 
+### View distance (1.21+)
+
+| Source | Packet / config | Role |
+| :--- | :--- | :--- |
+| Server | `login`, `simulation_distance`, `update_view_distance` | Cached in [MiscCache](src/state/MiscCache.js); **simulation** caps how far the client loads/simulates (e.g. distance 2 → ~5×5, distance 5 → ~11×11). |
+| Bot | `config.bot.viewDistance` + serverbound `settings` on bot connection | Mineflayer chunk radius; raised to coordinated **upstream** value via `applyUpstreamViewDistance`. |
+| Java play client | `config.proxy.clientViewDistance` | Target render/sim on proxy client when play has no C2S `settings` (1.21.10). Legacy `settings` C2S still updates cache if present. |
+
+[viewDistance.js](src/utils/viewDistance.js) resolves `upstream`, `clientRender`, and `clientSimulation` and pushes `update_view_distance` / `simulation_distance` to the java client during replay and `CLIENT_MODE`.
+
+### `map_chunk` by phase
+
 | Phase | What happens to `map_chunk` |
 | :--- | :--- |
-| **Upstream → cache** (`BOT_MODE` / `CLIENT_MODE`) | Store only if within view distance of bot view center (`update_view_position` or player position + `update_view_distance`). Out-of-view entries pruned (`forgetOutsideView`). |
-| **Priming** (`_primeChunksNearBot`) | If in-view cache count &lt; `minChunksForHandoff(viewDistance)` (e.g. 81 for vd=10, capped radius 4), `confirmServerPosition` and wait for upstream `map_chunk` on the bot connection (1.5s default, 12s after auto logout). |
-| **Handoff replay** | `getChunksForReplay(center, viewDistance)` — in-view cached chunks only, nearest-first; warns if below minimum; `chunk_batch_finished` with `batchSize = chunks.length`. |
-| **`HANDOFF` live** | [handoffSync.js](src/utils/handoffSync.js) forwards live `map_chunk`, `update_light`, batch markers, and `update_view_position` to the play client before `ClientBridge` starts. |
-| **`CLIENT_MODE` live bridge** | Forward **all** upstream `map_chunk`; may send `update_view_position` first so vanilla accepts chunks outside the replayed set |
+| **Upstream → cache** (`BOT_MODE` / `CLIENT_MODE`) | Store only if within view distance of bot view center. Merged column in [ChunkCache](src/state/ChunkCache.js); no stored wire bytes. |
+| **Priming** (`_primeChunksNearBot`) | Wait until in-view count ≥ `minChunksForHandoff(viewDistance)` or timeout (1.5s default, 12s after auto logout). |
+| **Handoff replay** | Prefer server-captured terrain batch, else loose captured chunks, else `getChunksForReplay` — all sent via [mapChunkWire.js](src/utils/mapChunkWire.js) (`prepareMapChunkParams` + proxy serializer). |
+| **`HANDOFF` live** | [handoffSync.js](src/utils/handoffSync.js) forwards live chunks/batch/view until `ClientBridge` starts ([playPacketWire.js](src/utils/playPacketWire.js)). |
+| **`CLIENT_MODE` live bridge** | Forward **all** upstream `map_chunk`; `update_view_position` from client movement kept ahead of chunk center. |
 
-After replay, the proxy sends **`chunk_batch_received`** upstream (replay batches are client-local; the server still needs an ack to continue streaming). `ClientBridge.start()` sets client-driven acks and calls `flushChunkBatchAck()`.
+After terrain replay, the proxy sends **`chunk_batch_received`** upstream (`ackChunkBatchToServer` — replay batches are client-local). `ClientBridge.start()` sets client-driven acks and calls `flushChunkBatchAck()`.
 
-Block/light deltas (`block_change`, `multi_block_change`, `update_light`) are merged into cached columns via [chunkMerge.js](src/state/chunkMerge.js). Binary fields must remain Node `Buffer` instances (not `Uint8Array` after `structuredClone`) for prismarine-chunk.
+Block/light deltas are merged into cached columns via [chunkMerge.js](src/state/chunkMerge.js). Binary fields must stay Node `Buffer` instances (not `Uint8Array` after `structuredClone`) for prismarine-chunk.
 
 ---
 
 ## 10. FlayerProxy packet forwarding rules
 
-### `writeRaw` (byte-identical relay)
+### Play S2C ([playPacketWire.js](src/utils/playPacketWire.js))
 
-Play and spectator hubs use `client.writeRaw(buffer)` for:
+| Packet | Behavior |
+| :--- | :--- |
+| Listed in [RAW_FORWARD_PACKETS](src/constants/rawPackets.js) | `writeRaw(wireBuffer)` when upstream wire bytes exist (live chunks, Grim `position`, batch markers, `update_view_position`). |
+| `map_chunk` | Always encoded on the **proxy client serializer** via `prepareMapChunkParams` (merged column export). |
+| Other play packets | `client.write(name, data)` on the proxy serializer. |
 
-- `map_chunk`, `update_light`, `unload_chunk`
-- `chunk_batch_start`, `chunk_batch_finished`
-- `update_view_position`
+`RAW_FORWARD_PACKETS` includes `position` because re-encoding corrupts Grim setback relative yaw/pitch.
 
-Defined in [rawPackets.js](src/constants/rawPackets.js). Avoids NBT/chunk re-serialization drift.
+Handoff terrain replay uses [mapChunkWire.js](src/utils/mapChunkWire.js) (same encode path; optional `client.write` fallback on encode failure).
 
 ### Upstream capture
 
 [ServerConnection](src/session/ServerConnection.js) emits every play S2C packet as `serverPacket(name, data, buffer)` after [WorldStateCache.handleServerPacket](src/state/WorldStateCache.js). [ClientBridge](src/proxy/ClientBridge.js) and [SpectatorHub](src/spectator/SpectatorHub.js) subscribe separately.
 
+### Grim setbacks
+
+On S2C `position` with setback-style flags ([setbackPosition.js](src/utils/setbackPosition.js)):
+
+1. `acceptGrimSetback` — bot sends `teleport_confirm` + matching `position_look` upstream.
+2. `writePlayToProxyClient('position', data, buffer)` — same packet to the java client (wire preserved).
+
 ### Handoff helpers ([handoffSync.js](src/utils/handoffSync.js))
 
 | Function | Role |
 | :--- | :--- |
-| `installHandoffUpstreamRelay` | Client → server: `chunk_batch_received`, `player_loaded` during `HANDOFF`. |
-| `installHandoffLiveChunkForward` | Server → client: live chunks/batch/view packets on `serverPacket` during `HANDOFF`. |
-| `ackChunkBatchToServer` | After replay, sends `chunk_batch_received` on the bot upstream connection. |
-| `sendPermissionStatusToClient` | Replays cached OP `entity_status` after position sync. |
+| `createHandoffUpstreamGate` / `releaseHeldPlayerLoaded` | Hold java `player_loaded` during terrain replay; forward upstream after `replayPostTerrain`. |
+| `installHandoffUpstreamRelay` | C2S → upstream: `chunk_batch_received`, `teleport_confirm`, `player_loaded` (held when gate active). |
+| `waitForClientChunkBatchReceived` | Waits for java `chunk_batch_received` after replay if not seen during terrain. |
+| `waitForClientPlayerLoaded` | After bridge start, backup wait if `player_loaded` was not held/released. |
+| `installHandoffLiveChunkForward` | S2C live chunks/batch/view during `HANDOFF` (before bridge). |
+| `ackChunkBatchToServer` | Proxy sends `chunk_batch_received` on bot connection after terrain replay. |
+| `sendPermissionStatusToClient` | Replays cached OP `entity_status` after post-terrain. |
+
+Structured handoff logs: [handoffTrace.js](src/utils/handoffTrace.js) (`[Handoff]` prefix).
 
 ### Graceful disconnect ([clientDisconnect.js](src/utils/clientDisconnect.js))
 

@@ -7,6 +7,7 @@ const nbt = require('prismarine-nbt');
  * Built by pairing protocol type ids with blocks at each position in session captures
  * (not legacy wiki tables — e.g. 24 is shulker, not bed).
  * Block-at-position always wins in anvilBlockEntityId(); use this only when the block is unknown.
+ * Keep in sync with libchunk/src/dump_json.c lc_block_entity_type_name().
  */
 const BLOCK_ENTITY_TYPE_BY_ID = {
   0: 'minecraft:furnace',
