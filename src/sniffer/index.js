@@ -29,6 +29,7 @@ try {
       saveLevelDir: path.join(__dirname, '..', '..', 'logs', 'sniffer', 'worlds'),
       saveLevelPerSession: false,
       saveLevelMaxChunks: 8192,
+      chunkLogEntities: false,
     },
     config.sniffer,
   );
@@ -38,10 +39,13 @@ try {
   log.info(`Upstream auth: ${config.sniffer.upstreamAuth}`);
   log.info(`Logs: ${path.resolve(config.sniffer.logDir)}`);
   if (config.sniffer.chunkLog !== false) {
-    log.info(`Chunk logs: ${path.resolve(config.sniffer.chunkLogDir)}`);
+    const entityNote = config.sniffer.chunkLogEntities ? ' + entity packets' : '';
+    log.info(
+      `Chunk raw logs: ${path.resolve(config.sniffer.chunkLogDir)}/<session>/ (chunks, registry_data${entityNote})`,
+    );
   }
   log.info(
-    `Packet log: every=${config.sniffer.logEveryPacket !== false}, session=${config.sniffer.sessionLog !== false}, chunk=${config.sniffer.chunkLog !== false}, console=${config.sniffer.consolePacketLog !== false}`,
+    `Packet log: trace=${config.sniffer.traceLog === true || (config.sniffer.traceLog !== false && config.sniffer.logEveryPacket !== false)}, session=${config.sniffer.sessionLog === true || (config.sniffer.sessionLog !== false && config.sniffer.logEveryPacket !== false)}, chunk=${config.sniffer.chunkLog === true || (config.sniffer.chunkLog !== false && config.sniffer.logEveryPacket !== false)}, console=${config.sniffer.consolePacketLog !== false}`,
   );
   if (config.sniffer.saveLevel !== false) {
     log.info(

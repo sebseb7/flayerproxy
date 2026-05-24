@@ -67,7 +67,10 @@ class MitmProxy {
       log.info(`Upstream auth: ${sniffer.upstreamAuth || 'microsoft'}`);
       log.info(`Logs: ${sniffer.logDir}`);
       if (sniffer.chunkLog !== false && sniffer.chunkLogDir) {
-        log.info(`Chunk logs: ${sniffer.chunkLogDir}`);
+        const entityNote = sniffer.chunkLogEntities ? ' + entity packets' : '';
+        log.info(
+          `Chunk raw logs: ${sniffer.chunkLogDir}/<session>/ (chunks, registry_data${entityNote}, session-info.json)`,
+        );
       }
       if (sniffer.saveLevel !== false) {
         log.info(
@@ -75,7 +78,7 @@ class MitmProxy {
         );
       }
       log.info(
-        `Packet files: logEveryPacket=${sniffer.logEveryPacket !== false} (trace.log + session jsonl per packet), console=${sniffer.consolePacketLog !== false}`,
+        `Packet files: trace=${sniffer.traceLog === true || (sniffer.traceLog !== false && sniffer.logEveryPacket !== false)}, session jsonl=${sniffer.sessionLog === true || (sniffer.sessionLog !== false && sniffer.logEveryPacket !== false)}, chunk raw=${sniffer.chunkLog === true || (sniffer.chunkLog !== false && sniffer.logEveryPacket !== false)}, console=${sniffer.consolePacketLog !== false}`,
       );
     });
 
@@ -212,8 +215,10 @@ class MitmProxy {
       version: this.config.server.version,
       includePayload: sniffer.includePayload,
       logEveryPacket: sniffer.logEveryPacket,
+      traceLog: sniffer.traceLog,
       sessionLog: sniffer.sessionLog,
       chunkLog: sniffer.chunkLog,
+      chunkLogEntities: sniffer.chunkLogEntities,
       consolePacketLog: sniffer.consolePacketLog,
       tracePayloadMaxLen: sniffer.tracePayloadMaxLen,
     });

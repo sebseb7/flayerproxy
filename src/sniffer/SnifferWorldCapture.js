@@ -39,6 +39,7 @@ const ENTITY_PACKETS = new Set([
   'sync_entity_position',
   'entity_velocity',
   'entity_head_rotation',
+  'entity_update_attributes',
 ]);
 
 const META_PACKETS = new Set([

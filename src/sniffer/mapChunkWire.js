@@ -2,6 +2,8 @@
 
 const SmartBuffer = require('smart-buffer').SmartBuffer;
 const BitArray = require('prismarine-chunk/src/pc/common/BitArrayNoSpan');
+const ChunkSection = require('prismarine-chunk/src/pc/common/PaletteChunkSection');
+const BiomeSection = require('prismarine-chunk/src/pc/common/PaletteBiome');
 const varInt = require('prismarine-chunk/src/pc/common/varInt');
 const { blockIndex, BLOCK_VOLUME } = require('./palettedContainer');
 
@@ -19,36 +21,25 @@ function decodeMapChunkData(data, bounds) {
   const sections = new Map();
 
   for (let i = 0; i < numSections; i++) {
-    if (reader.remaining <= 0) break;
+    if (reader.remaining() <= 0) break;
 
-    const solidBlockCount = reader.readInt16BE();
-    const bitsPerBlock = reader.readUInt8();
-    let palette = null;
+    try {
+      const section = ChunkSection.read(reader, 15, false);
+      BiomeSection.read(reader, 8, false);
 
-    if (bitsPerBlock <= MAX_BITS_PER_BLOCK) {
-      palette = [];
-      const numPaletteItems = varInt.read(reader);
-      for (let p = 0; p < numPaletteItems; p++) {
-        palette.push(varInt.read(reader));
+      const stateIds = new Array(BLOCK_VOLUME);
+      for (let idx = 0; idx < BLOCK_VOLUME; idx++) {
+        const lx = idx & 15;
+        const lz = (idx >> 4) & 15;
+        const ly = idx >> 8;
+        stateIds[idx] = section.get({ x: lx, y: ly, z: lz });
       }
+
+      const sectionY = (bounds.minY >> 4) + i;
+      sections.set(sectionY, { solidBlockCount: section.solidBlockCount, stateIds });
+    } catch {
+      break;
     }
-
-    const longCount = varInt.read(reader);
-    const bitData = new BitArray({
-      bitsPerValue: bitsPerBlock > MAX_BITS_PER_BLOCK ? 15 : bitsPerBlock,
-      capacity: BLOCK_VOLUME,
-    });
-    bitData.readBuffer(reader, longCount * 2);
-
-    const stateIds = new Array(BLOCK_VOLUME);
-    for (let idx = 0; idx < BLOCK_VOLUME; idx++) {
-      let sid = bitData.get(idx);
-      if (palette != null) sid = palette[sid];
-      stateIds[idx] = sid;
-    }
-
-    const sectionY = (bounds.minY >> 4) + i;
-    sections.set(sectionY, { solidBlockCount, stateIds });
   }
 
   return sections;

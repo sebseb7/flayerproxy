@@ -334,6 +334,9 @@ class WorldStateCache {
       case 'sync_entity_position':
         this.entities.handleSyncEntityPosition(data);
         break;
+      case 'entity_velocity':
+        this.entities.handleEntityVelocity(data);
+        break;
 
       // Inventory
       case 'window_items':
