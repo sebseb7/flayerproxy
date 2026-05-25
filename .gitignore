@@ -4,5 +4,5 @@ serversSrc/
 logs/
 versions/
 tools/
-scripts/
 .cursor/
+libchunk/build/
