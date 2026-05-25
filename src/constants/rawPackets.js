@@ -17,4 +17,11 @@ const RAW_FORWARD_PACKETS = new Set([
   'set_slot',
 ]);
 
-module.exports = { RAW_FORWARD_PACKETS };
+/**
+ * Play packets: minecraft-protocol's captured wire buffer can be longer than the parsed
+ * payload (topBitSetTerminatedArray / Slot). Forwarding that buffer causes vanilla
+ * "set_equipment … N bytes extra". Re-encode from parsed params on the target serializer.
+ */
+const PARSE_RELAY_PACKETS = new Set(['entity_equipment', 'set_player_inventory']);
+
+module.exports = { RAW_FORWARD_PACKETS, PARSE_RELAY_PACKETS };

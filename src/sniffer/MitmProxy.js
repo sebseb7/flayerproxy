@@ -5,7 +5,7 @@ const { patchClientItemNbt } = require('./protocol/installItemNbtPatch');
 const { createLogger } = require('../utils/logger');
 const { PacketLog } = require('./PacketLog');
 const { formatTracePayload, traceBridge, traceRelay, traceTx } = require('./packetTrace');
-const { relayPacket, sortLoginPending, relayToJava } = require('./mitmRelay');
+const { relayPacket, sortLoginPending, relayToJava, snifferRelayOpts } = require('./mitmRelay');
 const { enableJavaEncryption } = require('./mitmEncryption');
 const { completeUpstreamEncryption } = require('./mitmUpstreamEncrypt');
 const { applyLoginStartIdentity } = require('./mitmLogin');
@@ -24,6 +24,7 @@ const { SnifferWorldCapture } = require('./SnifferWorldCapture');
 const { ChunkStream, parseChunkStreamConfig, STREAM_PACKETS } = require('./chunkStream');
 const { startStatusPipe, startUpstream } = require('./mitmUpstream');
 const { logDeserializerError } = require('./mitmWireErrors');
+const { safeEndClient } = require('../utils/clientDisconnect');
 
 const log = createLogger('Sniffer');
 const states = mc.states;
@@ -40,6 +41,13 @@ class MitmProxy {
     this.config = config;
     this.server = null;
     this.activeSession = null;
+  }
+
+  /** Status ping uses server.playerCount; login.js is omitted so we sync it ourselves. */
+  _syncPlayerCount() {
+    if (!this.server) return;
+    const occupied = Boolean(this.activeSession?.packetLog);
+    this.server.playerCount = occupied ? 1 : 0;
   }
 
   start() {
@@ -98,8 +106,7 @@ class MitmProxy {
     const addr = client.socket?.remoteAddress || '?';
 
     if (this.activeSession) {
-      log.warn(`Rejecting ${addr} — session active`);
-      client.end('Sniffer allows one client at a time.');
+      this._onBusyConnection(client, addr);
       return;
     }
 
@@ -113,6 +120,7 @@ class MitmProxy {
           })
         : null;
     const session = createMitmSession(client, null, worldCapture);
+    session.relayOpts = snifferRelayOpts(sniffer);
     this.activeSession = session;
     patchClientItemNbt(client);
     stripVanillaLoginHandlers(client);
@@ -127,6 +135,11 @@ class MitmProxy {
     });
     client.on('error', (err) => {
       log.error(`Client error: ${err.message}`);
+      if (session.lastRelayedS2C) {
+        log.error(
+          `Last relayed S2C before client error: ${session.lastRelayedS2C.state}.${session.lastRelayedS2C.name} (${session.lastRelayedS2C.method})`,
+        );
+      }
       logDeserializerError(session.packetLog, 'C2S', client.state, err, { leg: 'java' });
       cleanup('client_error');
     });
@@ -175,6 +188,7 @@ class MitmProxy {
         }
         session.packetLog.writeMeta({ type: 'username', username: data.username });
         session.packetLog.writeMeta({ type: 'handshake_intent', mode: 'login' });
+        this._syncPlayerCount();
         this._startUpstream(session, cleanup);
         return;
       }
@@ -213,6 +227,47 @@ class MitmProxy {
 
       this._relayC2S(session, meta, data, buffer);
     });
+  }
+
+  /**
+   * Second connection while MITM session is active: allow status pings (port scans),
+   * reject login only — do not client.end() on connect (ping plugin would write after end).
+   */
+  _onBusyConnection(client, addr) {
+    const guest = { client, statusPipe: null };
+
+    client.on('packet', (data, meta) => {
+      if (guest.statusPipe) return;
+
+      if (meta.state === states.HANDSHAKING && meta.name === 'set_protocol') {
+        if (data.nextState === 1) {
+          log.debug(`Status ping from ${addr} while session active`);
+          startStatusPipe(guest, this.config, this);
+          return;
+        }
+        if (data.nextState === 2) {
+          this._rejectGuest(client, addr, 'session active');
+        }
+        return;
+      }
+
+      if (meta.state === states.LOGIN && meta.name === 'login_start') {
+        this._rejectGuest(client, addr, 'session active');
+      }
+    });
+
+    client.on('end', () => {
+      if (guest.statusPipe?.upstream) {
+        try {
+          guest.statusPipe.upstream.destroy();
+        } catch (_) {}
+      }
+    });
+  }
+
+  _rejectGuest(client, addr, reason) {
+    log.warn(`Rejecting ${addr} — ${reason}`);
+    safeEndClient(client, 'Sniffer allows one client at a time.');
   }
 
   _createPacketLog(username) {
@@ -298,7 +353,7 @@ class MitmProxy {
     }
 
     try {
-      const method = relayPacket(session.upstream, meta, data, buffer);
+      const method = relayPacket(session.upstream, meta, data, buffer, session.relayOpts);
       traceRelay(session.packetLog, {
         bridge: 'java→backend',
         dir: 'C2S',
@@ -334,7 +389,7 @@ class MitmProxy {
       const item = session.pendingS2C[compressIdx];
       session.pendingS2C.splice(compressIdx, 1);
       try {
-        const method = relayToJava(session.client, item.meta, item.data, item.buffer);
+        const method = relayToJava(session.client, item.meta, item.data, item.buffer, session.relayOpts);
         traceTx(session.packetLog, 'java', 'S2C', item.meta, item.buffer, {
           action: 'login_compress',
           bridge: 'backend→java',
@@ -441,7 +496,7 @@ class MitmProxy {
     sortLoginPending(toRelay);
     for (const { data, meta, buffer } of toRelay) {
       try {
-        const method = relayToJava(session.client, meta, data, buffer);
+        const method = relayToJava(session.client, meta, data, buffer, session.relayOpts);
         traceTx(session.packetLog, 'java', 'S2C', meta, buffer, {
           action: 'post_crypto_flush',
           bridge: 'backend→java',
@@ -478,6 +533,7 @@ class MitmProxy {
     if (this.activeSession) {
       const session = this.activeSession;
       this.activeSession = null;
+      this._syncPlayerCount();
       try { session.client.end('Sniffer shutting down'); } catch (_) {}
       if (session.upstream && !session.upstream.ended) {
         try { session.upstream.end('Sniffer shutting down'); } catch (_) {}

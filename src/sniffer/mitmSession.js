@@ -48,7 +48,7 @@ function flushC2sQueue(session) {
       continue;
     }
     try {
-      const method = relayPacket(session.upstream, meta, data, buffer);
+      const method = relayPacket(session.upstream, meta, data, buffer, session.relayOpts);
       traceRelay(session.packetLog, {
         bridge: 'java→backend',
         dir: 'C2S',
@@ -88,7 +88,10 @@ function createSessionCleanup(session, proxy) {
     session.chunkStream?.close();
 
     // Release the sniffer slot before the async world write (can take ~1s).
-    if (proxy.activeSession === session) proxy.activeSession = null;
+    if (proxy.activeSession === session) {
+      proxy.activeSession = null;
+      proxy._syncPlayerCount?.();
+    }
 
     const packetLog = session.packetLog;
     const sniffer = proxy.config?.sniffer ?? {};

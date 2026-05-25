@@ -1,4 +1,4 @@
-const { RAW_FORWARD_PACKETS } = require('../constants/rawPackets');
+const { RAW_FORWARD_PACKETS, PARSE_RELAY_PACKETS } = require('../constants/rawPackets');
 
 /** Configuration packets forwarded with writeRaw (byte-identical NBT). */
 const CONFIG_RAW_PACKETS = new Set([
@@ -14,6 +14,9 @@ const CONFIG_RAW_PACKETS = new Set([
 
 const COMPRESS_PACKETS = new Set(['compress', 'set_compression']);
 
+/** Play/configuration: forward captured wire (minecraft-protocol re-encode breaks 1.21.10). */
+const WIRE_RELAY_STATES = new Set(['play', 'configuration']);
+
 function shouldWriteRaw(meta, buffer) {
   if (!buffer || buffer.length === 0) return false;
   if (meta.state === 'configuration' && CONFIG_RAW_PACKETS.has(meta.name)) return true;
@@ -21,10 +24,35 @@ function shouldWriteRaw(meta, buffer) {
   return false;
 }
 
+function shouldPreferWireRelay(meta, buffer, preferWire) {
+  if (!preferWire || !buffer?.length) return false;
+  if (PARSE_RELAY_PACKETS.has(meta.name)) return false;
+  return WIRE_RELAY_STATES.has(meta.state);
+}
+
+/** Re-encode from parsed params (correct length; sniffer tolerant item NBT on write). */
+function relayReencodedPacket(target, meta, data) {
+  const serializer = target.serializer;
+  if (!serializer?.createPacketBuffer) {
+    target.write(meta.name, data, meta.state);
+    return 'parsed';
+  }
+  try {
+    const packetBuf = serializer.createPacketBuffer({ name: meta.name, params: data });
+    target.writeRaw(packetBuf);
+    return 'encoded';
+  } catch (_) {
+    target.write(meta.name, data, meta.state);
+    return 'parsed_fallback';
+  }
+}
+
 /**
  * @param {import('minecraft-protocol').Client} target
+ * @param {{ preferWire?: boolean }} [opts]
  */
-function relayPacket(target, meta, data, buffer) {
+function relayPacket(target, meta, data, buffer, opts = {}) {
+  const preferWire = opts.preferWire === true;
   if (shouldWriteRaw(meta, buffer)) {
     target.writeRaw(buffer);
     return 'raw';
@@ -33,6 +61,13 @@ function relayPacket(target, meta, data, buffer) {
   if (buffer?.length && meta.state === 'login' && meta.name === 'success') {
     target.writeRaw(buffer);
     return 'raw';
+  }
+  if (meta.state === 'play' && PARSE_RELAY_PACKETS.has(meta.name)) {
+    return relayReencodedPacket(target, meta, data);
+  }
+  if (shouldPreferWireRelay(meta, buffer, preferWire)) {
+    target.writeRaw(buffer);
+    return 'wire';
   }
   target.write(meta.name, data, meta.state);
   return 'parsed';
@@ -84,17 +119,28 @@ function relayLoginCompressToJava(client, meta, data, buffer) {
 
 /**
  * Forward S2C to Java; skip late login compress after encryption is already on.
+ * @param {{ preferWire?: boolean }} [opts]
  */
-function relayToJava(client, meta, data, buffer) {
+function relayToJava(client, meta, data, buffer, opts = {}) {
   if (meta.name === 'compress' && meta.state === 'login') {
     return relayLoginCompressToJava(client, meta, data, buffer);
   }
-  return relayPacket(client, meta, data, buffer);
+  return relayPacket(client, meta, data, buffer, opts);
+}
+
+/** Sniffer MITM: default to wire relay (prismarine/minecraft-protocol re-encode is unreliable on 1.21.10). */
+function snifferRelayOpts(sniffer = {}) {
+  return { preferWire: sniffer.preferWireRelay !== false };
 }
 
 module.exports = {
   CONFIG_RAW_PACKETS,
+  WIRE_RELAY_STATES,
+  PARSE_RELAY_PACKETS,
   shouldWriteRaw,
+  shouldPreferWireRelay,
+  relayReencodedPacket,
+  snifferRelayOpts,
   relayPacket,
   syncCompression,
   sortLoginPending,

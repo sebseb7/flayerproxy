@@ -49,7 +49,7 @@ function flushPendingConfig(session) {
   const { traceTx } = require('./packetTrace');
   ensureClientConfigurationState(session.client);
   for (const { data, meta, buffer } of session.pendingConfig) {
-    const method = relayToJava(session.client, meta, data, buffer);
+    const method = relayToJava(session.client, meta, data, buffer, session.relayOpts);
     traceTx(session.packetLog, 'java', 'S2C', meta, buffer, {
       action: 'flush_config',
       bridge: 'backend→java',

@@ -62,6 +62,9 @@ function createMitmSnifferServer(options = {}) {
   });
 
   server.on('connection', (client) => {
+    if (options.errorHandler) {
+      client.on('error', (err) => options.errorHandler(client, err));
+    }
     plugins.forEach((plugin) => plugin(client, server, options));
   });
 

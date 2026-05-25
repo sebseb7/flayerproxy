@@ -25,7 +25,10 @@ function startStatusPipe(session, config, proxy) {
   const endStatus = () => {
     if (statusDone) return;
     statusDone = true;
-    if (proxy.activeSession === session) proxy.activeSession = null;
+    if (proxy.activeSession === session) {
+      proxy.activeSession = null;
+      proxy._syncPlayerCount?.();
+    }
   };
   upstream.on('close', endStatus);
   session.client.socket.on('close', endStatus);
@@ -119,7 +122,7 @@ function startUpstream(session, config, cleanup, callbacks) {
       }
       syncCompression(session.client, meta.name, data);
       try {
-        const method = relayToJava(session.client, meta, data, buffer);
+        const method = relayToJava(session.client, meta, data, buffer, session.relayOpts);
         traceTx(session.packetLog, 'java', 'S2C', meta, buffer, {
           action: 'relay',
           bridge: 'backend→java',
@@ -142,7 +145,8 @@ function startUpstream(session, config, cleanup, callbacks) {
     syncCompression(session.client, meta.name, data);
 
     try {
-      const method = relayToJava(session.client, meta, data, buffer);
+      const method = relayToJava(session.client, meta, data, buffer, session.relayOpts);
+      session.lastRelayedS2C = { state: meta.state, name: meta.name, method };
       traceRelay(session.packetLog, {
         bridge: 'backend→java',
         dir: 'S2C',

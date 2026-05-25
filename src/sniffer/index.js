@@ -31,6 +31,8 @@ try {
       saveLevelPerSession: false,
       saveLevelMaxChunks: 8192,
       chunkLogEntities: false,
+      /** Play/configuration: forward upstream wire bytes (avoid prismarine re-encode on 1.21.10). */
+      preferWireRelay: true,
     },
     config.sniffer,
   );
