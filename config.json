@@ -26,16 +26,18 @@
     "upstreamAuth": "microsoft",
     "logDir": "logs/sniffer",
     "chunkLogDir": "logs/sniffer/chunks",
+    "chunkLogPerSession": false,
     "includePayload": true,
-    "logEveryPacket": true,
+    "logEveryPacket": false,
     "traceLog": false,
     "sessionLog": false,
-    "chunkLog": true,
-    "chunkLogEntities": true,
+    "chunkLog": false,
+    "chunkLogEntities": false,
     "consolePacketLog": false,
     "saveLevel": false,
     "saveLevelDir": "logs/sniffer/worlds",
-    "saveLevelPerSession": false
+    "saveLevelPerSession": false,
+    "chunkStream": { "host": "127.0.0.1", "port": 25570 }
   },
   "bot": {
     "logMovement": true,

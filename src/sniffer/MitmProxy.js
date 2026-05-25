@@ -21,6 +21,7 @@ const {
   ensureClientConfigurationState,
 } = require('./mitmStripVanillaLogin');
 const { SnifferWorldCapture } = require('./SnifferWorldCapture');
+const { ChunkStream, parseChunkStreamConfig, STREAM_PACKETS } = require('./chunkStream');
 const { startStatusPipe, startUpstream } = require('./mitmUpstream');
 const { logDeserializerError } = require('./mitmWireErrors');
 
@@ -75,6 +76,12 @@ class MitmProxy {
       if (sniffer.saveLevel !== false) {
         log.info(
           `Level saves: ${path.resolve(sniffer.saveLevelDir)} (region/ + entities/ during session, level.dat on disconnect)`,
+        );
+      }
+      const chunkStreamTarget = parseChunkStreamConfig(sniffer.chunkStream);
+      if (chunkStreamTarget) {
+        log.info(
+          `Chunk stream: ${[...STREAM_PACKETS].join(', ')} → ${chunkStreamTarget.host}:${chunkStreamTarget.port}`,
         );
       }
       log.info(
@@ -143,6 +150,10 @@ class MitmProxy {
         }
         session.username = data.username;
         session.packetLog = this._createPacketLog(session.username);
+        const chunkStreamTarget = parseChunkStreamConfig(this.config.sniffer.chunkStream);
+        if (chunkStreamTarget) {
+          session.chunkStream = new ChunkStream(chunkStreamTarget);
+        }
         if (session.worldCapture) {
           const worldName = resolveSaveLevelWorldName(
             this.config.sniffer,
@@ -472,6 +483,7 @@ class MitmProxy {
         try { session.upstream.end('Sniffer shutting down'); } catch (_) {}
       }
       session.packetLog?.close('shutdown');
+      session.chunkStream?.close();
     }
     if (this.server) {
       this.server.close();

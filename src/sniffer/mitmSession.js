@@ -85,6 +85,7 @@ function createSessionCleanup(session, proxy) {
     if (session.upstream && !session.upstream.ended) {
       try { session.upstream.end(reason); } catch (_) {}
     }
+    session.chunkStream?.close();
 
     // Release the sniffer slot before the async world write (can take ~1s).
     if (proxy.activeSession === session) proxy.activeSession = null;

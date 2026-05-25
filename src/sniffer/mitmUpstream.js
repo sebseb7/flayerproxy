@@ -7,6 +7,7 @@ const { relayToJava, syncCompression } = require('./mitmRelay');
 const { flushC2sQueue } = require('./mitmSession');
 const { traceBridge, traceRelay, traceTx } = require('./packetTrace');
 const { queueHeldS2C } = require('./mitmLoginBridge');
+const { STREAM_PACKETS } = require('./chunkStream');
 const { logDeserializerError } = require('./mitmWireErrors');
 
 const log = createLogger('Sniffer');
@@ -75,6 +76,15 @@ function startUpstream(session, config, cleanup, callbacks) {
       clientState: session.client.state,
       upstreamState: upstream.state,
     });
+
+    if (
+      meta.state === states.PLAY &&
+      session.chunkStream &&
+      buffer?.length &&
+      STREAM_PACKETS.has(meta.name)
+    ) {
+      session.chunkStream.send(buffer, meta.name);
+    }
 
     if (
       session.worldCapture &&
