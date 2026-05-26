@@ -1,0 +1,93 @@
+{
+  "name": "minecraft-wire-viewer",
+  "displayName": "Minecraft Wire Viewer",
+  "description": "Decode flayerproxy sniffer .wire captures with libchunk",
+  "version": "0.1.2",
+  "publisher": "flayerproxy",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": [
+    "onCustomEditor:minecraftWireViewer.wireDecode"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "wire",
+        "aliases": ["Minecraft Wire", "wire"],
+        "extensions": [".wire"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "minecraftWireViewer.wireDecode",
+        "displayName": "Wire Decode",
+        "selector": [{ "filenamePattern": "*.wire" }],
+        "priority": "default"
+      }
+    ],
+    "commands": [
+      {
+        "command": "minecraftWireViewer.decode",
+        "title": "Wire: Decode with libchunk"
+      },
+      {
+        "command": "minecraftWireViewer.decodeMapChunkJson",
+        "title": "Wire: Decode map_chunk as JSON"
+      },
+      {
+        "command": "minecraftWireViewer.openPng",
+        "title": "Wire: Open paired chunk PNG"
+      },
+      {
+        "command": "minecraftWireViewer.refresh",
+        "title": "Wire: Refresh decode panel"
+      }
+    ],
+    "configuration": {
+      "title": "Minecraft Wire Viewer",
+      "properties": {
+        "minecraftWireViewer.pngRoot": {
+          "type": "string",
+          "default": "",
+          "description": "Root directory for chunk PNGs (parent of rx*/). Empty = infer from wire path (strip /raw/)."
+        },
+        "minecraftWireViewer.showHexDump": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include hex dump in the decode view (slower for large captures)."
+        },
+        "minecraftWireViewer.watchFileChanges": {
+          "type": "boolean",
+          "default": true,
+          "description": "Re-decode when the .wire file is overwritten (e.g. live sniffer). Disable if tabs feel sluggish."
+        },
+        "minecraftWireViewer.refreshDebounceMs": {
+          "type": "number",
+          "default": 250,
+          "minimum": 0,
+          "description": "Debounce ms before re-decoding after a file change."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile && node scripts/bundle-libchunk.js",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "build:libchunk": "cd ../../libchunk/js && npm run build",
+    "bundle:libchunk": "node scripts/bundle-libchunk.js",
+    "package:vsix": "npm run build:libchunk && npm run compile && npm run bundle:libchunk && vsce package --allow-missing-repository",
+    "postinstall": "npm run build:libchunk && npm run bundle:libchunk"
+  },
+  "devDependencies": {
+    "@flayerproxy/libchunk": "file:../../libchunk/js",
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.1",
+    "typescript": "^5.5.0"
+  }
+}

@@ -6,3 +6,9 @@ versions/
 tools/
 .cursor/
 libchunk/build/
+libchunk/js/node_modules/
+libchunk/js/build/
+extensions/minecraft-wire-viewer/node_modules/
+extensions/minecraft-wire-viewer/out/
+extensions/minecraft-wire-viewer/*.vsix
+extensions/minecraft-wire-viewer/vendor/libchunk/build/
