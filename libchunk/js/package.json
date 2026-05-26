@@ -1,0 +1,30 @@
+{
+  "name": "@flayerproxy/libchunk",
+  "version": "0.1.0",
+  "description": "Node bindings for libchunk Minecraft wire packet decoders",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "scripts": {
+    "install": "node ../scripts/npm-prebuild.js && node-gyp rebuild",
+    "build": "node ../scripts/npm-prebuild.js && node-gyp rebuild",
+    "test": "node test/decode.test.js"
+  },
+  "dependencies": {
+    "node-addon-api": "^8.3.0"
+  },
+  "devDependencies": {
+    "node-gyp": "^11.2.0"
+  },
+  "gypfile": true,
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "wirePath.js",
+    "binding.gyp",
+    "src/binding.cc"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "ISC"
+}

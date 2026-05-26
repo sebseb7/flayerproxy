@@ -5,7 +5,8 @@
  * Missing chunks stay black. Output names: x{tileWorldX}_z{tileWorldZ}.avif
  *
  * Usage: stitch_megatiles [-j N] <chunk_png_dir> [megatile_dir]
- *   megatile_dir defaults to <chunk_png_dir>/X16
+ *   Recursively finds x<world>_z<world>.png (e.g. rx…/rz…/cx…/cz… from chunk_stream_receiver).
+ *   Skips subdirs named raw or X16. megatile_dir defaults to <chunk_png_dir>/X16
  *   -j N  parallel workers (default: online CPU count)
  */
 #include "libchunk.h"
@@ -113,6 +114,66 @@ static int parse_chunk_png_name(const char *name, int32_t *wx, int32_t *wz) {
   *wx = (int32_t)x;
   *wz = (int32_t)z;
   return 1;
+}
+
+static int collect_chunk_png_file(const char *path, const char *name, chunk_png_entry **entries,
+                                  size_t *n, size_t *cap) {
+  int32_t wx, wz;
+  if (!parse_chunk_png_name(name, &wx, &wz)) return 0;
+
+  if (*n == *cap) {
+    size_t ncap = *cap ? *cap * 2 : 256;
+    chunk_png_entry *next = (chunk_png_entry *)realloc(*entries, ncap * sizeof(chunk_png_entry));
+    if (!next) return -1;
+    *entries = next;
+    *cap = ncap;
+  }
+
+  chunk_png_entry *e = &(*entries)[(*n)++];
+  e->wx = wx;
+  e->wz = wz;
+  e->cx = wx / 16;
+  e->cz = wz / 16;
+  e->tcx = tile_origin_chunk(e->cx);
+  e->tcz = tile_origin_chunk(e->cz);
+  if (snprintf(e->path, sizeof e->path, "%s", path) >= (int)sizeof e->path) {
+    (*n)--;
+    return 0;
+  }
+  return 1;
+}
+
+static int walk_chunk_png_dir(const char *dir, chunk_png_entry **entries, size_t *n, size_t *cap) {
+  DIR *d = opendir(dir);
+  if (!d) return -1;
+
+  struct dirent *ent;
+  while ((ent = readdir(d)) != NULL) {
+    if (ent->d_name[0] == '.') continue;
+
+    char path[STITCH_PATH_MAX];
+    if (!stitch_path_join(path, sizeof path, dir, ent->d_name)) continue;
+
+    struct stat st;
+    if (stat(path, &st) != 0) continue;
+
+    if (S_ISDIR(st.st_mode)) {
+      if (strcmp(ent->d_name, "X16") == 0 || strcmp(ent->d_name, "raw") == 0) continue;
+      if (walk_chunk_png_dir(path, entries, n, cap) < 0) {
+        closedir(d);
+        return -1;
+      }
+      continue;
+    }
+    if (!S_ISREG(st.st_mode)) continue;
+
+    if (collect_chunk_png_file(path, ent->d_name, entries, n, cap) < 0) {
+      closedir(d);
+      return -1;
+    }
+  }
+  closedir(d);
+  return 0;
 }
 
 static int cmp_entries(const void *a, const void *b) {
@@ -423,6 +484,9 @@ static void usage(const char *prog) {
   fprintf(stderr,
           "  Stitch %dx%d chunk PNGs into %dx%d megatiles (16 chunks/side, black gaps).\n",
           CHUNK_PX, CHUNK_PX, TILE_PX, TILE_PX);
+  fprintf(stderr,
+          "  Finds x<world>_z<world>.png under <chunk_png_dir> (rx/rz/cx/cz/... ok). Skips raw/ "
+          "and X16/.\n");
   fprintf(stderr, "  -j N  parallel workers (default: CPU count)\n");
 }
 
@@ -474,51 +538,17 @@ int main(int argc, char **argv) {
     out_dir = out_dir_buf;
   }
 
-  DIR *d = opendir(in_dir);
-  if (!d) {
+  chunk_png_entry *entries = NULL;
+  size_t n = 0, cap = 0;
+  if (walk_chunk_png_dir(in_dir, &entries, &n, &cap) != 0) {
     perror(in_dir);
+    free(entries);
     return 1;
   }
 
-  chunk_png_entry *entries = NULL;
-  size_t n = 0, cap = 0;
-  struct dirent *ent;
-  while ((ent = readdir(d)) != NULL) {
-    if (ent->d_name[0] == '.') continue;
-    int32_t wx, wz;
-    if (!parse_chunk_png_name(ent->d_name, &wx, &wz)) continue;
-
-    if (n == cap) {
-      cap = cap ? cap * 2 : 256;
-      chunk_png_entry *next =
-          (chunk_png_entry *)realloc(entries, cap * sizeof(chunk_png_entry));
-      if (!next) {
-        closedir(d);
-        free(entries);
-        fprintf(stderr, "oom\n");
-        return 1;
-      }
-      entries = next;
-    }
-
-    chunk_png_entry *e = &entries[n++];
-    e->wx = wx;
-    e->wz = wz;
-    e->cx = wx / 16;
-    e->cz = wz / 16;
-    e->tcx = tile_origin_chunk(e->cx);
-    e->tcz = tile_origin_chunk(e->cz);
-    if (!stitch_path_join(e->path, sizeof e->path, in_dir, ent->d_name)) {
-      fprintf(stderr, "skip (path too long): %s/%s\n", in_dir, ent->d_name);
-      n--;
-      continue;
-    }
-  }
-  closedir(d);
-
   if (n == 0) {
     free(entries);
-    fprintf(stderr, "no chunk PNGs matching x<world>_z<world>.png in %s\n", in_dir);
+    fprintf(stderr, "no chunk PNGs matching x<world>_z<world>.png under %s\n", in_dir);
     return 1;
   }
 

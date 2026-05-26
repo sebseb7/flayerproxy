@@ -10,7 +10,7 @@
  *
  * Usage: decode_raw_dir <input_dir> <output_dir> [png_dir]
  */
-#include "decode_wire.h"
+#include "decode_wire.h" /* libchunk/include via -Iinclude */
 #include "libchunk.h"
 
 #include <dirent.h>
@@ -234,7 +234,11 @@ static int lc_png_coord_tracker_add(lc_png_coord_tracker *t, int32_t wx, int32_t
 /** Top-left world block coordinate (chunk corner × 16). */
 static void lc_png_path_for_chunk(const char *png_dir, int32_t cx, int32_t cz, char *out,
                                   size_t outlen) {
-  snprintf(out, outlen, "%s/x%d_z%d.png", png_dir, cx * 16, cz * 16);
+  int32_t rx = cx >> 5;
+  int32_t rz = cz >> 5;
+  int32_t wx = cx * 16;
+  int32_t wz = cz * 16;
+  snprintf(out, outlen, "%s/rx%d/rz%d/cx%d/cz%d/x%d_z%d.png", png_dir, rx, rz, cx, cz, wx, wz);
 }
 
 /** @return 2 decoded, 1 skipped, 0 parse error, -1 I/O */
@@ -330,6 +334,24 @@ static int process_file(const char *in_path, const char *basename, const char *o
           return -1;
         }
         lc_png_path_for_chunk(png_dir, mc.x, mc.z, out_path, sizeof out_path);
+        {
+          char dir[LC_PATH_MAX];
+          snprintf(dir, sizeof dir, "%s", out_path);
+          char *slash = strrchr(dir, '/');
+          if (!slash) {
+            fprintf(stderr, "png path error: %s\n", out_path);
+            lc_map_chunk_free(&mc);
+            free(wire);
+            return -1;
+          }
+          *slash = '\0';
+          if (mkdir_p(dir) != 0) {
+            fprintf(stderr, "png mkdir error: %s\n", out_path);
+            lc_map_chunk_free(&mc);
+            free(wire);
+            return -1;
+          }
+        }
         if (lc_map_chunk_write_top_png(&mc, out_path) != LC_OK) {
           fprintf(stderr, "png error: %s\n", out_path);
           lc_map_chunk_free(&mc);

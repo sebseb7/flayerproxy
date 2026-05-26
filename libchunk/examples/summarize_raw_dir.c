@@ -110,7 +110,40 @@ static int lc_chunk_mark_seen(int32_t x, int32_t z) {
   return 0;
 }
 
+/** chunk_stream_receiver: x<world>_z<world>[.<pkt>].wire (and x_y_z variants) */
+static int parse_chunk_coord_wire_basename(const char *basename) {
+  if (basename[0] != 'x') return 0;
+  size_t len = strlen(basename);
+  if (len < 8 || strcmp(basename + len - 5, ".wire") != 0) return 0;
+
+  const char *coord_end = basename + len - 5;
+  const char *pkt_dot = strrchr(basename, '.');
+  if (pkt_dot && pkt_dot < coord_end && pkt_dot > basename) coord_end = pkt_dot;
+
+  char *end = NULL;
+  long wx = strtol(basename + 1, &end, 10);
+  if (end == basename + 1 || end[0] != '_') return 0;
+  if (end[1] == 'z') {
+    const char *zstart = end + 2;
+    long wz = strtol(zstart, &end, 10);
+    if (end == zstart || end != coord_end) return 0;
+    if ((wx % 16) != 0 || (wz % 16) != 0) return 0;
+    return 1;
+  }
+  if (end[1] != 'y') return 0;
+  const char *ystart = end + 2;
+  long wy = strtol(ystart, &end, 10);
+  if (end == ystart || end[0] != '_' || end[1] != 'z') return 0;
+  (void)wy;
+  const char *zstart = end + 2;
+  long wz = strtol(zstart, &end, 10);
+  if (end == zstart || end != coord_end) return 0;
+  return 1;
+}
+
+/** Legacy sniffer flat captures: <ms>-map_chunk[...] */
 static int parse_map_chunk_basename(const char *basename) {
+  if (parse_chunk_coord_wire_basename(basename)) return 1;
   const char *p = basename;
   while (*p >= '0' && *p <= '9') p++;
   if (*p != '-') return 0;
@@ -136,6 +169,46 @@ static int lc_path_fmt(char *buf, size_t buflen, const char *fmt, ...) {
     fprintf(stderr, "path too long (need %d bytes, have %zu)\n", n, buflen);
     return -1;
   }
+  return 0;
+}
+
+static int walk_map_chunk_wires(const char *dir, char ***paths, size_t *n, size_t *cap) {
+  DIR *d = opendir(dir);
+  if (!d) return -1;
+
+  struct dirent *ent;
+  while ((ent = readdir(d)) != NULL) {
+    if (ent->d_name[0] == '.') continue;
+
+    char path[LC_PATH_MAX];
+    if (lc_path_fmt(path, sizeof path, "%s/%s", dir, ent->d_name) != 0) continue;
+
+    struct stat st;
+    if (stat(path, &st) != 0) continue;
+
+    if (S_ISDIR(st.st_mode)) {
+      if (walk_map_chunk_wires(path, paths, n, cap) < 0) {
+        closedir(d);
+        return -1;
+      }
+      continue;
+    }
+    if (!S_ISREG(st.st_mode)) continue;
+    if (!parse_map_chunk_basename(ent->d_name)) continue;
+
+    if (*n == *cap) {
+      size_t ncap = *cap ? *cap * 2 : 256;
+      char **next = (char **)realloc(*paths, ncap * sizeof(char *));
+      if (!next) {
+        closedir(d);
+        return -1;
+      }
+      *paths = next;
+      *cap = ncap;
+    }
+    (*paths)[(*n)++] = strdup(path);
+  }
+  closedir(d);
   return 0;
 }
 
@@ -711,48 +784,20 @@ int main(int argc, char **argv) {
   lc_sign_buf signs;
   memset(&signs, 0, sizeof signs);
 
-  DIR *d = opendir(in_dir);
-  if (!d) {
+  char **paths = NULL;
+  size_t n = 0, cap = 0;
+  if (walk_map_chunk_wires(in_dir, &paths, &n, &cap) != 0) {
     perror(in_dir);
     return 1;
   }
 
-  char **names = NULL;
-  size_t n = 0, cap = 0;
-  struct dirent *ent;
-  while ((ent = readdir(d)) != NULL) {
-    if (ent->d_name[0] == '.') continue;
-    if (n == cap) {
-      cap = cap ? cap * 2 : 256;
-      names = (char **)realloc(names, cap * sizeof(char *));
-      if (!names) {
-        closedir(d);
-        return 1;
-      }
-    }
-    names[n++] = strdup(ent->d_name);
-  }
-  closedir(d);
-  qsort(names, n, sizeof(char *), cmp_str_desc);
-
   int decoded = 0, skipped_dup = 0, parse_err = 0, io_err = 0;
   for (size_t i = 0; i < n; i++) {
-    char path[LC_PATH_MAX];
-    if (lc_path_fmt(path, sizeof path, "%s/%s", in_dir, names[i]) != 0) {
-      free(names[i]);
-      io_err = 1;
-      continue;
-    }
-    struct stat st;
-    if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
-      free(names[i]);
-      continue;
-    }
-    int r = process_file(path, &signs, &decoded, &skipped_dup, &parse_err);
+    int r = process_file(paths[i], &signs, &decoded, &skipped_dup, &parse_err);
     if (r < 0) io_err = 1;
-    free(names[i]);
+    free(paths[i]);
   }
-  free(names);
+  free(paths);
   lc_seen_chunks_free();
 
   char blocks_path[LC_PATH_MAX], be_path[LC_PATH_MAX], signs_path[LC_PATH_MAX];

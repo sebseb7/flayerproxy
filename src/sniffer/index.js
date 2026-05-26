@@ -2,7 +2,7 @@ const path = require('path');
 const { loadConfig } = require('../config');
 const { createLogger } = require('../utils/logger');
 const { MitmProxy } = require('./MitmProxy');
-const { parseChunkStreamConfig, STREAM_PACKETS } = require('./chunkStream');
+const { parseChunkStreamConfig } = require('./chunkStream');
 
 const log = createLogger('SnifferMain');
 
@@ -53,12 +53,6 @@ try {
   if (config.sniffer.saveLevel !== false) {
     log.info(
       `Level saves: ${path.resolve(config.sniffer.saveLevelDir)} (region/ + entities/ during session, level.dat on disconnect)`,
-    );
-  }
-  const chunkStreamTarget = parseChunkStreamConfig(config.sniffer.chunkStream);
-  if (chunkStreamTarget) {
-    log.info(
-      `Chunk stream: ${[...STREAM_PACKETS].join(', ')} → ${chunkStreamTarget.host}:${chunkStreamTarget.port}`,
     );
   }
 } catch (err) {

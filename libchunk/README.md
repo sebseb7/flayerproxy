@@ -23,6 +23,8 @@ lc_skip_packet_id(wire, wire_len, &payload, &payload_len);
 
 ## Packets
 
+See **[docs/WIRE_PACKETS.md](docs/WIRE_PACKETS.md)** for the full **149** clientbound catalog, initialization state-machine diagrams, vanilla 1.21.10 class links, and libchunk decode depth.
+
 | Parser | Struct | `toString` |
 |--------|--------|------------|
 | `lc_parse_map_chunk` | `lc_map_chunk` | `lc_map_chunk_to_string` |
@@ -54,6 +56,15 @@ cd libchunk && make && make test
 ```
 
 Produces `build/libchunk.a`.
+
+### Node.js / VS Code
+
+```bash
+cd libchunk/js && npm install   # builds native addon
+cd ../../extensions/minecraft-wire-viewer && npm install && npm run compile
+```
+
+See [js/README.md](js/README.md) and [extensions/minecraft-wire-viewer](../extensions/minecraft-wire-viewer/README.md).
 
 ### Show `toString` on sniffer captures
 
@@ -108,12 +119,12 @@ Writes `<output_dir>/blocks-by-type.txt` (minecraft block type, count — state 
 
 ### Live chunk stream receiver (sniffer `chunkStream`)
 
-Listens for framed play packets from the Node sniffer (`config.json` → `sniffer.chunkStream`): `map_chunk`, `entity_equipment`, `entity_update_attributes`, `set_passengers`, `spawn_entity`, `tile_entity_data`. Frame format: `uint32` inner length, `uint16` name length, packet name UTF-8, wire bytes. `map_chunk` → top-surface PNG + raw archive; other packets → parse, raw archive, free.
+Listens for framed play packets from the Node sniffer (`config.json` → `sniffer.chunkStream`): terrain/entity packets (coordinate- or entity-id–based paths), plus player/inventory/world packets archived under `player/`, `config/`, and `misc/` (see `chunkStream.js` allowlists). Frame format: `uint32` inner length, `uint16` name length, packet name UTF-8, wire bytes. Only `map_chunk` writes top-surface PNG; all forwarded packets archive raw wire.
 
 ```bash
 make chunk_stream_receiver
 
-# terminal 1 — receiver (default bind 0.0.0.0)
+# terminal 1 — receiver (default bind 0.0.0.0; add -v for per-packet stderr logs)
 ./build/chunk_stream_receiver 25570 logs/sniffer/chunks/png2 logs/sniffer/chunks/raw2
 
 # config.json: "chunkStream": { "host": "127.0.0.1", "port": 25570 }
@@ -122,13 +133,13 @@ make chunk_stream_receiver
 npm run sniffer
 ```
 
-PNG names match `decode_raw_dir`: `x{worldX}_z{worldZ}.png` at 2 px/block (32×32). Raw wire: `map_chunk` under `<raw_dir>/map_chunk/rx…/rz…/cx…/cz…/`; entity packets under `<raw_dir>/<packet>/e<id>/` or chunk-sharded paths for spawn/tile. Every 60s (when at least one packet arrived) stderr prints packets/s and handler CPU share; session end prints total handler time and wall-time %.
+PNG and raw `map_chunk` use the same hierarchy: `<dir>/rx…/rz…/cx…/cz…/` with `x{worldX}_z{worldZ}.png` and `x{worldX}_z{worldZ}.map_chunk.wire` (latest packet overwrites). Chunk/block packets use `coord.<packet>.wire` (e.g. `x…_z….update_light.wire`, `x…_y…_z….block_change.wire`, `unload_chunk/…/x…_z….unload_chunk.wire`). `spawn_entity` is coordinate-based under `spawn_entity/rx…/rz…/cx…/cz…/x…_y…_z….spawn_entity.wire`. Other entity packets: `<raw_dir>/<packet>/eu…/eu…/e<id>/<entityId>.<packet>.wire` (`entity_teleport`, effects, `entity_look` flat under `<packet>/` until parsed). Player packets: `<raw_dir>/player/<packet>/<packet>.wire` (`position` uses `player/position/rx…/…/x…_y…_z….position.wire`). Registry/recipe sync: `<raw_dir>/config/…`. Tab list, scoreboard, border, time, view: `<raw_dir>/misc/…`. Without `-v`, stderr only shows connect/disconnect, errors, and periodic stats (every 60s when packets arrived: packets/s and handler CPU share; session end: total handler time and wall-time %). Pass `-v` / `--verbose` to log each processed packet.
 
-Stitch those chunk PNGs into **512×512** megatile AVIFs (16×16 chunks, black gaps). Requires `libavif-dev` (links `-lavif`). Default output: `<png_dir>/X16/`; pass a second argument for another directory.
+Stitch those chunk PNGs into **512×512** megatile AVIFs (16×16 chunks, black gaps). Requires `libavif-dev` (links `-lavif`). `stitch_megatiles` walks `<png_dir>` recursively (`rx…/rz…/cx…/cz…/x*_z*.png`; skips `raw/` and `X16/`). Default output: `<png_dir>/X16/`; pass a second argument for another directory.
 
 ```bash
-./scripts/stitch-map-megatiles.sh logs/sniffer/chunks/png
-# open logs/sniffer/chunks/png/X16/index.html — pan/zoom map (focus: tile nearest 0,0)
+./scripts/stitch-map-megatiles.sh logs/sniffer/chunks/png logs/sniffer/chunks/pngX16
+# open logs/sniffer/chunks/pngX16/index.html — pan/zoom map (focus: tile nearest 0,0)
 ```
 
 Parse failures are written as `<basename>.err`; `map_chunk` → `<basename>.json` (decoded `params` + `sections` only — no duplicate `wire` / `chunkData`; raw bytes stay in the session capture file).

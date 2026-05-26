@@ -21,7 +21,7 @@ const {
   ensureClientConfigurationState,
 } = require('./mitmStripVanillaLogin');
 const { SnifferWorldCapture } = require('./SnifferWorldCapture');
-const { ChunkStream, parseChunkStreamConfig, STREAM_PACKETS } = require('./chunkStream');
+const { ChunkStream, parseChunkStreamConfig } = require('./chunkStream');
 const { startStatusPipe, startUpstream } = require('./mitmUpstream');
 const { logDeserializerError } = require('./mitmWireErrors');
 const { safeEndClient } = require('../utils/clientDisconnect');
@@ -88,9 +88,7 @@ class MitmProxy {
       }
       const chunkStreamTarget = parseChunkStreamConfig(sniffer.chunkStream);
       if (chunkStreamTarget) {
-        log.info(
-          `Chunk stream: ${[...STREAM_PACKETS].join(', ')} → ${chunkStreamTarget.host}:${chunkStreamTarget.port}`,
-        );
+        log.info(`Chunk stream → ${chunkStreamTarget.host}:${chunkStreamTarget.port}`);
       }
       log.info(
         `Packet files: trace=${sniffer.traceLog === true || (sniffer.traceLog !== false && sniffer.logEveryPacket !== false)}, session jsonl=${sniffer.sessionLog === true || (sniffer.sessionLog !== false && sniffer.logEveryPacket !== false)}, chunk raw=${sniffer.chunkLog === true || (sniffer.chunkLog !== false && sniffer.logEveryPacket !== false)}, console=${sniffer.consolePacketLog !== false}`,

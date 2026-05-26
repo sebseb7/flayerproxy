@@ -3,14 +3,99 @@ const { createLogger } = require('../utils/logger');
 
 const log = createLogger('ChunkStream');
 
-/** S2C play packets forwarded to chunk_stream_receiver (length-prefixed framed wire). */
-const STREAM_PACKETS = new Set([
+/** S2C play packets that change terrain, lighting, or block state. */
+const STREAM_BLOCK_PACKETS = [
   'map_chunk',
-  'entity_equipment',
-  'entity_update_attributes',
-  'set_passengers',
-  'spawn_entity',
+  'update_light',
+  'block_change',
+  'multi_block_change',
   'tile_entity_data',
+];
+
+/** S2C play packets that create/update/destroy entities or their state. */
+const STREAM_ENTITY_PACKETS = [
+  'spawn_entity',
+  'entity_metadata',
+  'entity_equipment',
+  'entity_effect',
+  'remove_entity_effect',
+  'entity_destroy',
+  'set_passengers',
+  'entity_teleport',
+  'rel_entity_move',
+  'entity_move_look',
+  'entity_look',
+  'sync_entity_position',
+  'entity_velocity',
+  'entity_head_rotation',
+  'entity_update_attributes',
+];
+
+/** S2C play packets for the local player (position, health, mode, spawn). */
+const STREAM_PLAYER_PACKETS = [
+  'login',
+  'position',
+  'update_health',
+  'experience',
+  'abilities',
+  'entity_status',
+  'spawn_position',
+  'difficulty',
+  'respawn',
+  'game_state_change',
+];
+
+/** S2C play packets for containers and hotbar/inventory sync. */
+const STREAM_INVENTORY_PACKETS = [
+  'window_items',
+  'set_slot',
+  'held_item_slot',
+  'set_player_inventory',
+  'set_cursor_item',
+];
+
+/** S2C play packets for time, view, border, tab list, scoreboard, recipes, etc. */
+const STREAM_WORLD_PACKETS = [
+  'update_time',
+  'unload_chunk',
+  'chunk_batch_start',
+  'chunk_batch_finished',
+  'initialize_world_border',
+  'world_border_center',
+  'world_border_size',
+  'world_border_lerp_size',
+  'world_border_warning_delay',
+  'world_border_warning_reach',
+  'simulation_distance',
+  'update_view_distance',
+  'update_view_position',
+  'declare_commands',
+  'player_info',
+  'player_remove',
+  'playerlist_header',
+  'scoreboard_objective',
+  'scoreboard_display_objective',
+  'scoreboard_score',
+  'reset_score',
+  'teams',
+  'boss_bar',
+  'tracked_waypoint',
+  'tags',
+  'server_data',
+  'update_recipes',
+  'declare_recipes',
+  'advancements',
+  'recipe_book_add',
+  'recipe_book_settings',
+];
+
+/** Forwarded to chunk_stream_receiver (length-prefixed framed wire). */
+const STREAM_PACKETS = new Set([
+  ...STREAM_BLOCK_PACKETS,
+  ...STREAM_ENTITY_PACKETS,
+  ...STREAM_PLAYER_PACKETS,
+  ...STREAM_INVENTORY_PACKETS,
+  ...STREAM_WORLD_PACKETS,
 ]);
 
 /**
@@ -134,4 +219,13 @@ class ChunkStream {
   }
 }
 
-module.exports = { ChunkStream, parseChunkStreamConfig, STREAM_PACKETS };
+module.exports = {
+  ChunkStream,
+  parseChunkStreamConfig,
+  STREAM_PACKETS,
+  STREAM_BLOCK_PACKETS,
+  STREAM_ENTITY_PACKETS,
+  STREAM_PLAYER_PACKETS,
+  STREAM_INVENTORY_PACKETS,
+  STREAM_WORLD_PACKETS,
+};

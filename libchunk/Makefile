@@ -11,7 +11,7 @@ AVIF_LIBS = -lavif
 endif
 CHUNK_LIBS = -lchunk $(AVIF_LIBS)
 
-SRC = src/buf.c src/nbt.c src/metadata.c src/slot.c src/slot_fprint.c src/packets.c src/debug.c src/chunk.c src/dump_json.c src/block_entity.c src/map_colors.c src/state_map_color.c src/state_block_name.c src/state_top_rgb.c src/biome_tint.c src/map_png.c src/map_avif.c src/map_tile.c
+SRC = src/buf.c src/nbt.c src/metadata.c src/slot.c src/slot_fprint.c src/packets.c src/debug.c src/chunk.c src/dump_json.c src/decode_wire.c src/play_stream.c src/block_entity.c src/map_colors.c src/state_map_color.c src/state_block_name.c src/state_top_rgb.c src/biome_tint.c src/map_png.c src/map_avif.c src/map_tile.c
 CFLAGS += $(AVIF_CFLAGS)
 OBJ = $(SRC:src/%.c=build/%.o)
 
@@ -37,13 +37,11 @@ build/%.o: src/%.c include/libchunk.h src/internal.h | build
 build/libchunk.a: $(OBJ)
 	ar rcs $@ $(OBJ)
 
-DECODE_EXAMPLES = examples/decode_wire.c
+build/show_decode: examples/show_decode.c build/libchunk.a | build
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ examples/show_decode.c -Lbuild $(CHUNK_LIBS)
 
-build/show_decode: examples/show_decode.c $(DECODE_EXAMPLES) build/libchunk.a | build
-	$(CC) $(CFLAGS) $(INCLUDES) -o $@ examples/show_decode.c $(DECODE_EXAMPLES) -Lbuild $(CHUNK_LIBS)
-
-build/decode_raw_dir: examples/decode_raw_dir.c $(DECODE_EXAMPLES) build/libchunk.a | build
-	$(CC) $(CFLAGS) $(INCLUDES) -o $@ examples/decode_raw_dir.c $(DECODE_EXAMPLES) -Lbuild $(CHUNK_LIBS)
+build/decode_raw_dir: examples/decode_raw_dir.c build/libchunk.a | build
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ examples/decode_raw_dir.c -Lbuild $(CHUNK_LIBS)
 
 build/summarize_raw_dir: examples/summarize_raw_dir.c build/libchunk.a | build
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ examples/summarize_raw_dir.c -Lbuild $(CHUNK_LIBS)
@@ -55,7 +53,7 @@ build/stitch_megatiles: examples/stitch_megatiles.c build/libchunk.a | build
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ examples/stitch_megatiles.c -Lbuild $(CHUNK_LIBS) -pthread
 
 build/chunk_stream_receiver: examples/chunk_stream_receiver.c build/libchunk.a | build
-	$(CC) $(CFLAGS) $(INCLUDES) -o $@ examples/chunk_stream_receiver.c -Lbuild $(CHUNK_LIBS)
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ examples/chunk_stream_receiver.c -Lbuild $(CHUNK_LIBS) -lm
 
 build/test_packets: test/test_packets.c build/libchunk.a | build
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test/test_packets.c -Lbuild $(CHUNK_LIBS)

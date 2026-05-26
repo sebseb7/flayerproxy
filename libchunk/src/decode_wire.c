@@ -1,10 +1,12 @@
 #include "decode_wire.h"
 
 #include "libchunk.h"
+#include "play_stream.h"
 
 #include <string.h>
 
 int lc_packet_name_supported(const char *name) {
+  if (lc_play_stream_packet_supported(name)) return 1;
   static const char *names[] = {
       "map_chunk",
       "unload_chunk",
@@ -174,6 +176,8 @@ int lc_decode_wire_to_string(const char *name, const uint8_t *wire, size_t wire_
       lc_registry_data_to_string(&p, out, out_sz);
       lc_registry_data_free(&p);
     }
+  } else if (lc_play_stream_packet_supported(name)) {
+    return lc_decode_play_stream_to_string(name, after_id, after_len, out, out_sz);
   }
 
   return st == LC_OK ? 1 : -1;

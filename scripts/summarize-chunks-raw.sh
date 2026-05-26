@@ -2,7 +2,7 @@
 # Summarize raw map_chunk captures with libchunk (blocks by type, block entities, signs).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-INPUT="${1:-$ROOT/logs/sniffer/chunks/session-1779638032220}"
+INPUT="${1:-$ROOT/logs/sniffer/chunks/png/raw/map_chunk}"
 OUT="${2:-$INPUT/summary}"
 make -C "$ROOT/libchunk" -s summarize_raw_dir
 cd "$ROOT"
