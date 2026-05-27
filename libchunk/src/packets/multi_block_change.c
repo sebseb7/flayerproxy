@@ -1,4 +1,7 @@
 #include "../internal.h"
+/* Good for: Decode Minecraft wire payload for multi block change into a struct.
+ * Callers: chunk_stream_receiver.c, decode_wire.c.
+ */
 
 lc_status lc_parse_multi_block_change(const uint8_t *data, size_t len, lc_multi_block_change *out) {
   memset(out, 0, sizeof(*out));
@@ -24,12 +27,18 @@ lc_status lc_parse_multi_block_change(const uint8_t *data, size_t len, lc_multi_
   }
   return LC_OK;
 }
+/* Good for: Release heap owned by lc_multi block change.
+ * Callers: chunk_stream_receiver.c, decode_wire.c, multi_block_change.c (same file), packets.c.
+ */
 
 void lc_multi_block_change_free(lc_multi_block_change *p) {
   free(p->records);
   p->records = NULL;
   p->record_count = 0;
 }
+/* Good for: Unpack packed long from multi_block_change record.
+ * Callers: debug.c, multi_block_change.c (same file).
+ */
 
 static void lc_unpack_multi_block_record(int32_t record, int *lx, int *ly, int *lz, int32_t *state_id) {
   *lz = (record >> 4) & 0x0f;
@@ -37,6 +46,9 @@ static void lc_unpack_multi_block_record(int32_t record, int *lx, int *ly, int *
   *ly = record & 0x0f;
   *state_id = (int32_t)((uint32_t)record >> 12);
 }
+/* Good for: One-line debug summary of lc_multi block change (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_multi_block_change_to_string(const lc_multi_block_change *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;

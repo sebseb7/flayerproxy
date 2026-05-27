@@ -60,6 +60,9 @@ static const char *s2c_play_name(int32_t pkt_id) {
       return NULL;
   }
 }
+/* Good for: Log map_chunk light mask summary to stderr.
+ * Callers: mc_s2c_log.c (same file).
+ */
 
 static void log_map_chunk_light(const uint8_t *payload, size_t payload_len) {
   lc_map_chunk mc;
@@ -80,6 +83,9 @@ static void log_map_chunk_light(const uint8_t *payload, size_t payload_len) {
   }
   lc_map_chunk_free(&mc);
 }
+/* Good for: Log update_light mask summary to stderr.
+ * Callers: mc_s2c_log.c (same file).
+ */
 
 static void log_light_update(const uint8_t *payload, size_t payload_len) {
   lc_update_light ul;
@@ -96,6 +102,9 @@ static void log_light_update(const uint8_t *payload, size_t payload_len) {
           ul.block_light.row_count);
   lc_update_light_free(&ul);
 }
+/* Good for: Colored stderr logging for mc_* tools.
+ * Callers: mc_wire_templates.c.
+ */
 
 void mc_log_s2c_play(int32_t pkt_id, const uint8_t *payload, size_t payload_len) {
   const char *name = s2c_play_name(pkt_id);

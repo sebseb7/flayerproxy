@@ -48,6 +48,11 @@ static const char *PACKET_NAMES[] = {
     "map_chunk",
     "unload_chunk",
     "position",
+    "c2s_position",
+    "c2s_position_look",
+    "c2s_look",
+    "c2s_flying",
+    "c2s_teleport_confirm",
     "respawn",
     NULL,
 };

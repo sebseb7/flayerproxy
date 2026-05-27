@@ -251,6 +251,9 @@ static const uint8_t LC_MAP_RGB[LC_MAP_PROTOCOL_COLORS][3] = {
     {0x7f, 0xa7, 0x96}, /* 246 */
     {0x43, 0x58, 0x4f}, /* 247 */
 };
+/* Good for: RGB for map protocol color id.
+ * Callers: libchunk.h (public API, no .c callers in tree).
+ */
 
 void lc_map_protocol_rgb(uint8_t protocol_id, uint8_t *r, uint8_t *g, uint8_t *b) {
   if (!r || !g || !b) return;

@@ -1,4 +1,7 @@
 #include "internal.h"
+/* Good for: One-line debug summary of lc_uuid (sniffer / decode tools).
+ * Callers: debug.c (same file), play_stream.c, spawn_entity.c.
+ */
 
 int lc_uuid_to_string(const lc_uuid *u, char *buf, size_t buflen) {
   if (!u || !buf || buflen < 37) return 0;
@@ -11,6 +14,9 @@ int lc_uuid_to_string(const lc_uuid *u, char *buf, size_t buflen) {
                   (unsigned)u->bytes[12], (unsigned)u->bytes[13], (unsigned)u->bytes[14],
                   (unsigned)u->bytes[15]);
 }
+/* Good for: Format one metadata entry for toString.
+ * Callers: debug.c (same file), entity_metadata.c.
+ */
 
 static int lc_write_meta_value(const lc_metadata_entry *e, char *buf, size_t buflen, int w) {
   switch (e->kind) {
@@ -35,6 +41,9 @@ static int lc_write_meta_value(const lc_metadata_entry *e, char *buf, size_t buf
       return lc_appendf(buf, buflen, w, "?");
   }
 }
+/* Good for: One-line debug summary of lc_map chunk (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_map_chunk_to_string(const lc_map_chunk *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;
@@ -46,6 +55,9 @@ int lc_map_chunk_to_string(const lc_map_chunk *p, char *buf, size_t buflen) {
                       p->block_light.row_count);
   return w;
 }
+/* Good for: One-line debug summary of lc_update light (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_update_light_to_string(const lc_update_light *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;
@@ -55,6 +67,9 @@ int lc_update_light_to_string(const lc_update_light *p, char *buf, size_t buflen
                      p->chunk_x, p->chunk_z, p->sky_light_mask.count, p->block_light_mask.count,
                      p->sky_light.row_count, p->block_light.row_count);
 }
+/* Good for: Print long bitset array to FILE.
+ * Callers: debug.c (same file).
+ */
 
 static void lc_fprint_i64_array(FILE *f, const char *label, const lc_i64_arr *a) {
   fprintf(f, "%s_count: %zu\n", label, a->count);
@@ -62,6 +77,9 @@ static void lc_fprint_i64_array(FILE *f, const char *label, const lc_i64_arr *a)
     fprintf(f, "%s[%zu]: %lld (0x%016llx)\n", label, i, (long long)a->values[i],
             (unsigned long long)a->values[i]);
 }
+/* Good for: Print light nibble grid to FILE.
+ * Callers: debug.c (same file).
+ */
 
 static void lc_fprint_u8_grid(FILE *f, const char *label, const lc_u8_grid *g) {
   fprintf(f, "%s_section_count: %zu\n", label, g->row_count);
@@ -74,6 +92,9 @@ static void lc_fprint_u8_grid(FILE *f, const char *label, const lc_u8_grid *g) {
     lc_wire_hex_fprint(f, g->rows[i], g->row_lens[i]);
   }
 }
+/* Good for: Pretty-print lc_update light to a FILE (verbose decode dumps).
+ * Callers: decode_raw_dir.c.
+ */
 
 int lc_update_light_fprint(FILE *f, const lc_update_light *p) {
   if (!f || !p) return -1;
@@ -104,6 +125,9 @@ int lc_update_light_fprint(FILE *f, const lc_update_light *p) {
   lc_fprint_u8_grid(f, "  block_light", &p->block_light);
   return 0;
 }
+/* Good for: Pretty-print lc_entity equipment to a FILE (verbose decode dumps).
+ * Callers: decode_raw_dir.c.
+ */
 
 int lc_entity_equipment_fprint(FILE *f, const lc_entity_equipment *p) {
   if (!f || !p) return -1;
@@ -117,17 +141,26 @@ int lc_entity_equipment_fprint(FILE *f, const lc_entity_equipment *p) {
   }
   return 0;
 }
+/* Good for: One-line debug summary of lc_block change (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_block_change_to_string(const lc_block_change *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;
   return lc_snprintf(buf, buflen, "block_change{pos=(%d,%d,%d),type=%d}", p->location.x, p->location.y,
                      p->location.z, p->type);
 }
+/* Good for: One-line debug summary of lc_unload chunk (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_unload_chunk_to_string(const lc_unload_chunk *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;
   return lc_snprintf(buf, buflen, "unload_chunk{x=%d,z=%d}", p->x, p->z);
 }
+/* Good for: One-line debug summary of lc_tile entity data (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_tile_entity_data_to_string(const lc_tile_entity_data *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;
@@ -135,6 +168,9 @@ int lc_tile_entity_data_to_string(const lc_tile_entity_data *p, char *buf, size_
                      "tile_entity_data{pos=(%d,%d,%d),action=%d,nbt=%zu b}", p->location.x,
                      p->location.y, p->location.z, p->action, p->nbt.len);
 }
+/* Good for: Pretty-print lc_tile entity data to a FILE (verbose decode dumps).
+ * Callers: decode_raw_dir.c.
+ */
 
 int lc_tile_entity_data_fprint(FILE *f, const lc_tile_entity_data *p) {
   if (!f || !p) return -1;
@@ -156,6 +192,9 @@ int lc_tile_entity_data_fprint(FILE *f, const lc_tile_entity_data *p) {
   }
   return 0;
 }
+/* Good for: Unpack packed long from multi_block_change record.
+ * Callers: debug.c (same file), multi_block_change.c.
+ */
 
 static void lc_unpack_multi_block_record(int32_t record, int *lx, int *ly, int *lz, int32_t *state_id) {
   *lz = (record >> 4) & 0x0f;
@@ -163,6 +202,9 @@ static void lc_unpack_multi_block_record(int32_t record, int *lx, int *ly, int *
   *ly = record & 0x0f;
   *state_id = (int32_t)((uint32_t)record >> 12);
 }
+/* Good for: One-line debug summary of lc_multi block change (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_multi_block_change_to_string(const lc_multi_block_change *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;
@@ -184,6 +226,9 @@ int lc_multi_block_change_to_string(const lc_multi_block_change *p, char *buf, s
   }
   return lc_appendf(buf, buflen, w, "]}");
 }
+/* Good for: One-line debug summary of lc_spawn entity (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_spawn_entity_to_string(const lc_spawn_entity *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;
@@ -195,6 +240,9 @@ int lc_spawn_entity_to_string(const lc_spawn_entity *p, char *buf, size_t buflen
                      p->entity_id, uuid, p->type, p->x, p->y, p->z, p->velocity.x, p->velocity.y,
                      p->velocity.z, (int)p->pitch, (int)p->yaw, (int)p->head_pitch, p->object_data);
 }
+/* Good for: One-line debug summary of lc_entity metadata (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_entity_metadata_to_string(const lc_entity_metadata *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;
@@ -207,6 +255,9 @@ int lc_entity_metadata_to_string(const lc_entity_metadata *p, char *buf, size_t 
   }
   return lc_appendf(buf, buflen, w, "]}");
 }
+/* Good for: One-line debug summary of lc_entity equipment (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_entity_equipment_to_string(const lc_entity_equipment *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;
@@ -214,6 +265,9 @@ int lc_entity_equipment_to_string(const lc_entity_equipment *p, char *buf, size_
                      "entity_equipment{id=%d,slots=%zu (use decode_raw_dir for full dump)}",
                      p->entity_id, p->equipments.count);
 }
+/* Good for: One-line debug summary of lc_entity destroy (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_entity_destroy_to_string(const lc_entity_destroy *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;
@@ -221,6 +275,9 @@ int lc_entity_destroy_to_string(const lc_entity_destroy *p, char *buf, size_t bu
   for (size_t i = 0; i < p->count; i++) w = lc_appendf(buf, buflen, w, "%s%d", i ? "," : "", p->entity_ids[i]);
   return lc_appendf(buf, buflen, w, "]}");
 }
+/* Good for: One-line debug summary of lc_set passengers (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_set_passengers_to_string(const lc_set_passengers *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;
@@ -229,12 +286,18 @@ int lc_set_passengers_to_string(const lc_set_passengers *p, char *buf, size_t bu
     w = lc_appendf(buf, buflen, w, "%s%d", i ? "," : "", p->passengers[i]);
   return lc_appendf(buf, buflen, w, "]}");
 }
+/* Good for: One-line debug summary of lc_rel entity move (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_rel_entity_move_to_string(const lc_rel_entity_move *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;
   return lc_snprintf(buf, buflen, "rel_entity_move{id=%d,d=(%d,%d,%d),onGround=%u}", p->entity_id,
                      (int)p->dx, (int)p->dy, (int)p->dz, p->on_ground);
 }
+/* Good for: One-line debug summary of lc_entity move look (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_entity_move_look_to_string(const lc_entity_move_look *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;
@@ -242,6 +305,9 @@ int lc_entity_move_look_to_string(const lc_entity_move_look *p, char *buf, size_
                      "entity_move_look{id=%d,d=(%d,%d,%d),yaw=%d,pitch=%d,onGround=%u}", p->entity_id,
                      (int)p->dx, (int)p->dy, (int)p->dz, (int)p->yaw, (int)p->pitch, p->on_ground);
 }
+/* Good for: One-line debug summary of lc_sync entity position (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_sync_entity_position_to_string(const lc_sync_entity_position *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;
@@ -251,12 +317,18 @@ int lc_sync_entity_position_to_string(const lc_sync_entity_position *p, char *bu
                      p->entity_id, p->x, p->y, p->z, p->dx, p->dy, p->dz, p->yaw, p->pitch,
                      p->on_ground);
 }
+/* Good for: One-line debug summary of lc_entity velocity (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_entity_velocity_to_string(const lc_entity_velocity *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;
   return lc_snprintf(buf, buflen, "entity_velocity{id=%d,vel=(%.3f,%.3f,%.3f)}", p->entity_id,
                      p->velocity.x, p->velocity.y, p->velocity.z);
 }
+/* Good for: One-line debug summary of lc_entity head rotation (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_entity_head_rotation_to_string(const lc_entity_head_rotation *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;
@@ -291,6 +363,9 @@ int lc_entity_update_attributes_to_string(const lc_entity_update_attributes *p, 
   }
   return lc_appendf(buf, buflen, w, "]}");
 }
+/* Good for: Pretty-print lc_entity update attributes to a FILE (verbose decode dumps).
+ * Callers: decode_raw_dir.c.
+ */
 
 int lc_entity_update_attributes_fprint(FILE *f, const lc_entity_update_attributes *p) {
   if (!f || !p) return -1;
@@ -314,6 +389,9 @@ int lc_entity_update_attributes_fprint(FILE *f, const lc_entity_update_attribute
   }
   return 0;
 }
+/* Good for: One-line debug summary of lc_position (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_position_to_string(const lc_position *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;
@@ -338,6 +416,9 @@ static const char *gamemode_name(int g) {
       return "?";
   }
 }
+/* Good for: One-line debug summary of lc_respawn (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_respawn_to_string(const lc_respawn *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;
@@ -351,6 +432,9 @@ int lc_respawn_to_string(const lc_respawn *p, char *buf, size_t buflen) {
                    w->death_pos.x, w->death_pos.y, w->death_pos.z);
   return lc_appendf(buf, buflen, n, "}");
 }
+/* Good for: One-line debug summary of lc_initialize world border (sniffer / decode tools).
+ * Callers: decode_wire.c, play_stream.c.
+ */
 
 int lc_initialize_world_border_to_string(const lc_initialize_world_border *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;
@@ -360,12 +444,18 @@ int lc_initialize_world_border_to_string(const lc_initialize_world_border *p, ch
                      p->x, p->z, p->old_diameter, p->new_diameter, p->speed, p->portal_teleport_boundary,
                      p->warning_blocks, p->warning_time);
 }
+/* Good for: One-line debug summary of lc_registry data (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_registry_data_to_string(const lc_registry_data *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;
   return lc_snprintf(buf, buflen, "registry_data{id=%s,entries=%zu (use decode_raw_dir for full dump)}",
                      p->id ? p->id : "?", p->entries.count);
 }
+/* Good for: Pretty-print lc_wire hex to a FILE (verbose decode dumps).
+ * Callers: debug.c (same file), slot_fprint.c.
+ */
 
 int lc_wire_hex_fprint(FILE *f, const uint8_t *wire, size_t len) {
   if (!f) return -1;
@@ -383,6 +473,9 @@ int lc_wire_hex_fprint(FILE *f, const uint8_t *wire, size_t len) {
   }
   return 0;
 }
+/* Good for: Pretty-print lc_registry data to a FILE (verbose decode dumps).
+ * Callers: decode_raw_dir.c.
+ */
 
 int lc_registry_data_fprint(FILE *f, const lc_registry_data *p) {
   if (!f || !p) return -1;

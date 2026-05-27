@@ -4,6 +4,9 @@
 
 #include <stdlib.h>
 #include <string.h>
+/* Good for: Release heap owned by lc_tag group entry arr.
+ * Callers: update_tags.c (same file).
+ */
 
 void lc_tag_group_entry_arr_free(lc_tag_group_entry *items, size_t count) {
   if (!items) return;
@@ -13,6 +16,9 @@ void lc_tag_group_entry_arr_free(lc_tag_group_entry *items, size_t count) {
   }
   free(items);
 }
+/* Good for: Release heap owned by lc_update tags.
+ * Callers: mc_static_registries.c, update_tags.c (same file).
+ */
 
 void lc_update_tags_free(lc_update_tags *p) {
   if (!p) return;
@@ -23,6 +29,9 @@ void lc_update_tags_free(lc_update_tags *p) {
   free(p->groups);
   memset(p, 0, sizeof *p);
 }
+/* Good for: Decode Minecraft wire payload for update tags into a struct.
+ * Callers: mc_static_registries.c.
+ */
 
 lc_status lc_parse_update_tags(const uint8_t *data, size_t len, lc_update_tags *out) {
   memset(out, 0, sizeof *out);

@@ -3,11 +3,17 @@
 #include "internal.h"
 
 #include <string.h>
+/* Good for: One-line summary when play packet is not fully decoded.
+ * Callers: play_stream.c (same file).
+ */
 
 static int summary_only(const char *name, size_t payload_len, char *out, size_t out_sz) {
   return lc_snprintf(out, out_sz, "%s{payload=%zu bytes (structure not fully decoded)}", name,
                      payload_len);
 }
+/* Good for: Skip Minecraft string[] in play_stream parser.
+ * Callers: play_stream.c (same file).
+ */
 
 static lc_status skip_string_array(lc_buf *b) {
   int32_t n;
@@ -34,6 +40,9 @@ static lc_status parse_spawn_position(const uint8_t *data, size_t len, char *dim
   if (lc_buf_read_f32_le(&b, pitch) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
+/* Good for: Decode Login play packet to debug string.
+ * Callers: play_stream.c (same file).
+ */
 
 static int decode_login(const uint8_t *payload, size_t payload_len, char *out, size_t out_sz) {
   lc_buf b;
@@ -109,6 +118,9 @@ static int decode_window_items_summary(const uint8_t *payload, size_t payload_le
   int32_t state_id = 0;
   int32_t n = -1;
   if (lc_buf_read_u8(&b, &window_id) == LC_OK && lc_buf_read_varint(&b, &state_id) == LC_OK &&
+/* Good for: Read varint from packet cursor lc_buf (all parsers).
+ * Callers: block_change.c, buf.c, c2s_move.c, chunk.c, entity_destroy.c, entity_equipment.c, entity_head_rotation.c, entity_metadata.c, entity_move_look.c, entity_velocity.c, initialize_world_border.c, map_chunk.c, mc_c2s_log.c, mc_server_common.c, mc_spectator.c, mc_static_server.c, metadata.c, multi_block_change.c, packets.c, play_stream.c (same file), position.c, registry_data.c, rel_entity_move.c, set_passengers.c, slot.c, slot_fprint.c, spawn_entity.c, spawn_info.c, sync_entity_position.c, update_light.c, update_tags.c.
+ */
       lc_buf_read_varint(&b, &n) == LC_OK && n >= 0) {
     return lc_snprintf(out, out_sz,
                        "window_items{windowId=%u,stateId=%d,slots=%d,"
@@ -119,6 +131,9 @@ static int decode_window_items_summary(const uint8_t *payload, size_t payload_le
   }
   return summary_only("window_items", payload_len, out, out_sz);
 }
+/* Good for: Decode Set Container Slot to debug string.
+ * Callers: play_stream.c (same file).
+ */
 
 static int decode_set_slot(const uint8_t *payload, size_t payload_len, char *out, size_t out_sz) {
   lc_buf b;
@@ -219,6 +234,9 @@ static int decode_remove_entity_effect(const uint8_t *payload, size_t payload_le
              ? 1
              : -1;
 }
+/* Good for: Decode Entity Look to debug string.
+ * Callers: play_stream.c (same file).
+ */
 
 static int decode_entity_look(const uint8_t *payload, size_t payload_len, char *out, size_t out_sz) {
   lc_buf b;
@@ -235,6 +253,9 @@ static int decode_entity_look(const uint8_t *payload, size_t payload_len, char *
              ? 1
              : -1;
 }
+/* Good for: Decode Player Info to debug string.
+ * Callers: play_stream.c (same file).
+ */
 
 static int decode_player_info(const uint8_t *payload, size_t payload_len, char *out, size_t out_sz) {
   lc_buf b;
@@ -248,6 +269,9 @@ static int decode_player_info(const uint8_t *payload, size_t payload_len, char *
              ? 1
              : -1;
 }
+/* Good for: Decode Tags packet to debug string.
+ * Callers: play_stream.c (same file).
+ */
 
 static int decode_tags(const uint8_t *payload, size_t payload_len, char *out, size_t out_sz) {
   lc_buf b;
@@ -309,6 +333,9 @@ static const char *PLAY_STREAM_NAMES[] = {
     "remove_entity_effect",
     NULL,
 };
+/* Good for: Whether play_stream.c handles this packet name.
+ * Callers: decode_wire.c.
+ */
 
 int lc_play_stream_packet_supported(const char *name) {
   if (!name) return 0;

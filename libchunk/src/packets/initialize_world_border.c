@@ -1,4 +1,7 @@
 #include "../internal.h"
+/* Good for: Decode Minecraft wire payload for initialize world border into a struct.
+ * Callers: decode_wire.c, play_stream.c.
+ */
 
 lc_status lc_parse_initialize_world_border(const uint8_t *data, size_t len, lc_initialize_world_border *out) {
   lc_buf b;
@@ -13,6 +16,9 @@ lc_status lc_parse_initialize_world_border(const uint8_t *data, size_t len, lc_i
   if (lc_buf_read_varint(&b, &out->warning_time) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
+/* Good for: One-line debug summary of lc_initialize world border (sniffer / decode tools).
+ * Callers: decode_wire.c, play_stream.c.
+ */
 
 int lc_initialize_world_border_to_string(const lc_initialize_world_border *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;

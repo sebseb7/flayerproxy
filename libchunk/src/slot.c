@@ -2,6 +2,9 @@
 
 static lc_status lc_skip_registry_entry_holder_set(lc_buf *b);
 static lc_status lc_skip_slot_component_data(lc_buf *b, int32_t comp_type);
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: metadata.c, slot.c (same file).
+ */
 
 static lc_status lc_skip_option_string(lc_buf *b) {
   uint8_t present;
@@ -12,6 +15,9 @@ static lc_status lc_skip_option_string(lc_buf *b) {
   free(s);
   return st;
 }
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: slot.c (same file).
+ */
 
 static lc_status lc_skip_nbt_array(lc_buf *b) {
   int32_t n;
@@ -21,6 +27,9 @@ static lc_status lc_skip_nbt_array(lc_buf *b) {
     if (lc_nbt_skip_anonymous(b) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: slot.c (same file).
+ */
 
 static lc_status lc_skip_registry_entry_holder(lc_buf *b) {
   int32_t n;
@@ -38,6 +47,9 @@ static lc_status lc_skip_registry_entry_holder(lc_buf *b) {
   }
   return lc_buf_read_varint(b, &n);
 }
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: slot.c (same file).
+ */
 
 static lc_status lc_skip_option_registry_entry_holder(lc_buf *b) {
   uint8_t present;
@@ -45,6 +57,9 @@ static lc_status lc_skip_option_registry_entry_holder(lc_buf *b) {
   if (!present) return LC_OK;
   return lc_skip_registry_entry_holder(b);
 }
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: slot.c (same file).
+ */
 
 static lc_status lc_skip_option_registry_entry_holder_set(lc_buf *b) {
   uint8_t present;
@@ -52,6 +67,9 @@ static lc_status lc_skip_option_registry_entry_holder_set(lc_buf *b) {
   if (!present) return LC_OK;
   return lc_skip_registry_entry_holder_set(b);
 }
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: slot.c (same file).
+ */
 
 static lc_status lc_skip_blocks_attacks(lc_buf *b) {
   float f;
@@ -73,6 +91,9 @@ static lc_status lc_skip_blocks_attacks(lc_buf *b) {
   if (lc_skip_option_registry_entry_holder(b) != LC_OK) return LC_ERR_TRUNCATED;
   return lc_skip_option_registry_entry_holder(b);
 }
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: slot.c (same file).
+ */
 
 static lc_status lc_skip_item_block_property(lc_buf *b) {
   char *s = NULL;
@@ -91,6 +112,9 @@ static lc_status lc_skip_item_block_property(lc_buf *b) {
   }
   return LC_OK;
 }
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: slot.c (same file).
+ */
 
 static lc_status lc_skip_exact_component_matcher(lc_buf *b) {
   int32_t n;
@@ -103,6 +127,9 @@ static lc_status lc_skip_exact_component_matcher(lc_buf *b) {
   }
   return LC_OK;
 }
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: slot.c (same file).
+ */
 
 static lc_status lc_skip_data_component_matchers(lc_buf *b) {
   if (lc_skip_exact_component_matcher(b) != LC_OK) return LC_ERR_TRUNCATED;
@@ -114,6 +141,9 @@ static lc_status lc_skip_data_component_matchers(lc_buf *b) {
   }
   return LC_OK;
 }
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: slot.c (same file).
+ */
 
 static lc_status lc_skip_item_block_predicate(lc_buf *b) {
   if (lc_skip_option_registry_entry_holder_set(b) != LC_OK) return LC_ERR_TRUNCATED;
@@ -132,6 +162,9 @@ static lc_status lc_skip_item_block_predicate(lc_buf *b) {
 }
 
 /* banner_patterns (1.21.9+): layers[] of pattern registry id + dye color */
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: slot.c (same file).
+ */
 static lc_status lc_skip_banner_patterns(lc_buf *b) {
   int32_t count;
   if (lc_buf_read_varint(b, &count) != LC_OK) return LC_ERR_TRUNCATED;
@@ -143,6 +176,9 @@ static lc_status lc_skip_banner_patterns(lc_buf *b) {
   }
   return LC_OK;
 }
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: slot.c (same file).
+ */
 
 static lc_status lc_skip_can_place_on_break(lc_buf *b) {
   int32_t n;
@@ -155,6 +191,9 @@ static lc_status lc_skip_can_place_on_break(lc_buf *b) {
 }
 
 /* IDSet / registryEntryHolderSet (proto.yml) */
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: slot.c (same file).
+ */
 static lc_status lc_skip_registry_entry_holder_set(lc_buf *b) {
   int32_t n;
   if (lc_buf_read_varint(b, &n) != LC_OK) return LC_ERR_TRUNCATED;
@@ -169,6 +208,9 @@ static lc_status lc_skip_registry_entry_holder_set(lc_buf *b) {
   }
   return LC_OK;
 }
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: slot.c (same file).
+ */
 
 static lc_status lc_skip_attribute_modifier_display(lc_buf *b) {
   int32_t dtype;
@@ -176,6 +218,9 @@ static lc_status lc_skip_attribute_modifier_display(lc_buf *b) {
   if (dtype == 2) return lc_nbt_skip_anonymous(b);
   return LC_OK;
 }
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: slot.c (same file).
+ */
 
 static lc_status lc_skip_attribute_modifiers(lc_buf *b) {
   int32_t count;
@@ -195,6 +240,9 @@ static lc_status lc_skip_attribute_modifiers(lc_buf *b) {
   }
   return LC_OK;
 }
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: slot.c (same file).
+ */
 
 static lc_status lc_skip_enchantment_list(lc_buf *b) {
   int32_t count;
@@ -211,6 +259,9 @@ static lc_status lc_skip_enchantment_list(lc_buf *b) {
 }
 
 /* pc/1.21.9 SlotComponent.data — partial skip (proto.yml SlotComponent) */
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: slot.c (same file).
+ */
 static lc_status lc_skip_slot_component_data(lc_buf *b, int32_t comp_type) {
   int32_t v;
   switch (comp_type) {
@@ -284,6 +335,9 @@ static lc_status lc_skip_slot_component_data(lc_buf *b, int32_t comp_type) {
     case 13:
       return lc_skip_attribute_modifiers(b);
     case 18:
+/* Good for: Read bool from packet cursor lc_buf (all parsers).
+ * Callers: entity_move_look.c, metadata.c, packets.c, play_stream.c, rel_entity_move.c, slot.c (same file), slot_fprint.c, spawn_info.c, sync_entity_position.c.
+ */
       return lc_buf_read_bool(b, &(uint8_t){0});
     case 25:
     case 26:
@@ -321,6 +375,9 @@ static lc_status lc_skip_slot_component_data(lc_buf *b, int32_t comp_type) {
 }
 
 /* Minecraft 1.21+ Slot: varint count; if count>0 => itemId, added/removed counts, components */
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: metadata.c, play_stream.c, slot.c (same file).
+ */
 lc_status lc_slot_read(lc_buf *b, lc_equipment *eq) {
   memset(eq, 0, sizeof(*eq));
   eq->item_id = -1;
@@ -353,6 +410,9 @@ lc_status lc_slot_read(lc_buf *b, lc_equipment *eq) {
   eq->item_extra.len = extra;
   return LC_OK;
 }
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: entity_equipment.c, packets.c.
+ */
 
 lc_status lc_read_top_bit_array(lc_buf *b, lc_equipment_arr *out) {
   size_t cap = 4;
@@ -392,6 +452,9 @@ fail:
   }
   return LC_ERR_TRUNCATED;
 }
+/* Good for: Release heap owned by lc_equipment arr.
+ * Callers: entity_equipment.c, packets.c, slot.c (same file).
+ */
 
 void lc_equipment_arr_free(lc_equipment_arr *a) {
   if (!a->items) return;

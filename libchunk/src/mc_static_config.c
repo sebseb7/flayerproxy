@@ -7,6 +7,9 @@
 #include <string.h>
 
 #define MC_PKT_COMMON_CUSTOM_PAYLOAD 0x01
+/* Good for: Send server brand plugin message in config.
+ * Callers: mc_static_config.c (same file).
+ */
 
 static int send_custom_payload_brand(int fd) {
   mc_buf b;
@@ -19,6 +22,9 @@ static int send_custom_payload_brand(int fd) {
   mc_buf_free(&b);
   return rc;
 }
+/* Good for: Send feature flags in configuration.
+ * Callers: mc_static_config.c (same file).
+ */
 
 static int send_feature_flags(int fd) {
   mc_buf b;
@@ -29,6 +35,9 @@ static int send_feature_flags(int fd) {
   mc_buf_free(&b);
   return rc;
 }
+/* Good for: Send known packs list in configuration.
+ * Callers: mc_static_config.c (same file).
+ */
 
 static int send_select_known_packs(int fd) {
   mc_buf b;
@@ -41,6 +50,9 @@ static int send_select_known_packs(int fd) {
   mc_buf_free(&b);
   return rc;
 }
+/* Good for: Send initial configuration packets.
+ * Callers: mc_wire_templates.c.
+ */
 
 int mc_static_send_config_preamble(int fd) {
   if (send_custom_payload_brand(fd) != 0) return -1;

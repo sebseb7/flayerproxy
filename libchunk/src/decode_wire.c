@@ -4,6 +4,9 @@
 #include "play_stream.h"
 
 #include <string.h>
+/* Good for: Return whether decode_wire knows this sniffer packet name.
+ * Callers: decode_raw_dir.c, decode_wire.c (same file).
+ */
 
 int lc_packet_name_supported(const char *name) {
   if (lc_play_stream_packet_supported(name)) return 1;

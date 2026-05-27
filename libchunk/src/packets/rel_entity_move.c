@@ -1,4 +1,7 @@
 #include "../internal.h"
+/* Good for: Decode Minecraft wire payload for rel entity move into a struct.
+ * Callers: chunk_stream_receiver.c, decode_wire.c.
+ */
 
 lc_status lc_parse_rel_entity_move(const uint8_t *data, size_t len, lc_rel_entity_move *out) {
   lc_buf b;
@@ -10,6 +13,9 @@ lc_status lc_parse_rel_entity_move(const uint8_t *data, size_t len, lc_rel_entit
   if (lc_buf_read_bool(&b, &out->on_ground) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
+/* Good for: One-line debug summary of lc_rel entity move (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_rel_entity_move_to_string(const lc_rel_entity_move *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;

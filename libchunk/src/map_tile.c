@@ -27,6 +27,9 @@ struct lc_map_tile_sheet {
   size_t slot_count;
   size_t slot_cap;
 };
+/* Good for: Chunk (x,z) at corner of 16×16 mega-tile.
+ * Callers: map_tile.c (same file).
+ */
 
 static int32_t lc_tile_origin_chunk(int32_t c) {
   if (c >= 0) return (c / TILE_CHUNKS) * TILE_CHUNKS;
@@ -63,6 +66,9 @@ static lc_map_tile_slot *lc_tile_slot_get(lc_map_tile_sheet *sheet, int32_t tcx,
   slot->tile_world_z = tcz * 16;
   return slot;
 }
+/* Good for: Load or allocate RGB buffer for one tile slot.
+ * Callers: map_tile.c (same file).
+ */
 
 static lc_status lc_tile_slot_ensure_rgb(lc_map_tile_sheet *sheet, lc_map_tile_slot *slot) {
   if (slot->loaded) return LC_OK;
@@ -90,6 +96,9 @@ static lc_status lc_tile_slot_ensure_rgb(lc_map_tile_sheet *sheet, lc_map_tile_s
   slot->loaded = 1;
   return LC_OK;
 }
+/* Good for: Write mega-tile image to disk.
+ * Callers: map_tile.c (same file).
+ */
 
 static lc_status lc_tile_slot_save(const lc_map_tile_sheet *sheet, const lc_map_tile_slot *slot) {
   char path[LC_MAP_TILE_PATH_MAX];
@@ -105,6 +114,9 @@ lc_map_tile_sheet *lc_map_tile_sheet_open(const char *x16_dir) {
            (int)(sizeof sheet->dir - LC_MAP_TILE_PATH_SUFFIX), x16_dir);
   return sheet;
 }
+/* Good for: 16×16-chunk mega-tile PNG stitching for map captures.
+ * Callers: libchunk.h (public API, no .c callers in tree).
+ */
 
 void lc_map_tile_sheet_close(lc_map_tile_sheet *sheet) {
   if (!sheet) return;
@@ -114,6 +126,9 @@ void lc_map_tile_sheet_close(lc_map_tile_sheet *sheet) {
   free(sheet->slots);
   free(sheet);
 }
+/* Good for: 16×16-chunk mega-tile PNG stitching for map captures.
+ * Callers: libchunk.h (public API, no .c callers in tree).
+ */
 
 lc_status lc_map_tile_sheet_blend_map_chunk(lc_map_tile_sheet *sheet, const lc_map_chunk *mc) {
   if (!sheet || !mc) return LC_ERR_INVALID;

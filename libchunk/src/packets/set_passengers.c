@@ -1,4 +1,7 @@
 #include "../internal.h"
+/* Good for: Decode Minecraft wire payload for set passengers into a struct.
+ * Callers: chunk_stream_receiver.c, decode_wire.c.
+ */
 
 lc_status lc_parse_set_passengers(const uint8_t *data, size_t len, lc_set_passengers *out) {
   memset(out, 0, sizeof(*out));
@@ -19,12 +22,18 @@ lc_status lc_parse_set_passengers(const uint8_t *data, size_t len, lc_set_passen
   }
   return LC_OK;
 }
+/* Good for: Release heap owned by lc_set passengers.
+ * Callers: chunk_stream_receiver.c, decode_wire.c, packets.c, set_passengers.c (same file).
+ */
 
 void lc_set_passengers_free(lc_set_passengers *p) {
   free(p->passengers);
   p->passengers = NULL;
   p->passenger_count = 0;
 }
+/* Good for: One-line debug summary of lc_set passengers (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_set_passengers_to_string(const lc_set_passengers *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;

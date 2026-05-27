@@ -5,6 +5,9 @@
 
 static const char B64[] =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+/* Good for: Escape string for JSON output.
+ * Callers: dump_json.c (same file).
+ */
 
 static void json_escape(FILE *f, const char *s) {
   fputc('"', f);
@@ -18,6 +21,9 @@ static void json_escape(FILE *f, const char *s) {
   }
   fputc('"', f);
 }
+/* Good for: Write base64-encoded field to JSON.
+ * Callers: dump_json.c (same file).
+ */
 
 static int json_write_base64(FILE *f, const uint8_t *data, size_t len) {
   if (!len) {
@@ -50,6 +56,9 @@ static int json_write_base64(FILE *f, const uint8_t *data, size_t len) {
   fputc('"', f);
   return 0;
 }
+/* Good for: Write byte buffer as JSON object with base64.
+ * Callers: dump_json.c (same file).
+ */
 
 static void json_buffer_object(FILE *f, const char *indent, const lc_byte_buf *b) {
   fprintf(f, "%s{\n", indent);
@@ -61,6 +70,9 @@ static void json_buffer_object(FILE *f, const char *indent, const lc_byte_buf *b
   fputc('\n', f);
   fprintf(f, "%s}", indent);
 }
+/* Good for: Write long array as JSON.
+ * Callers: dump_json.c (same file).
+ */
 
 static void json_i64_array(FILE *f, const lc_i64_arr *a) {
   fputc('[', f);
@@ -70,6 +82,9 @@ static void json_i64_array(FILE *f, const lc_i64_arr *a) {
   }
   fputc(']', f);
 }
+/* Good for: Write light grid as JSON.
+ * Callers: dump_json.c (same file).
+ */
 
 static void json_u8_grid(FILE *f, const lc_u8_grid *g) {
   fputc('[', f);
@@ -84,6 +99,9 @@ static void json_u8_grid(FILE *f, const lc_u8_grid *g) {
   }
   fputc(']', f);
 }
+/* Good for: Write heightmaps as JSON.
+ * Callers: dump_json.c (same file).
+ */
 
 static void json_heightmaps(FILE *f, const lc_heightmap_arr *hm) {
   fputc('[', f);
@@ -100,6 +118,9 @@ static void json_heightmaps(FILE *f, const lc_heightmap_arr *hm) {
   fputc('\n', f);
   fputc(']', f);
 }
+/* Good for: Write sign text fields as JSON.
+ * Callers: dump_json.c (same file).
+ */
 
 static void json_sign_object(FILE *f, const lc_sign_text *sign) {
   fputs(",\n      \"sign\": {\n        \"front\": [", f);
@@ -157,6 +178,9 @@ static void json_block_entities(FILE *f, const lc_block_entity_arr *be, int32_t 
   fputc('\n', f);
   fputc(']', f);
 }
+/* Good for: Write decoded chunk sections as JSON.
+ * Callers: dump_json.c (same file).
+ */
 
 static void json_sections(FILE *f, const lc_chunk *c) {
   fputc('[', f);

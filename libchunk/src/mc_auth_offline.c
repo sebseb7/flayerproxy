@@ -4,6 +4,9 @@
 #include "mc_wire.h"
 
 #include <string.h>
+/* Good for: Start offline-mode login handshake.
+ * Callers: none.
+ */
 
 static int offline_login_start(mc_client *cli, const uint8_t *payload, size_t len) {
   if (mc_parse_login_start(payload, len, cli) != 0) return -1;
@@ -11,6 +14,9 @@ static int offline_login_start(mc_client *cli, const uint8_t *payload, size_t le
   cli->auth_state = MC_AUTH_OFFLINE;
   return 0;
 }
+/* Good for: Offline-mode login handshake for reference server.
+ * Callers: none.
+ */
 
 static int offline_send_login_success(mc_client *cli) {
   mc_buf p;

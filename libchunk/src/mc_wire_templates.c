@@ -23,22 +23,34 @@ typedef struct {
 } mc_template_store;
 
 static mc_template_store g_store;
+/* Good for: Free template store (cached grass map_chunk wire).
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static void store_free(mc_template_store *s) {
   if (!s) return;
   memset(s, 0, sizeof *s);
 }
+/* Good for: Send one framed packet (length + id + payload) on socket.
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static int send_payload(int fd, int32_t pkt_id, const uint8_t *payload, size_t len) {
   mc_log_s2c_play(pkt_id, payload, len);
   return mc_send_frame(fd, pkt_id, payload, len);
 }
+/* Good for: Send framed packet and free payload buffer.
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static int send_payload_owned(int fd, int32_t pkt_id, uint8_t *data, size_t len) {
   int rc = send_payload(fd, pkt_id, data, len);
   free(data);
   return rc;
 }
+/* Good for: Send framed packet from mc_buf and reset buffer.
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static int send_mc_buf(int fd, int32_t pkt_id, mc_buf *b) {
   int rc = send_payload_owned(fd, pkt_id, b->data, b->len);
@@ -46,12 +58,18 @@ static int send_mc_buf(int fd, int32_t pkt_id, mc_buf *b) {
   b->len = b->cap = 0;
   return rc;
 }
+/* Good for: Send framed packet from lc_byte_buf.
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static int send_byte_buf(int fd, int32_t pkt_id, lc_byte_buf *buf) {
   int rc = send_payload(fd, pkt_id, buf->data, buf->len);
   lc_byte_buf_free(buf);
   return rc;
 }
+/* Good for: Build lc_map_chunk for grass template at chunk coords.
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static lc_status map_chunk_at(int32_t x, int32_t z, lc_map_chunk *out) {
   lc_chunk c;
@@ -61,6 +79,9 @@ static lc_status map_chunk_at(int32_t x, int32_t z, lc_map_chunk *out) {
   lc_chunk_free(&c);
   return st;
 }
+/* Good for: Encode and send map_chunk play packet.
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static int send_map_chunk(int fd, const lc_map_chunk *mc, size_t *wire_len_out) {
   lc_byte_buf wire;
@@ -75,6 +96,9 @@ static int send_map_chunk(int fd, const lc_map_chunk *mc, size_t *wire_len_out) 
 }
 
 static const char *k_world_names[] = {"minecraft:overworld", "minecraft:the_nether", "minecraft:the_end"};
+/* Good for: Fill lc_play_login struct for static join.
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static lc_play_login build_play_login(const mc_patch_ctx *ctx, int32_t view_dist, int32_t sim_dist) {
   lc_play_login login;
@@ -104,6 +128,9 @@ static lc_play_login build_play_login(const mc_patch_ctx *ctx, int32_t view_dist
   ws->sea_level = 63;
   return login;
 }
+/* Good for: Fill teleport position struct for join.
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static lc_position build_play_position(const mc_patch_ctx *ctx) {
   lc_position pos;
@@ -114,12 +141,18 @@ static lc_position build_play_position(const mc_patch_ctx *ctx) {
   pos.z = ctx->spawn_z;
   return pos;
 }
+/* Good for: Free strings inside built play_login.
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static void free_built_play_login(lc_play_login *login) {
   if (!login) return;
   free(login->world_state.name);
   login->world_state.name = NULL;
 }
+/* Good for: Send play Login packet during join.
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static int send_play_login(int fd, const mc_patch_ctx *ctx, int32_t view_dist, int32_t sim_dist) {
   lc_play_login login = build_play_login(ctx, view_dist, sim_dist);
@@ -132,6 +165,9 @@ static int send_play_login(int fd, const mc_patch_ctx *ctx, int32_t view_dist, i
   free_built_play_login(&login);
   return send_byte_buf(fd, MC_PKT_PLAY_LOGIN, &wire);
 }
+/* Good for: Send Synchronize Player Position after join.
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static int send_play_position(int fd, const mc_patch_ctx *ctx) {
   lc_position pos = build_play_position(ctx);
@@ -140,6 +176,9 @@ static int send_play_position(int fd, const mc_patch_ctx *ctx) {
   if (lc_write_position(&pos, &wire) != LC_OK) return -1;
   return send_byte_buf(fd, MC_PKT_PLAY_POSITION, &wire);
 }
+/* Good for: Send Player Info (gamemode/skin slot) on join.
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static int send_play_player_info(int fd, const mc_patch_ctx *ctx) {
   if (!ctx->uuid || !ctx->username) return -1;
@@ -159,6 +198,9 @@ fail:
   mc_buf_free(&b);
   return -1;
 }
+/* Good for: Send world border packet on join.
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static int send_play_initialize_world_border(int fd) {
   lc_initialize_world_border wb = {
@@ -176,6 +218,9 @@ static int send_play_initialize_world_border(int fd) {
   if (lc_write_initialize_world_border(&wb, &wire) != LC_OK) return -1;
   return send_byte_buf(fd, MC_PKT_PLAY_INITIALIZE_WORLD_BORDER, &wire);
 }
+/* Good for: Send Update View Position (chunk center).
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static int send_play_update_view_position(int fd, int32_t chunk_x, int32_t chunk_z) {
   mc_buf b;
@@ -184,10 +229,16 @@ static int send_play_update_view_position(int fd, int32_t chunk_x, int32_t chunk
   if (mc_buf_varint(&b, chunk_z) != LC_OK) return -1;
   return send_mc_buf(fd, MC_PKT_PLAY_UPDATE_VIEW_POSITION, &b);
 }
+/* Good for: Prebuilt play/configuration packet templates for static server join.
+ * Callers: mc_chunk_stream.c.
+ */
 
 int mc_template_send_update_view_position(int fd, int32_t chunk_x, int32_t chunk_z) {
   return send_play_update_view_position(fd, chunk_x, chunk_z);
 }
+/* Good for: Prebuilt play/configuration packet templates for static server join.
+ * Callers: mc_chunk_stream.c.
+ */
 
 int mc_template_send_map_chunk_at(int fd, int32_t chunk_x, int32_t chunk_z) {
   lc_map_chunk mc;
@@ -197,6 +248,9 @@ int mc_template_send_map_chunk_at(int fd, int32_t chunk_x, int32_t chunk_z) {
   lc_map_chunk_free(&mc);
   return rc;
 }
+/* Good for: Prebuilt play/configuration packet templates for static server join.
+ * Callers: mc_chunk_stream.c.
+ */
 
 int mc_template_send_unload_chunk_at(int fd, int32_t chunk_x, int32_t chunk_z) {
   lc_unload_chunk uc = {.x = chunk_x, .z = chunk_z};
@@ -207,6 +261,9 @@ int mc_template_send_unload_chunk_at(int fd, int32_t chunk_x, int32_t chunk_z) {
   lc_byte_buf_free(&wire);
   return rc;
 }
+/* Good for: Send view distance packet.
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static int send_play_update_view_distance(int fd, int32_t dist) {
   mc_buf b;
@@ -214,6 +271,9 @@ static int send_play_update_view_distance(int fd, int32_t dist) {
   if (mc_buf_varint(&b, dist) != LC_OK) return -1;
   return send_mc_buf(fd, MC_PKT_PLAY_UPDATE_VIEW_DISTANCE, &b);
 }
+/* Good for: Send simulation distance packet.
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static int send_play_simulation_distance(int fd, int32_t dist) {
   mc_buf b;
@@ -221,6 +281,9 @@ static int send_play_simulation_distance(int fd, int32_t dist) {
   if (mc_buf_varint(&b, dist) != LC_OK) return -1;
   return send_mc_buf(fd, MC_PKT_PLAY_SIMULATION_DISTANCE, &b);
 }
+/* Good for: Send difficulty settings packet.
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static int send_play_difficulty(int fd) {
   mc_buf b;
@@ -230,10 +293,16 @@ static int send_play_difficulty(int fd) {
   if (mc_buf_u8(&b, 0) != LC_OK) return -1;
   return send_mc_buf(fd, MC_PKT_PLAY_DIFFICULTY, &b);
 }
+/* Good for: Send Chunk Batch Start before bulk chunks.
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static int send_chunk_batch_start(int fd) {
   return send_payload(fd, MC_PKT_PLAY_CHUNK_BATCH_START, NULL, 0);
 }
+/* Good for: Send Chunk Batch Finished with batch size.
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static int send_chunk_batch_finished(int fd, int32_t batch_size) {
   mc_buf b;
@@ -241,17 +310,26 @@ static int send_chunk_batch_finished(int fd, int32_t batch_size) {
   if (mc_buf_varint(&b, batch_size) != LC_OK) return -1;
   return send_mc_buf(fd, MC_PKT_PLAY_CHUNK_BATCH_FINISHED, &b);
 }
+/* Good for: Send player abilities (flying, walk speed).
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static int send_play_abilities(int fd) {
   const uint8_t payload[] = {0x00, 0x3d, 0xcc, 0xcc, 0xcd, 0x3d, 0xcc, 0xcc, 0xcd};
   return send_payload(fd, MC_PKT_PLAY_ABILITIES, payload, sizeof payload);
 }
+/* Good for: Send world time packet.
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static int send_play_update_time(int fd) {
   const uint8_t payload[] = {0x00, 0x00, 0x00, 0x01, 0x25, 0xe3, 0x30, 0x2e,
                              0x00, 0x00, 0x00, 0x01, 0x25, 0xea, 0x35, 0xc7, 0x01};
   return send_payload(fd, MC_PKT_PLAY_UPDATE_TIME, payload, sizeof payload);
 }
+/* Good for: Send spawn position packet.
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static int send_play_spawn_position(int fd) {
   const uint8_t payload[] = {0x13, 0x6d, 0x69, 0x6e, 0x65, 0x63, 0x72, 0x61, 0x66, 0x74, 0x3a,
@@ -260,31 +338,49 @@ static int send_play_spawn_position(int fd) {
                              0x00, 0x00, 0x00};
   return send_payload(fd, MC_PKT_PLAY_SPAWN_POSITION, payload, sizeof payload);
 }
+/* Good for: Send game state change (e.g. no rain).
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static int send_play_game_state_change(int fd) {
   const uint8_t payload[] = {0x0d, 0x00, 0x00, 0x00, 0x00};
   return send_payload(fd, MC_PKT_PLAY_GAME_STATE_CHANGE, payload, sizeof payload);
 }
+/* Good for: Send ticking state for frozen join.
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static int send_play_set_ticking_state(int fd) {
   const uint8_t payload[] = {0x41, 0xa0, 0x00, 0x00, 0x00};
   return send_payload(fd, MC_PKT_PLAY_SET_TICKING_STATE, payload, sizeof payload);
 }
+/* Good for: Send step tick packet after join.
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static int send_play_step_tick(int fd) {
   const uint8_t payload[] = {0x00};
   return send_payload(fd, MC_PKT_PLAY_STEP_TICK, payload, sizeof payload);
 }
+/* Good for: Send health packet on join.
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static int send_play_update_health(int fd) {
   const uint8_t payload[] = {0x41, 0xa0, 0x00, 0x00, 0x14, 0x40, 0x33, 0x33, 0x33};
   return send_payload(fd, MC_PKT_PLAY_UPDATE_HEALTH, payload, sizeof payload);
 }
+/* Good for: Send XP bar packet on join.
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static int send_play_experience(int fd) {
   const uint8_t payload[] = {0x3f, 0x15, 0x58, 0x54, 0x23, 0xb2, 0x5e};
   return send_payload(fd, MC_PKT_PLAY_EXPERIENCE, payload, sizeof payload);
 }
+/* Good for: Send keepalive ping on join.
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static int send_play_ping(int fd) {
   mc_buf b;
@@ -293,6 +389,9 @@ static int send_play_ping(int fd) {
   int rc = send_mc_buf(fd, MC_PKT_PLAY_PING, &b);
   return rc;
 }
+/* Good for: Send view distance + simulation distance together.
+ * Callers: mc_wire_templates.c (same file).
+ */
 
 static int send_view_state(int fd, const mc_server_world *w, int32_t view, int32_t sim) {
   if (send_play_update_view_distance(fd, view) != 0) return -1;
@@ -300,6 +399,9 @@ static int send_view_state(int fd, const mc_server_world *w, int32_t view, int32
   if (send_play_update_view_position(fd, w->spawn_chunk_x, w->spawn_chunk_z) != 0) return -1;
   return 0;
 }
+/* Good for: Prebuilt play/configuration packet templates for static server join.
+ * Callers: mc_spectator.c, mc_static_server.c.
+ */
 
 int mc_templates_init(void) {
   store_free(&g_store);
@@ -311,6 +413,9 @@ int mc_templates_init(void) {
   g_store.world.spawn_chunk_z = MC_STATIC_SPAWN_CHUNK_Z;
   return mc_static_registries_init();
 }
+/* Good for: Prebuilt play/configuration packet templates for static server join.
+ * Callers: mc_spectator.c, mc_static_server.c.
+ */
 
 void mc_templates_free(void) {
   store_free(&g_store);
@@ -318,11 +423,17 @@ void mc_templates_free(void) {
 }
 
 const mc_server_world *mc_templates_world(void) { return &g_store.world; }
+/* Good for: Prebuilt play/configuration packet templates for static server join.
+ * Callers: mc_static_server.c.
+ */
 
 int mc_template_send_config_sequence(int fd, const mc_patch_ctx *ctx) {
   (void)ctx;
   return mc_static_send_config_preamble(fd);
 }
+/* Good for: Prebuilt play/configuration packet templates for static server join.
+ * Callers: mc_static_server.c.
+ */
 
 int mc_template_send_play_join(int fd, const mc_patch_ctx *ctx) {
   const mc_server_world *w = &g_store.world;
@@ -352,6 +463,9 @@ int mc_template_send_play_join(int fd, const mc_patch_ctx *ctx) {
   MC_LOGI("static_server", "play join burst sent (login, position, view, border, time, ping, …)");
   return 0;
 }
+/* Good for: Prebuilt play/configuration packet templates for static server join.
+ * Callers: mc_spectator.c.
+ */
 
 int mc_templates_grass_packet_wire(uint8_t **wire, size_t *wire_len) {
   if (!wire || !wire_len) return -1;
@@ -387,6 +501,9 @@ int mc_templates_grass_packet_wire(uint8_t **wire, size_t *wire_len) {
   *wire_len = b.len;
   return 0;
 }
+/* Good for: Prebuilt play/configuration packet templates for static server join.
+ * Callers: mc_static_server.c.
+ */
 
 int mc_template_send_grass_world(int fd, const mc_patch_ctx *ctx) {
   const mc_server_world *w = &g_store.world;

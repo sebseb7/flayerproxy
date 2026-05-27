@@ -16,18 +16,30 @@ static lc_registry_data *g_registries;
 static size_t g_registry_count;
 static lc_update_tags g_tags;
 static int g_tags_loaded;
+/* Good for: Send one registry_data blob on wire.
+ * Callers: mc_static_registries.c (same file).
+ */
 
 static int send_registry_blob(int fd, const mc_static_blob *blob) {
   return mc_send_frame(fd, MC_PKT_CFG_REGISTRY_DATA, blob->data, blob->len);
 }
+/* Good for: Send update_tags blob on wire.
+ * Callers: mc_static_registries.c (same file).
+ */
 
 static int send_tags_blob(int fd) {
   return mc_send_frame(fd, MC_PKT_COMMON_UPDATE_TAGS, mc_static_tags.data, mc_static_tags.len);
 }
+/* Good for: Send reset_chat configuration packet.
+ * Callers: mc_static_registries.c (same file).
+ */
 
 static int send_reset_chat(int fd) {
   return mc_send_frame(fd, MC_PKT_CFG_RESET_CHAT, NULL, 0);
 }
+/* Good for: Reference static Minecraft server: config / registries / grass world.
+ * Callers: mc_wire_templates.c.
+ */
 
 int mc_static_registries_init(void) {
   mc_static_registries_free();
@@ -54,6 +66,9 @@ int mc_static_registries_init(void) {
   g_tags_loaded = 1;
   return 0;
 }
+/* Good for: Reference static Minecraft server: config / registries / grass world.
+ * Callers: mc_static_registries.c (same file), mc_wire_templates.c.
+ */
 
 void mc_static_registries_free(void) {
   if (g_registries) {
@@ -65,6 +80,9 @@ void mc_static_registries_free(void) {
   if (g_tags_loaded) lc_update_tags_free(&g_tags);
   g_tags_loaded = 0;
 }
+/* Good for: Reference static Minecraft server: config / registries / grass world.
+ * Callers: mc_static_server.c.
+ */
 
 int mc_static_send_registry_sync(int fd) {
   if (!g_registries || !g_tags_loaded) return -1;

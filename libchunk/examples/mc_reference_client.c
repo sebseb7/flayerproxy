@@ -24,7 +24,7 @@
 #include <unistd.h>
 
 #define MAX_PACKETS 2000
-#define PLAY_TIMEOUT_SEC 8
+#define PLAY_TIMEOUT_SEC 60
 
 #define PLAY_PKT_CHUNK_BATCH_FINISHED 0x0b
 #define PLAY_PKT_LOGIN_SHIFTED 0x31

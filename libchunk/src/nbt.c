@@ -21,6 +21,9 @@ enum {
 /* Minecraft play/configuration wire NBT (protodef "big" / network format). */
 
 static lc_status lc_nbt_skip_payload(lc_buf *b, int tag);
+/* Good for: Skip NBT string (length + UTF-8).
+ * Callers: nbt.c (same file).
+ */
 
 static lc_status lc_nbt_skip_string(lc_buf *b) {
   uint16_t len;
@@ -29,6 +32,9 @@ static lc_status lc_nbt_skip_string(lc_buf *b) {
   b->off += len;
   return LC_OK;
 }
+/* Good for: Skip one named NBT tag.
+ * Callers: nbt.c (same file).
+ */
 
 static lc_status lc_nbt_skip_named(lc_buf *b, int tag) {
   if (tag != TAG_END) {
@@ -36,6 +42,9 @@ static lc_status lc_nbt_skip_named(lc_buf *b, int tag) {
   }
   return lc_nbt_skip_payload(b, tag);
 }
+/* Good for: Skip NBT payload by tag type.
+ * Callers: nbt.c (same file).
+ */
 
 static lc_status lc_nbt_skip_payload(lc_buf *b, int tag) {
   switch (tag) {
@@ -100,6 +109,9 @@ static lc_status lc_nbt_skip_payload(lc_buf *b, int tag) {
       return LC_ERR_INVALID;
   }
 }
+/* Good for: Read or print Minecraft NBT embedded in packets.
+ * Callers: metadata.c, nbt.c (same file), play_stream.c, slot.c, slot_fprint.c.
+ */
 
 lc_status lc_nbt_skip_anonymous(lc_buf *b) {
   uint8_t tag;
@@ -107,6 +119,9 @@ lc_status lc_nbt_skip_anonymous(lc_buf *b) {
   if (tag == TAG_END) return LC_OK;
   return lc_nbt_skip_payload(b, tag);
 }
+/* Good for: Read or print Minecraft NBT embedded in packets.
+ * Callers: nbt.c (same file).
+ */
 
 lc_status lc_nbt_read_anonymous(lc_buf *b, lc_byte_buf *out) {
   size_t start = b->off;
@@ -119,6 +134,9 @@ lc_status lc_nbt_read_anonymous(lc_buf *b, lc_byte_buf *out) {
   out->len = n;
   return LC_OK;
 }
+/* Good for: Read or print Minecraft NBT embedded in packets.
+ * Callers: none.
+ */
 
 lc_status lc_nbt_read_optional(lc_buf *b, lc_byte_buf *out, uint8_t *present) {
   uint8_t tag;
@@ -146,6 +164,9 @@ lc_status lc_nbt_read_optional(lc_buf *b, lc_byte_buf *out, uint8_t *present) {
  *   1 = present, then anonymous NBT
  *   any other byte = present with NBT starting on that byte (tag type, usually 0x0a compound)
  */
+/* Good for: Read or print Minecraft NBT embedded in packets.
+ * Callers: map_chunk.c, slot.c.
+ */
 lc_status lc_nbt_skip_anon_optional(lc_buf *b) {
   int8_t marker;
   if (lc_buf_read_i8(b, &marker) != LC_OK) return LC_ERR_TRUNCATED;
@@ -153,6 +174,9 @@ lc_status lc_nbt_skip_anon_optional(lc_buf *b) {
   if (marker != 1) b->off--;
   return lc_nbt_skip_anonymous(b);
 }
+/* Good for: Read or print Minecraft NBT embedded in packets.
+ * Callers: packets.c, registry_data.c.
+ */
 
 lc_status lc_nbt_read_anon_optional(lc_buf *b, lc_byte_buf *out, uint8_t *present) {
   int8_t marker;
@@ -179,11 +203,17 @@ static const char *lc_nbt_tag_name(int tag) {
   if (tag < 0 || tag > TAG_LONG_ARRAY) return "TAG_?";
   return names[tag];
 }
+/* Good for: Print indentation for NBT tree dump.
+ * Callers: nbt.c (same file).
+ */
 
 static void lc_nbt_fprint_indent(FILE *f, const char *base, int depth) {
   fputs(base, f);
   for (int i = 0; i < depth; i++) fputs("  ", f);
 }
+/* Good for: Print escaped NBT string to FILE.
+ * Callers: nbt.c (same file).
+ */
 
 static void lc_nbt_fprint_escaped(FILE *f, const char *s, size_t len) {
   fputc('"', f);
@@ -198,6 +228,9 @@ static void lc_nbt_fprint_escaped(FILE *f, const char *s, size_t len) {
   }
   fputc('"', f);
 }
+/* Good for: Read big-endian float from NBT wire.
+ * Callers: nbt.c (same file).
+ */
 
 static lc_status lc_nbt_read_f32_be(lc_buf *b, float *out) {
   if (lc_buf_need(b, 4) != LC_OK) return LC_ERR_TRUNCATED;
@@ -207,6 +240,9 @@ static lc_status lc_nbt_read_f32_be(lc_buf *b, float *out) {
   memcpy(out, &bits, sizeof(bits));
   return LC_OK;
 }
+/* Good for: Read big-endian double from NBT wire.
+ * Callers: nbt.c (same file).
+ */
 
 static lc_status lc_nbt_read_f64_be(lc_buf *b, double *out) {
   if (lc_buf_need(b, 8) != LC_OK) return LC_ERR_TRUNCATED;
@@ -220,6 +256,9 @@ static lc_status lc_nbt_read_f64_be(lc_buf *b, double *out) {
 }
 
 static int lc_nbt_fprint_payload(FILE *f, const char *indent, lc_buf *b, int tag, int depth);
+/* Good for: Pretty-print compound/list children.
+ * Callers: nbt.c (same file).
+ */
 
 static int lc_nbt_fprint_named_children(FILE *f, const char *indent, lc_buf *b, int depth) {
   while (1) {
@@ -246,6 +285,9 @@ static int lc_nbt_fprint_named_children(FILE *f, const char *indent, lc_buf *b, 
     if (lc_nbt_fprint_payload(f, indent, b, child, depth + 1) != 0) return -1;
   }
 }
+/* Good for: Pretty-print NBT int array.
+ * Callers: nbt.c (same file).
+ */
 
 static int lc_nbt_fprint_array_ints(FILE *f, lc_buf *b, uint32_t count, int width) {
   fputc('[', f);
@@ -262,6 +304,9 @@ static int lc_nbt_fprint_array_ints(FILE *f, lc_buf *b, uint32_t count, int widt
   fputc(']', f);
   return 0;
 }
+/* Good for: Pretty-print NBT long array.
+ * Callers: nbt.c (same file).
+ */
 
 static int lc_nbt_fprint_array_longs(FILE *f, lc_buf *b, uint32_t count, int width) {
   fputc('[', f);
@@ -278,6 +323,9 @@ static int lc_nbt_fprint_array_longs(FILE *f, lc_buf *b, uint32_t count, int wid
   fputc(']', f);
   return 0;
 }
+/* Good for: Pretty-print one NBT tag payload.
+ * Callers: nbt.c (same file).
+ */
 
 static int lc_nbt_fprint_payload(FILE *f, const char *indent, lc_buf *b, int tag, int depth) {
   if (depth > 48) {
@@ -394,6 +442,9 @@ trunc:
 }
 
 /* --- sign text extraction (block entity NBT) --- */
+/* Good for: Read NBT string into malloc'd C string.
+ * Callers: nbt.c (same file).
+ */
 
 static lc_status lc_nbt_read_wire_string(lc_buf *b, char **out) {
   uint16_t len;
@@ -407,6 +458,9 @@ static lc_status lc_nbt_read_wire_string(lc_buf *b, char **out) {
   *out = s;
   return LC_OK;
 }
+/* Good for: Append one sign line to front/back text.
+ * Callers: nbt.c (same file).
+ */
 
 static void lc_sign_merge_line(char **dst, char *src) {
   if (!src || !src[0]) {
@@ -429,6 +483,9 @@ static void lc_sign_merge_line(char **dst, char *src) {
   memcpy(*dst + a, src, c + 1);
   free(src);
 }
+/* Good for: Extract JSON/text from sign NBT compound.
+ * Callers: nbt.c (same file).
+ */
 
 static lc_status lc_nbt_compound_take_text(lc_buf *b, char **out) {
   *out = NULL;
@@ -478,6 +535,9 @@ static lc_status lc_nbt_compound_take_text(lc_buf *b, char **out) {
     if (lc_nbt_skip_payload(b, tag) != LC_OK) return LC_ERR_TRUNCATED;
   }
 }
+/* Good for: Read sign messages[] into line pointers.
+ * Callers: nbt.c (same file).
+ */
 
 static lc_status lc_nbt_read_messages_lines(lc_buf *b, char *lines[LC_SIGN_LINES]) {
   uint8_t elem;
@@ -502,6 +562,9 @@ static lc_status lc_nbt_read_messages_lines(lc_buf *b, char *lines[LC_SIGN_LINES
   }
   return LC_OK;
 }
+/* Good for: Parse front_text or back_text sign compound.
+ * Callers: nbt.c (same file).
+ */
 
 static lc_status lc_sign_text_read_side_compound(lc_buf *b, char *lines[LC_SIGN_LINES], int *found) {
   while (1) {
@@ -539,6 +602,9 @@ static lc_status lc_sign_text_read_side_compound(lc_buf *b, char *lines[LC_SIGN_
     if (lc_nbt_skip_payload(b, tag) != LC_OK) return LC_ERR_TRUNCATED;
   }
 }
+/* Good for: Clear lc_sign_text line pointers.
+ * Callers: nbt.c (same file).
+ */
 
 static void lc_sign_text_clear(lc_sign_text *s) {
   if (!s) return;
@@ -550,10 +616,16 @@ static void lc_sign_text_clear(lc_sign_text *s) {
   }
   s->has_sign = 0;
 }
+/* Good for: Release heap owned by lc_sign text.
+ * Callers: dump_json.c, summarize_raw_dir.c, test_packets.c.
+ */
 
 void lc_sign_text_free(lc_sign_text *s) {
   lc_sign_text_clear(s);
 }
+/* Good for: Walk sign root NBT compound into lc_sign_text.
+ * Callers: nbt.c (same file).
+ */
 
 static lc_status lc_sign_text_walk_fields(lc_buf *b, lc_sign_text *out) {
   while (1) {
@@ -586,6 +658,9 @@ static lc_status lc_sign_text_walk_fields(lc_buf *b, lc_sign_text *out) {
     if (lc_nbt_skip_payload(b, tag) != LC_OK) return LC_ERR_TRUNCATED;
   }
 }
+/* Good for: Parse sign block NBT into front/back text lines.
+ * Callers: dump_json.c, summarize_raw_dir.c, test_packets.c.
+ */
 
 lc_status lc_sign_text_from_nbt(const uint8_t *data, size_t len, lc_sign_text *out) {
   if (!out) return LC_ERR_INVALID;
@@ -619,6 +694,9 @@ lc_status lc_sign_text_from_nbt(const uint8_t *data, size_t len, lc_sign_text *o
 
   return LC_OK;
 }
+/* Good for: Read or print Minecraft NBT embedded in packets.
+ * Callers: debug.c, slot_fprint.c.
+ */
 
 int lc_nbt_fprint_wire(FILE *f, const char *indent, const uint8_t *data, size_t len) {
   if (!f) return -1;

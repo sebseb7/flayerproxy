@@ -5,6 +5,9 @@
 
 #include <stdlib.h>
 #include <string.h>
+/* Good for: Steal mc_buf bytes into lc_byte_buf for packet payload.
+ * Callers: packets_write.c (same file).
+ */
 
 static lc_status finish_mc_buf(mc_buf *b, lc_byte_buf *out) {
   if (!b || !out) return LC_ERR_INVALID;
@@ -44,12 +47,18 @@ static lc_status write_bitfield(mc_buf *b, const lc_bitfield_spec *fields, size_
   if (bits_left > 0 && b->len > 0) b->data[b->len - 1] = cur;
   return LC_OK;
 }
+/* Good for: Encode block position to wire.
+ * Callers: packets_write.c (same file).
+ */
 
 static lc_status write_block_position(mc_buf *b, const lc_block_pos *p) {
   static const lc_bitfield_spec spec[] = {{26, 1}, {26, 1}, {12, 1}};
   int32_t vals[3] = {p->x, p->z, p->y};
   return write_bitfield(b, spec, 3, vals);
 }
+/* Good for: Encode optional anonymous NBT blob.
+ * Callers: packets_write.c (same file).
+ */
 
 static lc_status write_nbt_anon_optional(mc_buf *b, const lc_byte_buf *nbt) {
   if (!nbt || !nbt->len) return mc_buf_u8(b, 0);
@@ -57,6 +66,9 @@ static lc_status write_nbt_anon_optional(mc_buf *b, const lc_byte_buf *nbt) {
   if (mc_buf_u8(b, 1) != LC_OK) return LC_ERR_OOM;
   return mc_buf_write(b, nbt->data, nbt->len);
 }
+/* Good for: Encode heightmaps for outbound map_chunk.
+ * Callers: packets_write.c (same file).
+ */
 
 static lc_status write_heightmaps(mc_buf *b, const lc_heightmap_arr *hm) {
   if (mc_buf_varint(b, (int32_t)hm->count) != LC_OK) return LC_ERR_OOM;
@@ -70,15 +82,10 @@ static lc_status write_heightmaps(mc_buf *b, const lc_heightmap_arr *hm) {
   return LC_OK;
 }
 
-static lc_status write_i64_array(mc_buf *b, const lc_i64_arr *a) {
-  if (mc_buf_varint(b, (int32_t)a->count) != LC_OK) return LC_ERR_OOM;
-  for (size_t i = 0; i < a->count; i++) {
-    if (mc_buf_i64_be(b, a->values[i]) != LC_OK) return LC_ERR_OOM;
-  }
-  return LC_OK;
-}
-
 /** Java BitSet wire form: varint long count (0 if empty) + big-endian longs, trimmed. */
+/* Good for: Encode light mask long array.
+ * Callers: packets_write.c (same file).
+ */
 static lc_status write_bitset_mask(mc_buf *b, const lc_i64_arr *a) {
   size_t count = a ? a->count : 0;
   while (count > 0 && a->values[count - 1] == 0) count--;
@@ -88,6 +95,9 @@ static lc_status write_bitset_mask(mc_buf *b, const lc_i64_arr *a) {
   }
   return LC_OK;
 }
+/* Good for: Encode light data grid.
+ * Callers: packets_write.c (same file).
+ */
 
 static lc_status write_u8_grid(mc_buf *b, const lc_u8_grid *g) {
   if (mc_buf_varint(b, (int32_t)g->row_count) != LC_OK) return LC_ERR_OOM;
@@ -97,6 +107,9 @@ static lc_status write_u8_grid(mc_buf *b, const lc_u8_grid *g) {
   }
   return LC_OK;
 }
+/* Good for: Encode block entities for map_chunk.
+ * Callers: packets_write.c (same file).
+ */
 
 static lc_status write_block_entities_map_chunk(mc_buf *b, const lc_block_entity_arr *be) {
   if (mc_buf_varint(b, (int32_t)be->count) != LC_OK) return LC_ERR_OOM;
@@ -111,6 +124,9 @@ static lc_status write_block_entities_map_chunk(mc_buf *b, const lc_block_entity
   }
   return LC_OK;
 }
+/* Good for: Encode position packet payload bytes for outbound wire (static server / templates).
+ * Callers: mc_wire_templates.c.
+ */
 
 lc_status lc_write_position(const lc_position *p, lc_byte_buf *out) {
   if (!p || !out) return LC_ERR_INVALID;
@@ -136,6 +152,9 @@ fail:
   mc_buf_free(&b);
   return LC_ERR_OOM;
 }
+/* Good for: Encode spawn info packet payload bytes for outbound wire (static server / templates).
+ * Callers: packets_write.c (same file).
+ */
 
 lc_status lc_write_spawn_info(const lc_spawn_info *p, lc_byte_buf *out) {
   if (!p || !out) return LC_ERR_INVALID;
@@ -161,6 +180,9 @@ fail:
   mc_buf_free(&b);
   return LC_ERR_OOM;
 }
+/* Good for: Encode play login packet payload bytes for outbound wire (static server / templates).
+ * Callers: mc_wire_templates.c.
+ */
 
 lc_status lc_write_play_login(const lc_play_login *p, lc_byte_buf *out) {
   if (!p || !out) return LC_ERR_INVALID;
@@ -194,6 +216,9 @@ fail:
   mc_buf_free(&b);
   return LC_ERR_OOM;
 }
+/* Good for: Encode registry data packet payload bytes for outbound wire (static server / templates).
+ * Callers: libchunk.h (public API, no .c callers in tree).
+ */
 
 lc_status lc_write_registry_data(const lc_registry_data *p, lc_byte_buf *out) {
   if (!p || !out) return LC_ERR_INVALID;
@@ -211,6 +236,9 @@ fail:
   mc_buf_free(&b);
   return LC_ERR_OOM;
 }
+/* Good for: Encode update tags packet payload bytes for outbound wire (static server / templates).
+ * Callers: libchunk.h (public API, no .c callers in tree).
+ */
 
 lc_status lc_write_update_tags(const lc_update_tags *p, lc_byte_buf *out) {
   if (!p || !out) return LC_ERR_INVALID;
@@ -235,6 +263,9 @@ fail:
   mc_buf_free(&b);
   return LC_ERR_OOM;
 }
+/* Good for: Encode initialize world border packet payload bytes for outbound wire (static server / templates).
+ * Callers: mc_wire_templates.c.
+ */
 
 lc_status lc_write_initialize_world_border(const lc_initialize_world_border *p, lc_byte_buf *out) {
   if (!p || !out) return LC_ERR_INVALID;
@@ -253,6 +284,9 @@ fail:
   mc_buf_free(&b);
   return LC_ERR_OOM;
 }
+/* Good for: Encode unload chunk packet payload bytes for outbound wire (static server / templates).
+ * Callers: mc_wire_templates.c.
+ */
 
 lc_status lc_write_unload_chunk(const lc_unload_chunk *p, lc_byte_buf *out) {
   if (!p || !out) return LC_ERR_INVALID;
@@ -265,6 +299,9 @@ fail:
   mc_buf_free(&b);
   return LC_ERR_OOM;
 }
+/* Good for: Encode map chunk packet payload bytes for outbound wire (static server / templates).
+ * Callers: mc_wire_templates.c.
+ */
 
 lc_status lc_write_map_chunk(const lc_map_chunk *mc, lc_byte_buf *out) {
   if (!mc || !out) return LC_ERR_INVALID;
@@ -287,6 +324,9 @@ fail:
   mc_buf_free(&b);
   return LC_ERR_OOM;
 }
+/* Good for: Release heap owned by lc_play login.
+ * Callers: libchunk.h (public API, no .c callers in tree).
+ */
 
 void lc_play_login_free(lc_play_login *p) {
   if (!p) return;

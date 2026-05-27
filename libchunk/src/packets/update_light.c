@@ -1,4 +1,7 @@
 #include "../internal.h"
+/* Good for: Decode Minecraft wire payload for update light into a struct.
+ * Callers: chunk_stream_receiver.c, decode_raw_dir.c, decode_wire.c, mc_s2c_log.c.
+ */
 
 lc_status lc_parse_update_light(const uint8_t *data, size_t len, lc_update_light *out) {
   memset(out, 0, sizeof(*out));
@@ -17,6 +20,9 @@ fail:
   lc_update_light_free(out);
   return LC_ERR_TRUNCATED;
 }
+/* Good for: Release heap owned by lc_update light.
+ * Callers: chunk_stream_receiver.c, decode_raw_dir.c, decode_wire.c, mc_s2c_log.c, packets.c, update_light.c (same file).
+ */
 
 void lc_update_light_free(lc_update_light *p) {
   if (!p) return;
@@ -28,6 +34,9 @@ void lc_update_light_free(lc_update_light *p) {
   lc_u8_grid_free(&p->block_light);
   memset(p, 0, sizeof(*p));
 }
+/* Good for: One-line debug summary of lc_update light (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_update_light_to_string(const lc_update_light *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;

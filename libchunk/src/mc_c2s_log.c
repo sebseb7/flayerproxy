@@ -100,12 +100,18 @@ static const char *direction_name(uint8_t v) {
 static const char *hand_name(int32_t hand) {
   return hand == 0 ? "MAIN_HAND" : hand == 1 ? "OFF_HAND" : "?";
 }
+/* Good for: Unpack packed block position from long.
+ * Callers: mc_c2s_log.c (same file).
+ */
 
 static void block_pos_from_long(int64_t packed, lc_block_pos *out) {
   out->x = (int32_t)(packed >> 38);
   out->y = (int32_t)((packed << 52) >> 52);
   out->z = (int32_t)((packed << 26) >> 38);
 }
+/* Good for: Read packed block position from buffer.
+ * Callers: mc_c2s_log.c (same file).
+ */
 
 static lc_status read_block_pos_long(lc_buf *b, lc_block_pos *out) {
   int64_t packed;
@@ -113,6 +119,9 @@ static lc_status read_block_pos_long(lc_buf *b, lc_block_pos *out) {
   block_pos_from_long(packed, out);
   return LC_OK;
 }
+/* Good for: Format first bytes of payload as hex for logs.
+ * Callers: mc_c2s_log.c (same file).
+ */
 
 static void log_hex_preview(char *dst, size_t dst_len, const uint8_t *data, size_t len) {
   size_t n = len < 48 ? len : 48;
@@ -122,6 +131,9 @@ static void log_hex_preview(char *dst, size_t dst_len, const uint8_t *data, size
   }
   if (len > n && off + 4 < dst_len) lc_snprintf(dst + off, dst_len - off, "...");
 }
+/* Good for: Log unconsumed payload bytes after partial parse.
+ * Callers: mc_c2s_log.c (same file).
+ */
 
 static void log_remaining_hex(const char *who, int32_t pkt_id, const char *name, lc_buf *b) {
   size_t rem = lc_buf_remaining(b);
@@ -130,6 +142,9 @@ static void log_remaining_hex(const char *who, int32_t pkt_id, const char *name,
   log_hex_preview(hex, sizeof hex, b->data + b->off, rem);
   MC_LOGI("c2s", "%s C2S 0x%02x %s +%zuB hex=%s", who, pkt_id, name ? name : "?", rem, hex);
 }
+/* Good for: Log client player input packets.
+ * Callers: mc_c2s_log.c (same file).
+ */
 
 static void log_player_input(const char *who, int32_t pkt_id, const char *name, lc_buf *b) {
   uint8_t raw;
@@ -142,6 +157,9 @@ static void log_player_input(const char *who, int32_t pkt_id, const char *name, 
           (raw & 16) != 0, (raw & 32) != 0, (raw & 64) != 0, raw);
   log_remaining_hex(who, pkt_id, name, b);
 }
+/* Good for: Log plugin message / custom payload.
+ * Callers: mc_c2s_log.c (same file).
+ */
 
 static void log_custom_payload(const char *who, int32_t pkt_id, const char *name, lc_buf *b) {
   char *channel = NULL;
@@ -173,12 +191,30 @@ static void log_custom_payload(const char *who, int32_t pkt_id, const char *name
   log_remaining_hex(who, pkt_id, name, b);
 }
 
+static void log_chat_string(const char *who, int32_t pkt_id, const char *name, const char *field,
+                            lc_buf *b) {
+  char *text = NULL;
+  if (lc_buf_read_string(b, &text) != LC_OK) {
+    log_remaining_hex(who, pkt_id, name, b);
+    return;
+  }
+  MC_LOGI("c2s", "%s C2S 0x%02x %s %s=\"%s\"", who, pkt_id, name, field, text ? text : "");
+  free(text);
+  log_remaining_hex(who, pkt_id, name, b);
+}
+/* Good for: Log player action (dig, swap hands, etc.).
+ * Callers: mc_c2s_log.c (same file).
+ */
+
 static void log_player_action(const char *who, int32_t pkt_id, const char *name, lc_buf *b) {
   int32_t action;
   lc_block_pos pos;
   uint8_t face;
   int32_t seq;
   if (lc_buf_read_varint(b, &action) != LC_OK || read_block_pos_long(b, &pos) != LC_OK ||
+/* Good for: Read u8 from packet cursor lc_buf (all parsers).
+ * Callers: buf.c, c2s_move.c, chunk.c, mc_c2s_log.c (same file), metadata.c, nbt.c, packets.c, play_stream.c, respawn.c, slot.c, spawn_info.c.
+ */
       lc_buf_read_u8(b, &face) != LC_OK || lc_buf_read_varint(b, &seq) != LC_OK) {
     log_remaining_hex(who, pkt_id, name, b);
     return;
@@ -193,11 +229,17 @@ static lc_status decode_block_hit(lc_buf *b, lc_block_pos *pos, int32_t *face, f
   if (read_block_pos_long(b, pos) != LC_OK || lc_buf_read_varint(b, face) != LC_OK ||
       lc_buf_read_f32_le(b, hx) != LC_OK || lc_buf_read_f32_le(b, hy) != LC_OK ||
       lc_buf_read_f32_le(b, hz) != LC_OK || lc_buf_read_u8(b, inside) != LC_OK ||
+/* Good for: Read u8 from packet cursor lc_buf (all parsers).
+ * Callers: buf.c, c2s_move.c, chunk.c, mc_c2s_log.c (same file), metadata.c, nbt.c, packets.c, play_stream.c, respawn.c, slot.c, spawn_info.c.
+ */
       lc_buf_read_u8(b, world_border) != LC_OK) {
     return LC_ERR_TRUNCATED;
   }
   return LC_OK;
 }
+/* Good for: Log Use Item On block interaction.
+ * Callers: mc_c2s_log.c (same file).
+ */
 
 static void log_use_item_on(const char *who, int32_t pkt_id, const char *name, lc_buf *b) {
   int32_t hand, face, seq;
@@ -206,6 +248,9 @@ static void log_use_item_on(const char *who, int32_t pkt_id, const char *name, l
   uint8_t inside, world_border;
   if (lc_buf_read_varint(b, &hand) != LC_OK || decode_block_hit(b, &pos, &face, &hx, &hy, &hz, &inside,
                                                                  &world_border) != LC_OK ||
+/* Good for: Read varint from packet cursor lc_buf (all parsers).
+ * Callers: block_change.c, buf.c, c2s_move.c, chunk.c, entity_destroy.c, entity_equipment.c, entity_head_rotation.c, entity_metadata.c, entity_move_look.c, entity_velocity.c, initialize_world_border.c, map_chunk.c, mc_c2s_log.c (same file), mc_server_common.c, mc_spectator.c, mc_static_server.c, metadata.c, multi_block_change.c, packets.c, play_stream.c, position.c, registry_data.c, rel_entity_move.c, set_passengers.c, slot.c, slot_fprint.c, spawn_entity.c, spawn_info.c, sync_entity_position.c, update_light.c, update_tags.c.
+ */
       lc_buf_read_varint(b, &seq) != LC_OK) {
     log_remaining_hex(who, pkt_id, name, b);
     return;
@@ -272,6 +317,9 @@ static void log_move_packet(const char *who, int32_t pkt_id, const char *name, c
     MC_LOGI("c2s", "%s C2S 0x%02x %s len=%zu hex=%s", who, pkt_id, name, payload_len, hex);
   }
 }
+/* Good for: Colored stderr logging for mc_* tools.
+ * Callers: mc_static_server.c.
+ */
 
 void mc_log_c2s_play(const char *username, int32_t pkt_id, const uint8_t *payload, size_t payload_len) {
   if (pkt_id == MC_PKT_C2S_TICK_END) return;
@@ -320,6 +368,14 @@ void mc_log_c2s_play(const char *username, int32_t pkt_id, const uint8_t *payloa
       log_move_packet(who, pkt_id, name, payload, payload_len);
       return;
 
+    case MC_PKT_C2S_CHAT_COMMAND:
+      log_chat_string(who, pkt_id, name, "command", &b);
+      return;
+
+    case MC_PKT_C2S_CHAT:
+      log_chat_string(who, pkt_id, name, "message", &b);
+      return;
+
     case MC_PKT_C2S_CUSTOM_PAYLOAD:
       log_custom_payload(who, pkt_id, name, &b);
       return;
@@ -350,6 +406,9 @@ void mc_log_c2s_play(const char *username, int32_t pkt_id, const uint8_t *payloa
       int32_t hand, seq;
       float yaw, pitch;
       if (lc_buf_read_varint(&b, &hand) == LC_OK && lc_buf_read_varint(&b, &seq) == LC_OK &&
+/* Good for: Read f32_le from packet cursor lc_buf (all parsers).
+ * Callers: c2s_move.c, mc_c2s_log.c (same file), metadata.c, packets.c, play_stream.c, position.c, slot.c, slot_fprint.c, sync_entity_position.c.
+ */
           lc_buf_read_f32_le(&b, &yaw) == LC_OK && lc_buf_read_f32_le(&b, &pitch) == LC_OK) {
         MC_LOGI("c2s", "%s C2S 0x%02x %s hand=%s seq=%d yaw=%.2f pitch=%.2f", who, pkt_id, name,
                 hand_name(hand), seq, (double)yaw, (double)pitch);

@@ -10,11 +10,17 @@
 #include <unistd.h>
 
 static int g_color = -1;
+/* Good for: True if stderr supports ANSI colors.
+ * Callers: mc_log.c (same file).
+ */
 
 static int use_color(void) {
   if (g_color < 0) g_color = isatty(fileno(stderr)) ? 1 : 0;
   return g_color;
 }
+/* Good for: Colored stderr logging for mc_* tools.
+ * Callers: libchunk.h (public API, no .c callers in tree).
+ */
 
 void mc_log_set_color(int enabled) { g_color = enabled ? 1 : 0; }
 
@@ -36,6 +42,9 @@ static const char *level_color(mc_log_level level) {
       return "";
   }
 }
+/* Good for: Prefix log line with timestamp.
+ * Callers: mc_log.c (same file).
+ */
 
 static void write_timestamp(FILE *out) {
   struct timespec ts;
@@ -55,6 +64,9 @@ static void write_timestamp(FILE *out) {
   }
   fprintf(out, "%s.%03ld", buf, ts.tv_nsec / 1000000L);
 }
+/* Good for: Colored stderr logging for mc_* tools.
+ * Callers: mc_log.c (same file).
+ */
 
 void mc_log_vmsg(mc_log_level level, const char *tag, const char *fmt, va_list ap) {
   FILE *out = stderr;
@@ -79,6 +91,9 @@ void mc_log_vmsg(mc_log_level level, const char *tag, const char *fmt, va_list a
   if (color) fputs("\033[0m", out);
   fputc('\n', out);
 }
+/* Good for: Colored stderr logging for mc_* tools.
+ * Callers: mc_log.c (same file).
+ */
 
 void mc_log_msg(mc_log_level level, const char *tag, const char *fmt, ...) {
   va_list ap;
@@ -86,6 +101,9 @@ void mc_log_msg(mc_log_level level, const char *tag, const char *fmt, ...) {
   mc_log_vmsg(level, tag, fmt, ap);
   va_end(ap);
 }
+/* Good for: Colored stderr logging for mc_* tools.
+ * Callers: mc_spectator.c, mc_static_server.c.
+ */
 
 void mc_log_errno(const char *tag, const char *what) {
   mc_log_msg(MC_LOG_ERR, tag, "%s: %s", what, strerror(errno));

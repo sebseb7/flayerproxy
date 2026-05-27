@@ -1,4 +1,7 @@
 #include "../internal.h"
+/* Good for: Decode Minecraft wire payload for entity move look into a struct.
+ * Callers: chunk_stream_receiver.c, decode_wire.c.
+ */
 
 lc_status lc_parse_entity_move_look(const uint8_t *data, size_t len, lc_entity_move_look *out) {
   lc_buf b;
@@ -12,6 +15,9 @@ lc_status lc_parse_entity_move_look(const uint8_t *data, size_t len, lc_entity_m
   if (lc_buf_read_bool(&b, &out->on_ground) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
+/* Good for: One-line debug summary of lc_entity move look (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_entity_move_look_to_string(const lc_entity_move_look *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;

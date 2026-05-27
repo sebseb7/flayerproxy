@@ -1,4 +1,7 @@
 #include "../internal.h"
+/* Good for: Release heap owned by lc_registry entry arr.
+ * Callers: packets.c, registry_data.c (same file).
+ */
 
 void lc_registry_entry_arr_free(lc_registry_entry_arr *a) {
   if (!a->items) return;
@@ -10,6 +13,9 @@ void lc_registry_entry_arr_free(lc_registry_entry_arr *a) {
   a->items = NULL;
   a->count = 0;
 }
+/* Good for: Decode Minecraft wire payload for registry data into a struct.
+ * Callers: decode_raw_dir.c, decode_wire.c, mc_static_registries.c.
+ */
 
 lc_status lc_parse_registry_data(const uint8_t *data, size_t len, lc_registry_data *out) {
   memset(out, 0, sizeof(*out));
@@ -40,12 +46,18 @@ fail:
   lc_registry_data_free(out);
   return LC_ERR_TRUNCATED;
 }
+/* Good for: Release heap owned by lc_registry data.
+ * Callers: decode_raw_dir.c, decode_wire.c, mc_static_registries.c, packets.c, registry_data.c (same file).
+ */
 
 void lc_registry_data_free(lc_registry_data *p) {
   free(p->id);
   lc_registry_entry_arr_free(&p->entries);
   memset(p, 0, sizeof(*p));
 }
+/* Good for: One-line debug summary of lc_registry data (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_registry_data_to_string(const lc_registry_data *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;

@@ -11,8 +11,14 @@
 #define MC_GRASS_GRASS 9
 #define MC_GRASS_AIR 0
 #define MC_SECTION_LIGHT_SIZE 2048
+/* Good for: Block index within grass section.
+ * Callers: mc_static_grass.c (same file).
+ */
 
 static int grass_block_index(int lx, int ly, int lz) { return (ly << 8) | (lz << 4) | lx; }
+/* Good for: Set one bit in light mask long array.
+ * Callers: mc_static_grass.c (same file).
+ */
 
 static void mask_set(lc_i64_arr *mask, int bit) {
   if (bit < 0) return;
@@ -28,12 +34,21 @@ static void mask_set(lc_i64_arr *mask, int bit) {
 }
 
 /** LevelLightEngine.getMinLightSection(): minSectionY - 1. */
+/* Good for: First section index for light arrays.
+ * Callers: mc_static_grass.c (same file).
+ */
 static int get_min_light_section(int32_t min_y) { return (min_y >> 4) - 1; }
 
 /** Light mask bit i maps to section Y = getMinLightSection() + i. */
+/* Good for: Bit index in light mask for section Y.
+ * Callers: mc_static_grass.c (same file).
+ */
 static int light_bit_for_section_y(int32_t min_y, int32_t section_y) {
   return section_y - get_min_light_section(min_y);
 }
+/* Good for: True if section has no non-air blocks.
+ * Callers: mc_static_grass.c (same file).
+ */
 
 static int section_is_air(const lc_chunk_section *sec) {
   for (int i = 0; i < LC_BLOCK_VOLUME; i++) {
@@ -41,6 +56,9 @@ static int section_is_air(const lc_chunk_section *sec) {
   }
   return 1;
 }
+/* Good for: Append one 2048-byte light row to grid.
+ * Callers: mc_static_grass.c (same file).
+ */
 
 static lc_status append_light_row(lc_u8_grid *grid, const uint8_t *data, size_t len) {
   size_t row = grid->row_count;
@@ -60,6 +78,9 @@ static lc_status append_light_row(lc_u8_grid *grid, const uint8_t *data, size_t 
   grid->row_count = row + 1;
   return LC_OK;
 }
+/* Good for: Fill full-bright light for grass chunk.
+ * Callers: mc_static_grass.c (same file).
+ */
 
 static lc_status mc_static_apply_chunk_light(lc_chunk *c) {
   const int surface_section_y = MC_GRASS_SURFACE_Y >> 4;
@@ -89,6 +110,9 @@ static lc_status mc_static_apply_chunk_light(lc_chunk *c) {
 
   return LC_OK;
 }
+/* Good for: Count solid blocks in grass section.
+ * Callers: mc_static_grass.c (same file).
+ */
 
 static int16_t grass_count_solid(const int32_t *state_ids) {
   int n = 0;
@@ -97,6 +121,9 @@ static int16_t grass_count_solid(const int32_t *state_ids) {
   }
   return (int16_t)n;
 }
+/* Good for: Add section filled with one state id.
+ * Callers: mc_static_grass.c (same file).
+ */
 
 static lc_status lc_chunk_add_section_blocks(lc_chunk *c, int32_t section_y, int32_t fill_sid) {
   lc_chunk_section *next =
@@ -112,6 +139,9 @@ static lc_status lc_chunk_add_section_blocks(lc_chunk *c, int32_t section_y, int
   sec->has_biomes = 1;
   return LC_OK;
 }
+/* Good for: Reference static Minecraft server: config / registries / grass world.
+ * Callers: mc_wire_templates.c.
+ */
 
 lc_status mc_static_build_grass_chunk(lc_chunk *out, int32_t chunk_x, int32_t chunk_z) {
   if (!out) return LC_ERR_INVALID;

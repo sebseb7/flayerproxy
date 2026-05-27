@@ -4,6 +4,9 @@
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
+/* Good for: Log libavif message when AVIF I/O enabled.
+ * Callers: map_avif.c (same file).
+ */
 
 static void lc_avif_log(const char *path, const char *step, avifResult ar) {
   if (ar != AVIF_RESULT_OK) {
@@ -19,6 +22,9 @@ static lc_status lc_avif_fail(avifRGBImage *rgb, avifImage *image, avifEncoder *
   if (decoder) avifDecoderDestroy(decoder);
   return LC_ERR_INVALID;
 }
+/* Good for: Encode rgb avif packet payload bytes for outbound wire (static server / templates).
+ * Callers: map_tile.c, stitch_megatiles.c.
+ */
 
 lc_status lc_write_rgb_avif(const char *path, const uint8_t *rgb, int w, int h) {
   if (!path || !rgb || w <= 0 || h <= 0) return LC_ERR_INVALID;
@@ -99,6 +105,9 @@ lc_status lc_write_rgb_avif(const char *path, const uint8_t *rgb, int w, int h) 
   }
   return LC_OK;
 }
+/* Good for: PNG/AVIF RGB buffer I/O for map tiles.
+ * Callers: map_tile.c.
+ */
 
 lc_status lc_read_rgb_avif(const char *path, uint8_t **rgb, int *w, int *h) {
   if (!path || !rgb || !w || !h) return LC_ERR_INVALID;

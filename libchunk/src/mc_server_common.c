@@ -14,12 +14,18 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+/* Good for: Wall-clock milliseconds for keepalive timing.
+ * Callers: mc_server_common.c (same file).
+ */
 
 static int64_t mc_now_ms(void) {
   struct timespec ts;
   if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return (int64_t)time(NULL) * 1000;
   return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
+/* Good for: Send full buffer on socket (handle partial writes).
+ * Callers: mc_server_common.c (same file).
+ */
 
 ssize_t mc_send_all(int fd, const void *buf, size_t len) {
   const uint8_t *p = (const uint8_t *)buf;
@@ -32,6 +38,9 @@ ssize_t mc_send_all(int fd, const void *buf, size_t len) {
   }
   return (ssize_t)len;
 }
+/* Good for: Send length-prefixed packet (varint id + payload).
+ * Callers: mc_auth_offline.c, mc_reference_client.c, mc_server_common.c (same file), mc_spectator.c, mc_static_config.c, mc_static_registries.c, mc_static_server.c, mc_wire_templates.c.
+ */
 
 int mc_send_frame(int fd, int32_t pkt_id, const uint8_t *payload, size_t payload_len) {
   mc_buf frame;
@@ -45,6 +54,9 @@ int mc_send_frame(int fd, int32_t pkt_id, const uint8_t *payload, size_t payload
   mc_buf_free(&frame);
   return rc == (ssize_t)want ? 0 : -1;
 }
+/* Good for: Send pre-framed wire blob unchanged.
+ * Callers: mc_spectator.c.
+ */
 
 int mc_send_wire_framed(int fd, const uint8_t *wire, size_t wire_len) {
   mc_buf frame;
@@ -59,8 +71,14 @@ int mc_send_wire_framed(int fd, const uint8_t *wire, size_t wire_len) {
   mc_buf_free(&frame);
   return rc == (ssize_t)flen ? 0 : -1;
 }
+/* Good for: Read varint from lc_buf (server common helper).
+ * Callers: mc_server_common.c (same file).
+ */
 
 static lc_status read_varint_buf(lc_buf *b, int32_t *out) { return lc_buf_read_varint(b, out); }
+/* Good for: Read one packet from socket into malloc'd buffer.
+ * Callers: mc_reference_client.c, mc_spectator.c, mc_static_server.c.
+ */
 
 int mc_read_packet(int fd, uint8_t **out, size_t *out_len, int32_t *pkt_id) {
   uint8_t scratch[256];
@@ -102,6 +120,9 @@ int mc_read_packet(int fd, uint8_t **out, size_t *out_len, int32_t *pkt_id) {
   *out_len = body_need;
   return 0;
 }
+/* Good for: Parse Login Start; fill username on mc_client.
+ * Callers: mc_auth_offline.c.
+ */
 
 int mc_parse_login_start(const uint8_t *payload, size_t len, mc_client *cli) {
   lc_buf b;
@@ -118,6 +139,9 @@ int mc_parse_login_start(const uint8_t *payload, size_t len, mc_client *cli) {
   free(name);
   return 0;
 }
+/* Good for: Send Set Compression threshold -1 (disable).
+ * Callers: libchunk.h (public API, no .c callers in tree).
+ */
 
 int mc_send_compress_disable(mc_client *cli) {
   mc_buf p;
@@ -127,10 +151,16 @@ int mc_send_compress_disable(mc_client *cli) {
   mc_buf_free(&p);
   return rc;
 }
+/* Good for: Send Finish Configuration (client → server).
+ * Callers: mc_spectator.c.
+ */
 
 int mc_send_config_finish(mc_client *cli) {
   return mc_send_frame(cli->fd, MC_PKT_CFG_FINISH, NULL, 0);
 }
+/* Good for: Send Status Response for ping/list.
+ * Callers: mc_static_server.c.
+ */
 
 int mc_send_status_response(int fd) {
   static const char json[] =
@@ -144,6 +174,9 @@ int mc_send_status_response(int fd) {
   mc_buf_free(&p);
   return rc;
 }
+/* Good for: Send Pong for status ping.
+ * Callers: mc_static_server.c.
+ */
 
 int mc_send_status_pong(int fd, int64_t ping_time) {
   mc_buf p;
@@ -153,6 +186,9 @@ int mc_send_status_pong(int fd, int64_t ping_time) {
   mc_buf_free(&p);
   return rc;
 }
+/* Good for: Send Keep Alive with id.
+ * Callers: mc_server_common.c (same file).
+ */
 
 int mc_send_keep_alive(int fd, int32_t pkt_id, int64_t id) {
   mc_buf p;
@@ -162,6 +198,9 @@ int mc_send_keep_alive(int fd, int32_t pkt_id, int64_t id) {
   mc_buf_free(&p);
   return rc;
 }
+/* Good for: Send keepalive if interval elapsed.
+ * Callers: mc_server_common.c (same file), mc_static_server.c.
+ */
 
 int mc_client_send_keep_alive(mc_client *cli) {
   if (!cli || cli->fd < 0) return -1;
@@ -175,6 +214,9 @@ int mc_client_send_keep_alive(mc_client *cli) {
           cli->state == MC_CLI_CONFIG ? "config" : "play");
   return mc_send_keep_alive(cli->fd, pkt_id, cli->keep_alive_challenge);
 }
+/* Good for: Record client Keep Alive response id.
+ * Callers: mc_spectator.c, mc_static_server.c.
+ */
 
 int mc_client_handle_keep_alive(mc_client *cli, const uint8_t *payload, size_t payload_len) {
   if (!cli || payload_len < 8) return -1;
@@ -187,6 +229,9 @@ int mc_client_handle_keep_alive(mc_client *cli, const uint8_t *payload, size_t p
   }
   return 0;
 }
+/* Good for: Send keepalive when due in play loop.
+ * Callers: mc_static_server.c.
+ */
 
 int mc_client_tick_keep_alive(mc_client *cli) {
   if (!cli) return -1;
@@ -200,6 +245,9 @@ int mc_client_tick_keep_alive(mc_client *cli) {
 
   return mc_client_send_keep_alive(cli);
 }
+/* Good for: Derive offline-mode UUID from username.
+ * Callers: mc_auth_offline.c, mc_reference_client.c.
+ */
 
 void mc_offline_uuid(const char *username, uint8_t uuid[16]) {
   char buf[320];

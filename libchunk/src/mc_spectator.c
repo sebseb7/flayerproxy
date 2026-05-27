@@ -55,12 +55,18 @@ static volatile int g_run_accept;
 
 static uint8_t *g_grass_chunk_wire;
 static size_t g_grass_chunk_wire_len;
+/* Good for: Free one cached wire blob in spectator stream.
+ * Callers: mc_spectator.c (same file).
+ */
 
 static void wire_copy_free(mc_wire_copy *w) {
   free(w->data);
   w->data = NULL;
   w->len = 0;
 }
+/* Good for: Copy wire bytes into spectator stream cache entry.
+ * Callers: mc_spectator.c (same file).
+ */
 
 static int wire_copy_set(mc_wire_copy *w, const uint8_t *data, size_t len) {
   wire_copy_free(w);
@@ -72,6 +78,9 @@ static int wire_copy_set(mc_wire_copy *w, const uint8_t *data, size_t len) {
   w->len = len;
   return 0;
 }
+/* Good for: Clear ingested config/login/chunk wire cache.
+ * Callers: chunk_stream_receiver.c.
+ */
 
 void mc_stream_cache_reset(void) {
   pthread_mutex_lock(&g_cache_mu);
@@ -84,6 +93,9 @@ void mc_stream_cache_reset(void) {
   g_chunks_count = 0;
   pthread_mutex_unlock(&g_cache_mu);
 }
+/* Good for: True if sniffer packet name is configuration phase.
+ * Callers: mc_spectator.c (same file).
+ */
 
 static int is_config_stream_packet(const char *name) {
   return strcmp(name, "registry_data") == 0 || strcmp(name, "feature_flags") == 0 ||
@@ -91,6 +103,9 @@ static int is_config_stream_packet(const char *name) {
          strcmp(name, "reset_chat") == 0 || strcmp(name, "select_known_packs") == 0 ||
          strcmp(name, "server_links") == 0 || strcmp(name, "code_of_conduct") == 0;
 }
+/* Good for: Store captured wire by packet name for replay.
+ * Callers: chunk_stream_receiver.c.
+ */
 
 void mc_stream_cache_ingest(const char *pkt_name, const uint8_t *wire, size_t wire_len) {
   if (!pkt_name || !wire || wire_len == 0) return;
@@ -107,6 +122,9 @@ void mc_stream_cache_ingest(const char *pkt_name, const uint8_t *wire, size_t wi
   }
   pthread_mutex_unlock(&g_cache_mu);
 }
+/* Good for: True if cache has registry/config packets for replay.
+ * Callers: mc_spectator.c (same file).
+ */
 
 static int cache_has_config(void) {
   pthread_mutex_lock(&g_cache_mu);
@@ -114,6 +132,9 @@ static int cache_has_config(void) {
   pthread_mutex_unlock(&g_cache_mu);
   return v;
 }
+/* Good for: True if any stream data was ingested.
+ * Callers: libchunk.h (public API, no .c callers in tree).
+ */
 
 int mc_stream_cache_has_stream(void) {
   pthread_mutex_lock(&g_cache_mu);
@@ -121,6 +142,9 @@ int mc_stream_cache_has_stream(void) {
   pthread_mutex_unlock(&g_cache_mu);
   return v;
 }
+/* Good for: Send minimal login when no capture cached.
+ * Callers: mc_spectator.c (same file).
+ */
 
 static int send_play_login_minimal(mc_client *cli) {
   pthread_mutex_lock(&g_cache_mu);
@@ -147,6 +171,9 @@ static int send_play_login_minimal(mc_client *cli) {
   if (mc_buf_u8(&p, 0) != LC_OK) return -1;
   return mc_send_frame(cli->fd, MC_PKT_PLAY_LOGIN, p.data, p.len);
 }
+/* Good for: Force spectator gamemode on client.
+ * Callers: mc_spectator.c (same file).
+ */
 
 static int send_spectator_gamemode(mc_client *cli) {
   mc_buf p;
@@ -155,6 +182,9 @@ static int send_spectator_gamemode(mc_client *cli) {
   if (mc_buf_f32_be(&p, 3.0f) != LC_OK) return -1;
   return mc_send_frame(cli->fd, MC_PKT_PLAY_GAME_STATE_CHANGE, p.data, p.len);
 }
+/* Good for: Send view position for chunk streaming.
+ * Callers: mc_spectator.c (same file).
+ */
 
 static int send_update_view(mc_client *cli, int32_t cx, int32_t cz) {
   mc_buf p;
@@ -163,6 +193,9 @@ static int send_update_view(mc_client *cli, int32_t cx, int32_t cz) {
   if (mc_buf_varint(&p, cz) != LC_OK) return -1;
   return mc_send_frame(cli->fd, MC_PKT_PLAY_UPDATE_VIEW_POSITION, p.data, p.len);
 }
+/* Good for: Rewrite map_chunk x/z in cached wire to new chunk.
+ * Callers: mc_spectator.c (same file).
+ */
 
 static int patch_chunk_coords(uint8_t *wire, size_t wire_len, int32_t cx, int32_t cz) {
   lc_buf b;
@@ -182,6 +215,9 @@ static int patch_chunk_coords(uint8_t *wire, size_t wire_len, int32_t cx, int32_
   wire[off + 7] = (uint8_t)cz;
   return 0;
 }
+/* Good for: Send grass placeholder chunks around spawn.
+ * Callers: mc_spectator.c (same file).
+ */
 
 static int send_grass_world(mc_client *cli) {
   if (!g_grass_chunk_wire || g_grass_chunk_wire_len == 0) return -1;
@@ -223,6 +259,9 @@ static int send_grass_world(mc_client *cli) {
   if (mc_buf_u8(&p, 0) != LC_OK) return -1;
   return mc_send_frame(cli->fd, MC_PKT_PLAY_POSITION, p.data, p.len);
 }
+/* Good for: Replay cached configuration/registry wires.
+ * Callers: mc_spectator.c (same file).
+ */
 
 static int replay_config_registry(mc_client *cli) {
   pthread_mutex_lock(&g_cache_mu);
@@ -235,6 +274,9 @@ static int replay_config_registry(mc_client *cli) {
   pthread_mutex_unlock(&g_cache_mu);
   return mc_send_config_finish(cli);
 }
+/* Good for: Replay cached map_chunk wires with coord patch.
+ * Callers: mc_spectator.c (same file).
+ */
 
 static int replay_cached_chunks(mc_client *cli) {
   pthread_mutex_lock(&g_cache_mu);
@@ -252,6 +294,9 @@ static int replay_cached_chunks(mc_client *cli) {
   pthread_mutex_unlock(&g_cache_mu);
   return 0;
 }
+/* Good for: Replay cached stream or grass world; enter play state.
+ * Callers: mc_spectator.c (same file), mc_static_server.c.
+ */
 
 static int enter_play(mc_client *cli) {
   if (send_play_login_minimal(cli) != 0) return -1;
@@ -259,6 +304,9 @@ static int enter_play(mc_client *cli) {
   if (cache_has_config()) return replay_cached_chunks(cli);
   return send_grass_world(cli);
 }
+/* Good for: Per-client thread: handshake, config, play loop.
+ * Callers: mc_spectator.c (same file), mc_static_server.c.
+ */
 
 static void handle_client(int fd) {
   mc_client cli;
@@ -291,6 +339,9 @@ static void handle_client(int fd) {
       lc_buf hb;
       lc_buf_init(&hb, payload, payload_len);
       if (lc_buf_read_varint(&hb, &proto) != LC_OK || lc_buf_read_string(&hb, &host) != LC_OK ||
+/* Good for: Read u16_be from packet cursor lc_buf (all parsers).
+ * Callers: nbt.c.
+ */
           lc_buf_read_u16_be(&hb, &port) != LC_OK || lc_buf_read_varint(&hb, &next) != LC_OK) {
         free(host);
         free(packet);
@@ -369,11 +420,17 @@ static void *accept_thread(void *arg) {
   }
   return NULL;
 }
+/* Good for: Load grass map_chunk template wire into memory.
+ * Callers: mc_spectator.c (same file).
+ */
 
 static int load_grass_template(void) {
   if (mc_templates_init() != 0) return -1;
   return mc_templates_grass_packet_wire(&g_grass_chunk_wire, &g_grass_chunk_wire_len);
 }
+/* Good for: Start spectator TCP server (chunk_stream_receiver).
+ * Callers: chunk_stream_receiver.c.
+ */
 
 int mc_spectator_start(const char *host, int port) {
   if (g_listen_fd >= 0) return 0;
@@ -418,6 +475,9 @@ int mc_spectator_start(const char *host, int port) {
   MC_LOGI("spectator", "listening on %s:%d (C, offline auth)", host, port);
   return 0;
 }
+/* Good for: Stop spectator server and join accept thread.
+ * Callers: libchunk.h (public API, no .c callers in tree).
+ */
 
 void mc_spectator_stop(void) {
   if (g_listen_fd < 0) return;

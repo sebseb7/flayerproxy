@@ -1,4 +1,7 @@
 #include "../internal.h"
+/* Good for: One-line debug summary of lc_uuid (sniffer / decode tools).
+ * Callers: debug.c, play_stream.c, spawn_entity.c (same file).
+ */
 
 int lc_uuid_to_string(const lc_uuid *u, char *buf, size_t buflen) {
   if (!u || !buf || buflen < 37) return 0;
@@ -11,6 +14,9 @@ int lc_uuid_to_string(const lc_uuid *u, char *buf, size_t buflen) {
                   (unsigned)u->bytes[12], (unsigned)u->bytes[13], (unsigned)u->bytes[14],
                   (unsigned)u->bytes[15]);
 }
+/* Good for: Decode Minecraft wire payload for spawn entity into a struct.
+ * Callers: chunk_stream_receiver.c, decode_wire.c.
+ */
 
 lc_status lc_parse_spawn_entity(const uint8_t *data, size_t len, lc_spawn_entity *out) {
   lc_buf b;
@@ -28,6 +34,9 @@ lc_status lc_parse_spawn_entity(const uint8_t *data, size_t len, lc_spawn_entity
   if (lc_buf_read_varint(&b, &out->object_data) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
+/* Good for: One-line debug summary of lc_spawn entity (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_spawn_entity_to_string(const lc_spawn_entity *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;

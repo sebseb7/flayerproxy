@@ -30607,11 +30607,17 @@ static const uint8_t LC_STATE_IS_WATER[LC_STATE_MAP_MAX + 1] = {
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
   0, 0, 0, 0, 0, 0, 0
 };
+/* Good for: Block state id → map color / protocol id lookup (generated tables).
+ * Callers: chunk.c, map_png.c.
+ */
 
 int lc_state_id_is_water(int32_t state_id) {
   if (state_id < 0 || state_id > LC_STATE_MAP_MAX) return 0;
   return LC_STATE_IS_WATER[state_id] != 0;
 }
+/* Good for: Block state id → map color / protocol id lookup (generated tables).
+ * Callers: map_png.c.
+ */
 
 void lc_state_id_top_rgb(int32_t state_id, uint8_t *r, uint8_t *g, uint8_t *b) {
   if (!r || !g || !b) return;

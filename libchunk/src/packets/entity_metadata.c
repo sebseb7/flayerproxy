@@ -1,4 +1,7 @@
 #include "../internal.h"
+/* Good for: Format one metadata entry for toString.
+ * Callers: debug.c, entity_metadata.c (same file).
+ */
 
 static int lc_write_meta_value(const lc_metadata_entry *e, char *buf, size_t buflen, int w) {
   switch (e->kind) {
@@ -23,6 +26,9 @@ static int lc_write_meta_value(const lc_metadata_entry *e, char *buf, size_t buf
       return lc_appendf(buf, buflen, w, "?");
   }
 }
+/* Good for: Decode Minecraft wire payload for entity metadata into a struct.
+ * Callers: chunk_stream_receiver.c, decode_wire.c.
+ */
 
 lc_status lc_parse_entity_metadata(const uint8_t *data, size_t len, lc_entity_metadata *out) {
   memset(out, 0, sizeof(*out));
@@ -32,11 +38,17 @@ lc_status lc_parse_entity_metadata(const uint8_t *data, size_t len, lc_entity_me
   if (lc_metadata_read_loop(&b, &out->metadata) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
+/* Good for: Release heap owned by lc_entity metadata.
+ * Callers: chunk_stream_receiver.c, decode_wire.c.
+ */
 
 void lc_entity_metadata_free(lc_entity_metadata *p) {
   lc_metadata_arr_free(&p->metadata);
   memset(p, 0, sizeof(*p));
 }
+/* Good for: One-line debug summary of lc_entity metadata (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_entity_metadata_to_string(const lc_entity_metadata *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;

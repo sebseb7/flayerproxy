@@ -1,4 +1,7 @@
 #include "../internal.h"
+/* Good for: Decode Minecraft wire payload for entity equipment into a struct.
+ * Callers: chunk_stream_receiver.c, decode_raw_dir.c, decode_wire.c.
+ */
 
 lc_status lc_parse_entity_equipment(const uint8_t *data, size_t len, lc_entity_equipment *out) {
   memset(out, 0, sizeof(*out));
@@ -8,11 +11,17 @@ lc_status lc_parse_entity_equipment(const uint8_t *data, size_t len, lc_entity_e
   if (lc_read_top_bit_array(&b, &out->equipments) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
+/* Good for: Release heap owned by lc_entity equipment.
+ * Callers: chunk_stream_receiver.c, decode_raw_dir.c, decode_wire.c.
+ */
 
 void lc_entity_equipment_free(lc_entity_equipment *p) {
   lc_equipment_arr_free(&p->equipments);
   memset(p, 0, sizeof(*p));
 }
+/* Good for: One-line debug summary of lc_entity equipment (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_entity_equipment_to_string(const lc_entity_equipment *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;

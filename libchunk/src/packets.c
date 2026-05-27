@@ -10,6 +10,9 @@ const char *lc_heightmap_type_name(int id) {
     return HEIGHTMAP_NAMES[id];
   return "unknown";
 }
+/* Good for: Decode Minecraft wire payload for spawn info into a struct.
+ * Callers: packets.c (same file), play_stream.c, respawn.c.
+ */
 
 lc_status lc_parse_spawn_info(lc_buf *b, lc_spawn_info *out) {
   memset(out, 0, sizeof(*out));
@@ -33,6 +36,9 @@ lc_status lc_parse_spawn_info(lc_buf *b, lc_spawn_info *out) {
   if (lc_buf_read_varint(b, &out->sea_level) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
+/* Good for: Release heap owned by lc_spawn info.
+ * Callers: packets.c (same file), packets_write.c, play_stream.c, respawn.c.
+ */
 
 void lc_spawn_info_free(lc_spawn_info *s) {
   free(s->name);
@@ -40,6 +46,9 @@ void lc_spawn_info_free(lc_spawn_info *s) {
   s->name = NULL;
   s->death_dimension_name = NULL;
 }
+/* Good for: Decode heightmaps from map_chunk wire.
+ * Callers: chunk.c, map_chunk.c, packets.c (same file).
+ */
 
 static lc_status lc_read_heightmaps(lc_buf *b, lc_heightmap_arr *out) {
   int32_t count;
@@ -60,6 +69,9 @@ fail:
   lc_heightmap_arr_free(out);
   return LC_ERR_TRUNCATED;
 }
+/* Good for: Decode block entity list from map_chunk wire.
+ * Callers: chunk.c, map_chunk.c, packets.c (same file).
+ */
 
 static lc_status lc_read_block_entities(lc_buf *b, lc_block_entity_arr *out) {
   int32_t count;
@@ -86,6 +98,9 @@ fail:
   lc_block_entity_arr_free(out);
   return LC_ERR_TRUNCATED;
 }
+/* Good for: Release heap owned by lc_heightmap arr.
+ * Callers: chunk.c, map_chunk.c, packets.c (same file).
+ */
 
 void lc_heightmap_arr_free(lc_heightmap_arr *a) {
   if (!a->items) return;
@@ -94,6 +109,9 @@ void lc_heightmap_arr_free(lc_heightmap_arr *a) {
   a->items = NULL;
   a->count = 0;
 }
+/* Good for: Release heap owned by lc_block entity arr.
+ * Callers: chunk.c, map_chunk.c, packets.c (same file).
+ */
 
 void lc_block_entity_arr_free(lc_block_entity_arr *a) {
   if (!a->items) return;
@@ -102,6 +120,9 @@ void lc_block_entity_arr_free(lc_block_entity_arr *a) {
   a->items = NULL;
   a->count = 0;
 }
+/* Good for: Decode Minecraft wire payload for map chunk into a struct.
+ * Callers: chunk_stream_receiver.c, decode_raw_dir.c, decode_wire.c, list_map_surface.c, mc_s2c_log.c, summarize_raw_dir.c.
+ */
 
 lc_status lc_parse_map_chunk(const uint8_t *data, size_t len, lc_map_chunk *out) {
   memset(out, 0, sizeof(*out));
@@ -124,6 +145,9 @@ fail:
   lc_map_chunk_free(out);
   return LC_ERR_TRUNCATED;
 }
+/* Good for: Release heap owned by lc_map chunk.
+ * Callers: chunk.c, chunk_stream_receiver.c, decode_raw_dir.c, decode_wire.c, list_map_surface.c, map_chunk.c, mc_s2c_log.c, mc_wire_templates.c, packets.c (same file), summarize_raw_dir.c.
+ */
 
 void lc_map_chunk_free(lc_map_chunk *p) {
   if (!p) return;
@@ -138,6 +162,9 @@ void lc_map_chunk_free(lc_map_chunk *p) {
   lc_u8_grid_free(&p->block_light);
   memset(p, 0, sizeof(*p));
 }
+/* Good for: Decode Minecraft wire payload for update light into a struct.
+ * Callers: chunk_stream_receiver.c, decode_raw_dir.c, decode_wire.c, mc_s2c_log.c.
+ */
 
 lc_status lc_parse_update_light(const uint8_t *data, size_t len, lc_update_light *out) {
   memset(out, 0, sizeof(*out));
@@ -156,6 +183,9 @@ fail:
   lc_update_light_free(out);
   return LC_ERR_TRUNCATED;
 }
+/* Good for: Release heap owned by lc_update light.
+ * Callers: chunk_stream_receiver.c, decode_raw_dir.c, decode_wire.c, mc_s2c_log.c, packets.c (same file), update_light.c.
+ */
 
 void lc_update_light_free(lc_update_light *p) {
   if (!p) return;
@@ -167,6 +197,9 @@ void lc_update_light_free(lc_update_light *p) {
   lc_u8_grid_free(&p->block_light);
   memset(p, 0, sizeof(*p));
 }
+/* Good for: Decode Minecraft wire payload for block change into a struct.
+ * Callers: chunk_stream_receiver.c, decode_wire.c.
+ */
 
 lc_status lc_parse_block_change(const uint8_t *data, size_t len, lc_block_change *out) {
   lc_buf b;
@@ -175,6 +208,9 @@ lc_status lc_parse_block_change(const uint8_t *data, size_t len, lc_block_change
   if (lc_buf_read_varint(&b, &out->type) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
+/* Good for: Decode Minecraft wire payload for unload chunk into a struct.
+ * Callers: chunk_stream_receiver.c, decode_wire.c.
+ */
 
 lc_status lc_parse_unload_chunk(const uint8_t *data, size_t len, lc_unload_chunk *out) {
   lc_buf b;
@@ -184,6 +220,9 @@ lc_status lc_parse_unload_chunk(const uint8_t *data, size_t len, lc_unload_chunk
   if (lc_buf_read_i32_be(&b, &out->x) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
+/* Good for: Decode Minecraft wire payload for tile entity data into a struct.
+ * Callers: chunk_stream_receiver.c, decode_raw_dir.c, decode_wire.c.
+ */
 
 lc_status lc_parse_tile_entity_data(const uint8_t *data, size_t len, lc_tile_entity_data *out) {
   memset(out, 0, sizeof(*out));
@@ -194,12 +233,18 @@ lc_status lc_parse_tile_entity_data(const uint8_t *data, size_t len, lc_tile_ent
   if (lc_nbt_read_anon_optional(&b, &out->nbt, &out->nbt_present) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
+/* Good for: Release heap owned by lc_tile entity data.
+ * Callers: chunk_stream_receiver.c, decode_raw_dir.c, decode_wire.c.
+ */
 
 void lc_tile_entity_data_free(lc_tile_entity_data *p) {
   if (!p) return;
   lc_byte_buf_free(&p->nbt);
   memset(p, 0, sizeof(*p));
 }
+/* Good for: Decode Minecraft wire payload for multi block change into a struct.
+ * Callers: chunk_stream_receiver.c, decode_wire.c.
+ */
 
 lc_status lc_parse_multi_block_change(const uint8_t *data, size_t len, lc_multi_block_change *out) {
   memset(out, 0, sizeof(*out));
@@ -225,12 +270,18 @@ lc_status lc_parse_multi_block_change(const uint8_t *data, size_t len, lc_multi_
   }
   return LC_OK;
 }
+/* Good for: Release heap owned by lc_multi block change.
+ * Callers: chunk_stream_receiver.c, decode_wire.c, multi_block_change.c, packets.c (same file).
+ */
 
 void lc_multi_block_change_free(lc_multi_block_change *p) {
   free(p->records);
   p->records = NULL;
   p->record_count = 0;
 }
+/* Good for: Decode Minecraft wire payload for spawn entity into a struct.
+ * Callers: chunk_stream_receiver.c, decode_wire.c.
+ */
 
 lc_status lc_parse_spawn_entity(const uint8_t *data, size_t len, lc_spawn_entity *out) {
   lc_buf b;
@@ -248,6 +299,9 @@ lc_status lc_parse_spawn_entity(const uint8_t *data, size_t len, lc_spawn_entity
   if (lc_buf_read_varint(&b, &out->object_data) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
+/* Good for: Decode Minecraft wire payload for entity metadata into a struct.
+ * Callers: chunk_stream_receiver.c, decode_wire.c.
+ */
 
 lc_status lc_parse_entity_metadata(const uint8_t *data, size_t len, lc_entity_metadata *out) {
   memset(out, 0, sizeof(*out));
@@ -257,11 +311,17 @@ lc_status lc_parse_entity_metadata(const uint8_t *data, size_t len, lc_entity_me
   if (lc_metadata_read_loop(&b, &out->metadata) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
+/* Good for: Release heap owned by lc_entity metadata.
+ * Callers: chunk_stream_receiver.c, decode_wire.c.
+ */
 
 void lc_entity_metadata_free(lc_entity_metadata *p) {
   lc_metadata_arr_free(&p->metadata);
   memset(p, 0, sizeof(*p));
 }
+/* Good for: Decode Minecraft wire payload for entity equipment into a struct.
+ * Callers: chunk_stream_receiver.c, decode_raw_dir.c, decode_wire.c.
+ */
 
 lc_status lc_parse_entity_equipment(const uint8_t *data, size_t len, lc_entity_equipment *out) {
   memset(out, 0, sizeof(*out));
@@ -271,11 +331,17 @@ lc_status lc_parse_entity_equipment(const uint8_t *data, size_t len, lc_entity_e
   if (lc_read_top_bit_array(&b, &out->equipments) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
+/* Good for: Release heap owned by lc_entity equipment.
+ * Callers: chunk_stream_receiver.c, decode_raw_dir.c, decode_wire.c.
+ */
 
 void lc_entity_equipment_free(lc_entity_equipment *p) {
   lc_equipment_arr_free(&p->equipments);
   memset(p, 0, sizeof(*p));
 }
+/* Good for: Decode Minecraft wire payload for entity destroy into a struct.
+ * Callers: chunk_stream_receiver.c, decode_wire.c.
+ */
 
 lc_status lc_parse_entity_destroy(const uint8_t *data, size_t len, lc_entity_destroy *out) {
   memset(out, 0, sizeof(*out));
@@ -295,12 +361,18 @@ lc_status lc_parse_entity_destroy(const uint8_t *data, size_t len, lc_entity_des
   }
   return LC_OK;
 }
+/* Good for: Release heap owned by lc_entity destroy.
+ * Callers: chunk_stream_receiver.c, decode_wire.c, entity_destroy.c, packets.c (same file).
+ */
 
 void lc_entity_destroy_free(lc_entity_destroy *p) {
   free(p->entity_ids);
   p->entity_ids = NULL;
   p->count = 0;
 }
+/* Good for: Decode Minecraft wire payload for set passengers into a struct.
+ * Callers: chunk_stream_receiver.c, decode_wire.c.
+ */
 
 lc_status lc_parse_set_passengers(const uint8_t *data, size_t len, lc_set_passengers *out) {
   memset(out, 0, sizeof(*out));
@@ -321,12 +393,18 @@ lc_status lc_parse_set_passengers(const uint8_t *data, size_t len, lc_set_passen
   }
   return LC_OK;
 }
+/* Good for: Release heap owned by lc_set passengers.
+ * Callers: chunk_stream_receiver.c, decode_wire.c, packets.c (same file), set_passengers.c.
+ */
 
 void lc_set_passengers_free(lc_set_passengers *p) {
   free(p->passengers);
   p->passengers = NULL;
   p->passenger_count = 0;
 }
+/* Good for: Decode Minecraft wire payload for rel entity move into a struct.
+ * Callers: chunk_stream_receiver.c, decode_wire.c.
+ */
 
 lc_status lc_parse_rel_entity_move(const uint8_t *data, size_t len, lc_rel_entity_move *out) {
   lc_buf b;
@@ -338,6 +416,9 @@ lc_status lc_parse_rel_entity_move(const uint8_t *data, size_t len, lc_rel_entit
   if (lc_buf_read_bool(&b, &out->on_ground) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
+/* Good for: Decode Minecraft wire payload for entity move look into a struct.
+ * Callers: chunk_stream_receiver.c, decode_wire.c.
+ */
 
 lc_status lc_parse_entity_move_look(const uint8_t *data, size_t len, lc_entity_move_look *out) {
   lc_buf b;
@@ -351,6 +432,9 @@ lc_status lc_parse_entity_move_look(const uint8_t *data, size_t len, lc_entity_m
   if (lc_buf_read_bool(&b, &out->on_ground) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
+/* Good for: Decode Minecraft wire payload for sync entity position into a struct.
+ * Callers: chunk_stream_receiver.c, decode_wire.c.
+ */
 
 lc_status lc_parse_sync_entity_position(const uint8_t *data, size_t len, lc_sync_entity_position *out) {
   lc_buf b;
@@ -367,6 +451,9 @@ lc_status lc_parse_sync_entity_position(const uint8_t *data, size_t len, lc_sync
   if (lc_buf_read_bool(&b, &out->on_ground) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
+/* Good for: Decode Minecraft wire payload for entity velocity into a struct.
+ * Callers: chunk_stream_receiver.c, decode_wire.c.
+ */
 
 lc_status lc_parse_entity_velocity(const uint8_t *data, size_t len, lc_entity_velocity *out) {
   lc_buf b;
@@ -375,6 +462,9 @@ lc_status lc_parse_entity_velocity(const uint8_t *data, size_t len, lc_entity_ve
   if (lc_buf_read_lpvec3(&b, &out->velocity) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
+/* Good for: Decode Minecraft wire payload for entity head rotation into a struct.
+ * Callers: chunk_stream_receiver.c, decode_wire.c.
+ */
 
 lc_status lc_parse_entity_head_rotation(const uint8_t *data, size_t len, lc_entity_head_rotation *out) {
   lc_buf b;
@@ -421,12 +511,18 @@ const char *lc_entity_attribute_key_name(int32_t key) {
   if (key >= 0 && (size_t)key < sizeof(keys) / sizeof(keys[0])) return keys[key];
   return "unknown";
 }
+/* Good for: Release heap owned by lc_entity attribute modifier.
+ * Callers: packets.c (same file).
+ */
 
 static void lc_entity_attribute_modifier_free(lc_entity_attribute_modifier *m) {
   if (!m) return;
   free(m->uuid);
   m->uuid = NULL;
 }
+/* Good for: Release heap owned by lc_entity attribute property.
+ * Callers: packets.c (same file).
+ */
 
 static void lc_entity_attribute_property_free(lc_entity_attribute_property *p) {
   if (!p) return;
@@ -435,6 +531,9 @@ static void lc_entity_attribute_property_free(lc_entity_attribute_property *p) {
   p->modifiers = NULL;
   p->modifier_count = 0;
 }
+/* Good for: Release heap owned by lc_entity update attributes.
+ * Callers: chunk_stream_receiver.c, decode_raw_dir.c, decode_wire.c, packets.c (same file).
+ */
 
 void lc_entity_update_attributes_free(lc_entity_update_attributes *p) {
   if (!p) return;
@@ -488,6 +587,9 @@ fail:
   lc_entity_update_attributes_free(out);
   return LC_ERR_TRUNCATED;
 }
+/* Good for: Decode Minecraft wire payload for position into a struct.
+ * Callers: chunk_stream_receiver.c, decode_wire.c.
+ */
 
 lc_status lc_parse_position(const uint8_t *data, size_t len, lc_position *out) {
   lc_buf b;
@@ -504,6 +606,9 @@ lc_status lc_parse_position(const uint8_t *data, size_t len, lc_position *out) {
   if (lc_buf_read_u32_le(&b, &out->flags) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
+/* Good for: Decode Minecraft wire payload for respawn into a struct.
+ * Callers: decode_wire.c.
+ */
 
 lc_status lc_parse_respawn(const uint8_t *data, size_t len, lc_respawn *out) {
   memset(out, 0, sizeof(*out));
@@ -516,11 +621,17 @@ lc_status lc_parse_respawn(const uint8_t *data, size_t len, lc_respawn *out) {
   }
   return LC_OK;
 }
+/* Good for: Release heap owned by lc_respawn.
+ * Callers: decode_wire.c.
+ */
 
 void lc_respawn_free(lc_respawn *p) {
   lc_spawn_info_free(&p->world_state);
   memset(p, 0, sizeof(*p));
 }
+/* Good for: Decode Minecraft wire payload for initialize world border into a struct.
+ * Callers: decode_wire.c, play_stream.c.
+ */
 
 lc_status lc_parse_initialize_world_border(const uint8_t *data, size_t len, lc_initialize_world_border *out) {
   lc_buf b;
@@ -535,6 +646,9 @@ lc_status lc_parse_initialize_world_border(const uint8_t *data, size_t len, lc_i
   if (lc_buf_read_varint(&b, &out->warning_time) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
+/* Good for: Decode Minecraft wire payload for registry data into a struct.
+ * Callers: decode_raw_dir.c, decode_wire.c, mc_static_registries.c.
+ */
 
 lc_status lc_parse_registry_data(const uint8_t *data, size_t len, lc_registry_data *out) {
   memset(out, 0, sizeof(*out));
@@ -565,6 +679,9 @@ fail:
   lc_registry_data_free(out);
   return LC_ERR_TRUNCATED;
 }
+/* Good for: Release heap owned by lc_registry entry arr.
+ * Callers: packets.c (same file), registry_data.c.
+ */
 
 void lc_registry_entry_arr_free(lc_registry_entry_arr *a) {
   if (!a->items) return;
@@ -576,6 +693,9 @@ void lc_registry_entry_arr_free(lc_registry_entry_arr *a) {
   a->items = NULL;
   a->count = 0;
 }
+/* Good for: Release heap owned by lc_registry data.
+ * Callers: decode_raw_dir.c, decode_wire.c, mc_static_registries.c, packets.c (same file), registry_data.c.
+ */
 
 void lc_registry_data_free(lc_registry_data *p) {
   free(p->id);

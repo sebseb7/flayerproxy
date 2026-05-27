@@ -51,6 +51,9 @@ static const char *LC_BLOCK_ENTITY_REGISTRY[] = {
     "minecraft:trial_spawner",
     "minecraft:vault",
 };
+/* Good for: Map block entity type id to registry index.
+ * Callers: block_entity.c (same file).
+ */
 
 static int lc_block_entity_registry_index(int32_t protocol_type) {
   if (protocol_type < 0) return -1;

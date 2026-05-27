@@ -8,6 +8,9 @@
 #define PNG_SCALE LC_MAP_CHUNK_PNG_SCALE
 #define PNG_W LC_MAP_CHUNK_PNG_SIZE
 #define PNG_H LC_MAP_CHUNK_PNG_SIZE
+/* Good for: Section-local block index (same layout as chunk.c).
+ * Callers: map_png.c (same file).
+ */
 
 static int lc_block_index_local(int lx, int ly, int lz) { return (ly << 8) | (lz << 4) | lx; }
 
@@ -17,6 +20,9 @@ static const lc_chunk_section *lc_find_section(const lc_chunk *c, int32_t sectio
   }
   return NULL;
 }
+/* Good for: Block state at column for map coloring.
+ * Callers: map_png.c (same file).
+ */
 
 static int32_t lc_chunk_state_at(const lc_chunk *c, int lx, int32_t world_y, int lz) {
   int32_t sec_y = world_y >> 4;
@@ -28,6 +34,9 @@ static int32_t lc_chunk_state_at(const lc_chunk *c, int lx, int32_t world_y, int
 }
 
 /** Shallow water tint (#3F76E4). Deep columns lerp toward a darker blue. */
+/* Good for: Tint RGB for underwater column by depth.
+ * Callers: map_png.c (same file).
+ */
 static void lc_water_overlay_rgb(int depth, uint8_t *r, uint8_t *g, uint8_t *b) {
   const uint8_t sr = 0x3f, sg = 0x76, sb = 0xe4;
   const uint8_t dr = 0x14, dg = 0x32, db = 0x5c;
@@ -46,6 +55,9 @@ static void lc_water_overlay_rgb(int depth, uint8_t *r, uint8_t *g, uint8_t *b) 
 /**
  * Water overlay alpha vs column depth. Shallow is fairly blue; depth ramps to a
  * near-opaque dark tint so deep ocean reads clearly darker than coastlines.
+ */
+/* Good for: Alpha for water depth shading on map.
+ * Callers: map_png.c (same file).
  */
 static uint8_t lc_water_depth_alpha(int depth) {
   if (depth <= 0) return 0;
@@ -115,6 +127,9 @@ static void lc_column_map_rgb(const lc_chunk *c, int lx, int lz, int32_t *out_si
   }
   *r = *g = *b = 0;
 }
+/* Good for: CRC32 for PNG chunk trailer.
+ * Callers: map_png.c (same file).
+ */
 
 static uint32_t lc_crc32(const uint8_t *buf, size_t len) {
   static uint32_t table[256];
@@ -131,11 +146,17 @@ static uint32_t lc_crc32(const uint8_t *buf, size_t len) {
   for (size_t i = 0; i < len; i++) c = table[(c ^ buf[i]) & 0xff] ^ (c >> 8);
   return c ^ 0xffffffffu;
 }
+/* Good for: Write big-endian u32 to PNG file.
+ * Callers: map_png.c (same file).
+ */
 
 static void lc_png_write_u32_be(FILE *f, uint32_t v) {
   uint8_t b[4] = {(uint8_t)(v >> 24), (uint8_t)(v >> 16), (uint8_t)(v >> 8), (uint8_t)v};
   fwrite(b, 1, 4, f);
 }
+/* Good for: Adler32 checksum for zlib payload.
+ * Callers: map_png.c (same file).
+ */
 
 static uint32_t lc_adler32(const uint8_t *data, size_t len) {
   uint32_t a = 1, b = 0;
@@ -147,6 +168,9 @@ static uint32_t lc_adler32(const uint8_t *data, size_t len) {
 }
 
 /** Zlib wrapper around deflate stored blocks (no external zlib). */
+/* Good for: Wrap raw bytes in zlib stored blocks (no libz).
+ * Callers: map_png.c (same file).
+ */
 static lc_status lc_zlib_store(const uint8_t *raw, size_t raw_len, uint8_t **out, size_t *out_len) {
   size_t blocks = raw_len ? 1 + raw_len / 65535 : 1;
   size_t cap = 2 + raw_len + blocks * 5 + 4;
@@ -189,6 +213,9 @@ static lc_status lc_zlib_store(const uint8_t *raw, size_t raw_len, uint8_t **out
 }
 
 /** Inflate zlib stream produced by lc_zlib_store (CMF 0x78 FLG 0x01, stored blocks only). */
+/* Good for: Inflate zlib stored blocks from PNG IDAT.
+ * Callers: map_png.c (same file).
+ */
 static lc_status lc_zlib_unstore(const uint8_t *in, size_t in_len, uint8_t **raw, size_t *raw_len) {
   if (in_len < 6 || in[0] != 0x78) return LC_ERR_INVALID;
   size_t cap = 65536;
@@ -253,6 +280,9 @@ static lc_status lc_zlib_unstore(const uint8_t *in, size_t in_len, uint8_t **raw
   *raw_len = len;
   return LC_OK;
 }
+/* Good for: Write one PNG chunk (length, type, data, CRC).
+ * Callers: map_png.c (same file).
+ */
 
 static void lc_png_chunk_write(FILE *f, const char type[4], const uint8_t *data, size_t len) {
   lc_png_write_u32_be(f, (uint32_t)len);
@@ -266,6 +296,9 @@ static void lc_png_chunk_write(FILE *f, const char type[4], const uint8_t *data,
   free(buf);
   lc_png_write_u32_be(f, crc);
 }
+/* Good for: Encode rgb png packet payload bytes for outbound wire (static server / templates).
+ * Callers: map_png.c (same file).
+ */
 
 lc_status lc_write_rgb_png(const char *path, const uint8_t *rgb, int w, int h) {
   size_t raw_row = (size_t)(1 + w * 3);
@@ -315,6 +348,9 @@ lc_status lc_write_rgb_png(const char *path, const uint8_t *rgb, int w, int h) {
   free(comp);
   return LC_OK;
 }
+/* Good for: PNG/AVIF RGB buffer I/O for map tiles.
+ * Callers: stitch_megatiles.c.
+ */
 
 lc_status lc_read_rgb_png(const char *path, uint8_t **rgb, int *w, int *h) {
   if (!path || !rgb || !w || !h) return LC_ERR_INVALID;
@@ -424,6 +460,9 @@ lc_status lc_read_rgb_png(const char *path, uint8_t **rgb, int *w, int *h) {
   *h = img_h;
   return LC_OK;
 }
+/* Good for: Top-down map PNG / surface column export.
+ * Callers: map_png.c (same file).
+ */
 
 lc_status lc_chunk_fill_map_surface(const lc_chunk *c, lc_map_surface_cell *out) {
   if (!c || !out) return LC_ERR_INVALID;
@@ -454,6 +493,9 @@ lc_status lc_chunk_fill_map_surface(const lc_chunk *c, lc_map_surface_cell *out)
   }
   return LC_OK;
 }
+/* Good for: map_chunk packet helper: fill map surface.
+ * Callers: map_png.c (same file).
+ */
 
 lc_status lc_map_chunk_fill_map_surface(const lc_map_chunk *mc, lc_map_surface_cell *out) {
   if (!mc || !out) return LC_ERR_INVALID;
@@ -468,6 +510,9 @@ lc_status lc_map_chunk_fill_map_surface(const lc_map_chunk *mc, lc_map_surface_c
   lc_chunk_free(&c);
   return st;
 }
+/* Good for: map_chunk packet helper: fprint map surface.
+ * Callers: list_map_surface.c.
+ */
 
 int lc_map_chunk_fprint_map_surface(FILE *f, const lc_map_chunk *mc) {
   if (!f || !mc) return -1;
@@ -524,6 +569,9 @@ int lc_map_chunk_fprint_map_surface(FILE *f, const lc_map_chunk *mc) {
   }
   return 0;
 }
+/* Good for: Top-down map PNG / surface column export.
+ * Callers: map_png.c (same file), map_tile.c.
+ */
 
 lc_status lc_chunk_render_top_rgb(const lc_chunk *c, uint8_t *rgb) {
   if (!c || !rgb) return LC_ERR_INVALID;
@@ -547,6 +595,9 @@ lc_status lc_chunk_render_top_rgb(const lc_chunk *c, uint8_t *rgb) {
   }
   return LC_OK;
 }
+/* Good for: Top-down map PNG / surface column export.
+ * Callers: map_png.c (same file).
+ */
 
 lc_status lc_chunk_write_top_png(const lc_chunk *c, const char *path) {
   if (!c || !path) return LC_ERR_INVALID;
@@ -560,6 +611,9 @@ lc_status lc_chunk_write_top_png(const lc_chunk *c, const char *path) {
   free(rgb);
   return st;
 }
+/* Good for: map_chunk packet helper: write top png.
+ * Callers: chunk_stream_receiver.c, decode_raw_dir.c.
+ */
 
 lc_status lc_map_chunk_write_top_png(const lc_map_chunk *mc, const char *path) {
   if (!mc || !path) return LC_ERR_INVALID;

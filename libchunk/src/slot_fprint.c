@@ -40,6 +40,9 @@ static const char *lc_equipment_slot_name(int8_t slot) {
   if (slot >= 0 && slot < 8) return names[slot];
   return "unknown";
 }
+/* Good for: Pretty-print item enchantments.
+ * Callers: slot_fprint.c (same file).
+ */
 
 static int lc_fprint_enchantment_list(FILE *f, lc_buf *b, const char *indent) {
   int32_t count;
@@ -55,6 +58,9 @@ static int lc_fprint_enchantment_list(FILE *f, lc_buf *b, const char *indent) {
 }
 
 static int lc_fprint_slot_body(FILE *f, lc_buf *b, const char *indent);
+/* Good for: Pretty-print item component NBT.
+ * Callers: slot_fprint.c (same file).
+ */
 
 static int lc_fprint_slot_component_data(FILE *f, lc_buf *b, int32_t comp_type, const char *indent) {
   int32_t v;
@@ -156,6 +162,9 @@ static int lc_fprint_slot_component_data(FILE *f, lc_buf *b, int32_t comp_type, 
       return -1;
   }
 }
+/* Good for: Pretty-print item stack body.
+ * Callers: slot_fprint.c (same file).
+ */
 
 static int lc_fprint_slot_body(FILE *f, lc_buf *b, const char *indent) {
   int32_t count;
@@ -197,6 +206,9 @@ static int lc_fprint_slot_body(FILE *f, lc_buf *b, const char *indent) {
   }
   return 0;
 }
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: debug.c.
+ */
 
 int lc_slot_fprint_equipment_entry(FILE *f, const lc_equipment *eq, const char *indent) {
   if (!f || !eq) return -1;

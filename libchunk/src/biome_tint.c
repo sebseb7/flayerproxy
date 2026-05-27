@@ -6,7 +6,6 @@
 #define LC_BIOME_ID_MAX 64
 #define LC_PLAINS_BIOME_ID 40
 
-static const uint8_t LC_PLAINS_GRASS_RGB[3] = { 145, 189, 89 };
 static const uint8_t LC_PLAINS_FOLIAGE_RGB[3] = { 110, 170, 39 };
 
 static const uint8_t LC_BIOME_GRASS_RGB[(LC_BIOME_ID_MAX + 1) * 3] = {
@@ -1075,6 +1074,9 @@ static const uint8_t LC_STATE_TINT_KIND[LC_STATE_MAP_MAX + 1] = {
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
   0, 0, 0, 0, 0, 0, 0
 };
+/* Good for: Look up biome RGB from generated tint table.
+ * Callers: biome_tint.c (same file).
+ */
 
 static void lc_biome_rgb_lookup(const uint8_t *table, int32_t biome_id, uint8_t *r, uint8_t *g, uint8_t *b) {
   if (biome_id < 0 || biome_id > LC_BIOME_ID_MAX) biome_id = LC_PLAINS_BIOME_ID;
@@ -1093,6 +1095,9 @@ static void lc_tint_ratio_rgb(uint8_t *r, uint8_t *g, uint8_t *b,
   *g = (uint8_t)(((unsigned)*g * tint[1]) / bg);
   *b = (uint8_t)(((unsigned)*b * tint[2]) / bb);
 }
+/* Good for: Apply biome grass/foliage tint to map RGB.
+ * Callers: map_png.c.
+ */
 
 void lc_map_rgb_apply_biome_tint(int32_t state_id, int32_t biome_id, uint8_t *r, uint8_t *g, uint8_t *b) {
   if (!r || !g || !b || state_id < 0 || state_id > LC_STATE_MAP_MAX) return;

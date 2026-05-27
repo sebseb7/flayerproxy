@@ -5,6 +5,9 @@
 
 #include <math.h>
 #include <string.h>
+/* Good for: Test whether chunk (x,z) is in the loaded set.
+ * Callers: mc_chunk_stream.c (same file).
+ */
 
 static int chunk_loaded(const mc_chunk_stream *cs, int32_t x, int32_t z) {
   for (int i = 0; i < cs->loaded_count; i++) {
@@ -12,6 +15,9 @@ static int chunk_loaded(const mc_chunk_stream *cs, int32_t x, int32_t z) {
   }
   return 0;
 }
+/* Good for: Add chunk (x,z) to loaded set; 0 on success, -1 if table full.
+ * Callers: mc_chunk_stream.c (same file).
+ */
 
 static int chunk_mark_loaded(mc_chunk_stream *cs, int32_t x, int32_t z) {
   if (chunk_loaded(cs, x, z)) return 0;
@@ -21,6 +27,9 @@ static int chunk_mark_loaded(mc_chunk_stream *cs, int32_t x, int32_t z) {
   cs->loaded_count++;
   return 0;
 }
+/* Good for: Remove chunk (x,z) from loaded set.
+ * Callers: mc_chunk_stream.c (same file).
+ */
 
 static void chunk_unmark_loaded(mc_chunk_stream *cs, int32_t x, int32_t z) {
   for (int i = 0; i < cs->loaded_count; i++) {
@@ -31,16 +40,25 @@ static void chunk_unmark_loaded(mc_chunk_stream *cs, int32_t x, int32_t z) {
     }
   }
 }
+/* Good for: Convert block coords to chunk coords (floor div 16).
+ * Callers: mc_chunk_stream.c (same file).
+ */
 
 static void block_to_chunk(double x, double z, int32_t *cx, int32_t *cz) {
   *cx = (int32_t)floor(x / 16.0);
   *cz = (int32_t)floor(z / 16.0);
 }
+/* Good for: Initialize chunk-stream state and view radius.
+ * Callers: mc_static_server.c.
+ */
 
 void mc_chunk_stream_init(mc_chunk_stream *cs, int32_t radius) {
   memset(cs, 0, sizeof *cs);
   cs->radius = radius;
 }
+/* Good for: Mark all chunks in radius around center as loaded (no wire yet).
+ * Callers: mc_static_server.c.
+ */
 
 void mc_chunk_stream_mark_grid(mc_chunk_stream *cs, int32_t center_cx, int32_t center_cz) {
   cs->view_cx = center_cx;
@@ -52,6 +70,9 @@ void mc_chunk_stream_mark_grid(mc_chunk_stream *cs, int32_t center_cx, int32_t c
     }
   }
 }
+/* Good for: Send map_chunk / unload for chunks entering or leaving view radius.
+ * Callers: mc_chunk_stream.c (same file).
+ */
 
 static int sync_view_chunks(mc_chunk_stream *cs, int fd, int32_t center_cx, int32_t center_cz) {
   int32_t to_load_x[MC_CHUNK_STREAM_MAX];
@@ -109,6 +130,16 @@ static int sync_view_chunks(mc_chunk_stream *cs, int fd, int32_t center_cx, int3
   cs->view_cz = center_cz;
   return 0;
 }
+/* Good for: Query whether (cx,cz) is in the loaded set.
+ * Callers: mc_static_server.c.
+ */
+
+int mc_chunk_stream_has_chunk(const mc_chunk_stream *cs, int32_t cx, int32_t cz) {
+  return chunk_loaded(cs, cx, cz);
+}
+/* Good for: On player move, sync map_chunk/unload when chunk coords change.
+ * Callers: mc_static_server.c.
+ */
 
 int mc_chunk_stream_on_move(mc_chunk_stream *cs, int fd, double x, double y, double z) {
   cs->pos_x = x;

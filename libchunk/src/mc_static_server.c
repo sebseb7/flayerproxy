@@ -38,16 +38,23 @@ typedef struct mc_client_thread_ctx {
 #define MC_BLOCK_STATE_AIR 0
 #define MC_BLOCK_STATE_REDSTONE_BLOCK 11109
 
+/** Demo block at spawn: y=64 (one above grass at y=63), z=spawn+1. */
 #define MC_DEMO_BLOCK_X 10
-#define MC_DEMO_BLOCK_Y 70
-#define MC_DEMO_BLOCK_Z 10
+#define MC_DEMO_BLOCK_Y 64
+#define MC_DEMO_BLOCK_Z 9
 #define MC_DEMO_BLOCK_TOGGLE_MS 1000
+/* Good for: Monotonic clock in ms for demo block toggle.
+ * Callers: mc_static_server.c (same file).
+ */
 
 static int64_t mc_monotonic_ms(void) {
   struct timespec ts;
   if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return (int64_t)time(NULL) * 1000;
   return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
+/* Good for: Send Block Change for demo redstone block.
+ * Callers: mc_static_server.c (same file).
+ */
 
 static int send_block_change(int fd, int32_t x, int32_t y, int32_t z, int32_t state_id) {
   mc_buf body;
@@ -61,9 +68,21 @@ static int send_block_change(int fd, int32_t x, int32_t y, int32_t z, int32_t st
   mc_buf_free(&body);
   return rc;
 }
+/* Good for: Chunk coords containing demo block.
+ * Callers: mc_static_server.c (same file).
+ */
 
-static void tick_demo_block(mc_client *cli, int *show_redstone, int64_t *last_toggle_ms) {
+static int demo_block_chunk(int32_t block_coord) {
+  return (int32_t)floor((double)block_coord / 16.0);
+}
+
+static void tick_demo_block(mc_client *cli, const mc_chunk_stream *chunks, int *show_redstone,
+                            int64_t *last_toggle_ms) {
   if (!cli->play_ready) return;
+  int32_t demo_cx = demo_block_chunk(MC_DEMO_BLOCK_X);
+  int32_t demo_cz = demo_block_chunk(MC_DEMO_BLOCK_Z);
+  if (!mc_chunk_stream_has_chunk(chunks, demo_cx, demo_cz)) return;
+
   int64_t now = mc_monotonic_ms();
   if (*last_toggle_ms != 0 && now - *last_toggle_ms < MC_DEMO_BLOCK_TOGGLE_MS) return;
   *last_toggle_ms = now;
@@ -82,6 +101,9 @@ static int g_listen_fd = -1;
 static pthread_t g_accept_tid;
 static volatile int g_run_accept;
 static _Atomic int32_t g_next_entity_id = 1;
+/* Good for: Build world/spawn context for packet templates.
+ * Callers: mc_static_server.c (same file).
+ */
 
 static mc_patch_ctx make_patch_ctx(const mc_client *cli) {
   const mc_server_world *w = mc_templates_world();
@@ -99,6 +121,9 @@ static mc_patch_ctx make_patch_ctx(const mc_client *cli) {
   ctx.chunk_z = w ? w->spawn_chunk_z : 0;
   return ctx;
 }
+/* Good for: Send play join templates and mark initial chunk grid.
+ * Callers: mc_spectator.c, mc_static_server.c (same file).
+ */
 
 static int enter_play(mc_client *cli, mc_chunk_stream *chunks) {
   mc_patch_ctx ctx = make_patch_ctx(cli);
@@ -115,6 +140,9 @@ static int enter_play(mc_client *cli, mc_chunk_stream *chunks) {
   chunks->has_pos = 1;
   return 0;
 }
+/* Good for: Apply C2S move and refresh chunk stream.
+ * Callers: mc_static_server.c (same file).
+ */
 
 static int handle_player_move(mc_client *cli, mc_chunk_stream *chunks, double x, double y, double z) {
   return mc_chunk_stream_on_move(chunks, cli->fd, x, y, z);
@@ -130,21 +158,32 @@ static const char *cli_state_name(mc_cli_state state) {
     default: return "?";
   }
 }
+/* Good for: Warn on unhandled client play packet id.
+ * Callers: mc_static_server.c (same file).
+ */
 
 static void log_unhandled_c2s(const mc_client *cli, int32_t pkt_id, size_t payload_len) {
   const char *who = cli->username[0] ? cli->username : "?";
   MC_LOGI("static_server", "unhandled C2S %s 0x%02x len=%zu (%s)", cli_state_name(cli->state), pkt_id,
           payload_len, who);
 }
+/* Good for: Log unhandled C2S only when handler returned 0.
+ * Callers: mc_static_server.c (same file).
+ */
 
 static void log_unhandled_if(int handled, const mc_client *cli, int32_t pkt_id, size_t payload_len) {
   if (!handled) log_unhandled_c2s(cli, pkt_id, payload_len);
 }
+/* Good for: True if play packet id is intentionally ignored.
+ * Callers: mc_static_server.c (same file).
+ */
 
 static int play_packet_noop(int32_t pkt_id) {
   switch (pkt_id) {
     case MC_PKT_C2S_PONG:
     case MC_PKT_C2S_TICK_END:
+    case MC_PKT_C2S_CHAT_COMMAND:
+    case MC_PKT_C2S_CHAT:
     case MC_PKT_C2S_MOVE_ROT:
     case MC_PKT_C2S_MOVE_STATUS:
     case MC_PKT_C2S_CUSTOM_PAYLOAD:
@@ -160,10 +199,16 @@ static int play_packet_noop(int32_t pkt_id) {
       return 0;
   }
 }
+/* Good for: poll() timeout for static server accept loop.
+ * Callers: mc_static_server.c (same file).
+ */
 
 static int poll_timeout_ms(const mc_client *cli) {
   return cli->state == MC_CLI_PLAY ? 1000 : -1;
 }
+/* Good for: Per-client thread: handshake, config, play loop.
+ * Callers: mc_spectator.c, mc_static_server.c (same file).
+ */
 
 static void handle_client(int fd) {
   mc_client cli;
@@ -187,7 +232,7 @@ static void handle_client(int fd) {
       break;
     }
 
-    if (cli.state == MC_CLI_PLAY) tick_demo_block(&cli, &demo_show_redstone, &demo_last_toggle_ms);
+    if (cli.state == MC_CLI_PLAY) tick_demo_block(&cli, &chunks, &demo_show_redstone, &demo_last_toggle_ms);
 
     struct pollfd pfd = {.fd = fd, .events = POLLIN};
     int pr = poll(&pfd, 1, poll_timeout_ms(&cli));
@@ -219,6 +264,9 @@ static void handle_client(int fd) {
       lc_buf hb;
       lc_buf_init(&hb, payload, payload_len);
       if (lc_buf_read_varint(&hb, &proto) != LC_OK || lc_buf_read_string(&hb, &host) != LC_OK ||
+/* Good for: Read u16_be from packet cursor lc_buf (all parsers).
+ * Callers: nbt.c.
+ */
           lc_buf_read_u16_be(&hb, &port) != LC_OK || lc_buf_read_varint(&hb, &next) != LC_OK) {
         free(host);
         free(packet);
@@ -432,6 +480,9 @@ static void *accept_thread(void *arg) {
   }
   return NULL;
 }
+/* Good for: Reference static Minecraft server: config / registries / grass world.
+ * Callers: mc_static_server.c.
+ */
 
 int mc_static_server_start(const mc_static_server_opts *opts) {
   if (!opts) return -1;
@@ -489,6 +540,9 @@ int mc_static_server_start(const mc_static_server_opts *opts) {
   MC_LOGI("static_server", "listening on %s:%d gamemode=%d", g_opts.host, g_opts.port, (int)g_opts.gamemode);
   return 0;
 }
+/* Good for: Reference static Minecraft server: config / registries / grass world.
+ * Callers: libchunk.h (public API, no .c callers in tree).
+ */
 
 void mc_static_server_stop(void) {
   if (g_listen_fd < 0) return;

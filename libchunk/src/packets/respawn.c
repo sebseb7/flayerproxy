@@ -14,6 +14,9 @@ static const char *gamemode_name(int g) {
       return "?";
   }
 }
+/* Good for: Decode Minecraft wire payload for respawn into a struct.
+ * Callers: decode_wire.c.
+ */
 
 lc_status lc_parse_respawn(const uint8_t *data, size_t len, lc_respawn *out) {
   memset(out, 0, sizeof(*out));
@@ -26,11 +29,17 @@ lc_status lc_parse_respawn(const uint8_t *data, size_t len, lc_respawn *out) {
   }
   return LC_OK;
 }
+/* Good for: Release heap owned by lc_respawn.
+ * Callers: decode_wire.c.
+ */
 
 void lc_respawn_free(lc_respawn *p) {
   lc_spawn_info_free(&p->world_state);
   memset(p, 0, sizeof(*p));
 }
+/* Good for: One-line debug summary of lc_respawn (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_respawn_to_string(const lc_respawn *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;

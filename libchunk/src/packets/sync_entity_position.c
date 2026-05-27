@@ -1,4 +1,7 @@
 #include "../internal.h"
+/* Good for: Decode Minecraft wire payload for sync entity position into a struct.
+ * Callers: chunk_stream_receiver.c, decode_wire.c.
+ */
 
 lc_status lc_parse_sync_entity_position(const uint8_t *data, size_t len, lc_sync_entity_position *out) {
   lc_buf b;
@@ -15,6 +18,9 @@ lc_status lc_parse_sync_entity_position(const uint8_t *data, size_t len, lc_sync
   if (lc_buf_read_bool(&b, &out->on_ground) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
+/* Good for: One-line debug summary of lc_sync entity position (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_sync_entity_position_to_string(const lc_sync_entity_position *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;

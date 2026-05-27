@@ -10,6 +10,9 @@ const char *lc_heightmap_type_name(int id) {
     return HEIGHTMAP_NAMES[id];
   return "unknown";
 }
+/* Good for: Decode heightmaps from map_chunk wire.
+ * Callers: chunk.c, map_chunk.c (same file), packets.c.
+ */
 
 static lc_status lc_read_heightmaps(lc_buf *b, lc_heightmap_arr *out) {
   int32_t count;
@@ -30,6 +33,9 @@ fail:
   lc_heightmap_arr_free(out);
   return LC_ERR_TRUNCATED;
 }
+/* Good for: Decode block entity list from map_chunk wire.
+ * Callers: chunk.c, map_chunk.c (same file), packets.c.
+ */
 
 static lc_status lc_read_block_entities(lc_buf *b, lc_block_entity_arr *out) {
   int32_t count;
@@ -55,6 +61,9 @@ fail:
   lc_block_entity_arr_free(out);
   return LC_ERR_TRUNCATED;
 }
+/* Good for: Release heap owned by lc_heightmap arr.
+ * Callers: chunk.c, map_chunk.c (same file), packets.c.
+ */
 
 void lc_heightmap_arr_free(lc_heightmap_arr *a) {
   if (!a->items) return;
@@ -63,6 +72,9 @@ void lc_heightmap_arr_free(lc_heightmap_arr *a) {
   a->items = NULL;
   a->count = 0;
 }
+/* Good for: Release heap owned by lc_block entity arr.
+ * Callers: chunk.c, map_chunk.c (same file), packets.c.
+ */
 
 void lc_block_entity_arr_free(lc_block_entity_arr *a) {
   if (!a->items) return;
@@ -71,6 +83,9 @@ void lc_block_entity_arr_free(lc_block_entity_arr *a) {
   a->items = NULL;
   a->count = 0;
 }
+/* Good for: Decode Minecraft wire payload for map chunk into a struct.
+ * Callers: chunk_stream_receiver.c, decode_raw_dir.c, decode_wire.c, list_map_surface.c, mc_s2c_log.c, summarize_raw_dir.c.
+ */
 
 lc_status lc_parse_map_chunk(const uint8_t *data, size_t len, lc_map_chunk *out) {
   memset(out, 0, sizeof(*out));
@@ -92,6 +107,9 @@ fail:
   lc_map_chunk_free(out);
   return LC_ERR_TRUNCATED;
 }
+/* Good for: Release heap owned by lc_map chunk.
+ * Callers: chunk.c, chunk_stream_receiver.c, decode_raw_dir.c, decode_wire.c, list_map_surface.c, map_chunk.c (same file), mc_s2c_log.c, mc_wire_templates.c, packets.c, summarize_raw_dir.c.
+ */
 
 void lc_map_chunk_free(lc_map_chunk *p) {
   if (!p) return;
@@ -106,6 +124,9 @@ void lc_map_chunk_free(lc_map_chunk *p) {
   lc_u8_grid_free(&p->block_light);
   memset(p, 0, sizeof(*p));
 }
+/* Good for: One-line debug summary of lc_map chunk (sniffer / decode tools).
+ * Callers: decode_wire.c.
+ */
 
 int lc_map_chunk_to_string(const lc_map_chunk *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;

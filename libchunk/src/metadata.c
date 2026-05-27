@@ -16,6 +16,9 @@ const char *lc_metadata_type_name(int id) {
   if (id >= 0 && id < (int)(sizeof(META_NAMES) / sizeof(META_NAMES[0]))) return META_NAMES[id];
   return "unknown";
 }
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: metadata.c (same file), slot.c.
+ */
 
 static lc_status lc_skip_option_string(lc_buf *b) {
   uint8_t present;
@@ -26,6 +29,9 @@ static lc_status lc_skip_option_string(lc_buf *b) {
   free(s);
   return st;
 }
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: metadata.c (same file).
+ */
 
 static lc_status lc_skip_option_uuid(lc_buf *b) {
   uint8_t present;
@@ -34,6 +40,9 @@ static lc_status lc_skip_option_uuid(lc_buf *b) {
   lc_uuid u;
   return lc_buf_read_uuid(b, &u);
 }
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: metadata.c (same file).
+ */
 
 static lc_status lc_skip_option_anonymous_nbt(lc_buf *b) {
   uint8_t present;
@@ -41,6 +50,9 @@ static lc_status lc_skip_option_anonymous_nbt(lc_buf *b) {
   if (!present) return LC_OK;
   return lc_nbt_skip_anonymous(b);
 }
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: metadata.c (same file).
+ */
 
 static lc_status lc_skip_game_profile_property(lc_buf *b) {
   char *s = NULL;
@@ -50,6 +62,9 @@ static lc_status lc_skip_game_profile_property(lc_buf *b) {
   free(s);
   return lc_skip_option_string(b);
 }
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: metadata.c (same file).
+ */
 
 static lc_status lc_skip_painting_variant_data(lc_buf *b) {
   int32_t w, h;
@@ -61,6 +76,9 @@ static lc_status lc_skip_painting_variant_data(lc_buf *b) {
   if (lc_skip_option_anonymous_nbt(b) != LC_OK) return LC_ERR_TRUNCATED;
   return lc_skip_option_anonymous_nbt(b);
 }
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: metadata.c (same file).
+ */
 
 static lc_status lc_skip_registry_holder_painting(lc_buf *b) {
   int32_t n;
@@ -71,6 +89,9 @@ static lc_status lc_skip_registry_holder_painting(lc_buf *b) {
   }
   return LC_OK;
 }
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: metadata.c (same file).
+ */
 
 static lc_status lc_skip_particle(lc_buf *b) {
   int32_t type;
@@ -81,6 +102,9 @@ static lc_status lc_skip_particle(lc_buf *b) {
     case 29:
     case 109:
     case 113:
+/* Good for: Read varint from packet cursor lc_buf (all parsers).
+ * Callers: block_change.c, buf.c, c2s_move.c, chunk.c, entity_destroy.c, entity_equipment.c, entity_head_rotation.c, entity_metadata.c, entity_move_look.c, entity_velocity.c, initialize_world_border.c, map_chunk.c, mc_c2s_log.c, mc_server_common.c, mc_spectator.c, mc_static_server.c, metadata.c (same file), multi_block_change.c, packets.c, play_stream.c, position.c, registry_data.c, rel_entity_move.c, set_passengers.c, slot.c, slot_fprint.c, spawn_entity.c, spawn_info.c, sync_entity_position.c, update_light.c, update_tags.c.
+ */
       return lc_buf_read_varint(b, &(int32_t){0});
     case 14:
       for (int i = 0; i < 4; i++) {
@@ -120,6 +144,9 @@ static lc_status lc_skip_particle(lc_buf *b) {
       return lc_slot_read(b, &eq);
     }
     case 103:
+/* Good for: Read varint from packet cursor lc_buf (all parsers).
+ * Callers: block_change.c, buf.c, c2s_move.c, chunk.c, entity_destroy.c, entity_equipment.c, entity_head_rotation.c, entity_metadata.c, entity_move_look.c, entity_velocity.c, initialize_world_border.c, map_chunk.c, mc_c2s_log.c, mc_server_common.c, mc_spectator.c, mc_static_server.c, metadata.c (same file), multi_block_change.c, packets.c, play_stream.c, position.c, registry_data.c, rel_entity_move.c, set_passengers.c, slot.c, slot_fprint.c, spawn_entity.c, spawn_info.c, sync_entity_position.c, update_light.c, update_tags.c.
+ */
       return lc_buf_read_varint(b, &(int32_t){0});
     case 48: {
       int32_t pos_type;
@@ -134,6 +161,9 @@ static lc_status lc_skip_particle(lc_buf *b) {
       } else {
         return LC_ERR_INVALID;
       }
+/* Good for: Read varint from packet cursor lc_buf (all parsers).
+ * Callers: block_change.c, buf.c, c2s_move.c, chunk.c, entity_destroy.c, entity_equipment.c, entity_head_rotation.c, entity_metadata.c, entity_move_look.c, entity_velocity.c, initialize_world_border.c, map_chunk.c, mc_c2s_log.c, mc_server_common.c, mc_spectator.c, mc_static_server.c, metadata.c (same file), multi_block_change.c, packets.c, play_stream.c, position.c, registry_data.c, rel_entity_move.c, set_passengers.c, slot.c, slot_fprint.c, spawn_entity.c, spawn_info.c, sync_entity_position.c, update_light.c, update_tags.c.
+ */
       return lc_buf_read_varint(b, &(int32_t){0});
     }
     case 49: {
@@ -147,6 +177,9 @@ static lc_status lc_skip_particle(lc_buf *b) {
       return LC_OK;
   }
 }
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: metadata.c (same file).
+ */
 
 static lc_status lc_skip_particles(lc_buf *b) {
   int32_t count;
@@ -156,6 +189,9 @@ static lc_status lc_skip_particles(lc_buf *b) {
     if (lc_skip_particle(b) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: metadata.c (same file).
+ */
 
 static lc_status lc_skip_optional_global_pos(lc_buf *b) {
   uint8_t present;
@@ -167,6 +203,9 @@ static lc_status lc_skip_optional_global_pos(lc_buf *b) {
   lc_block_pos p;
   return lc_buf_read_position(b, &p);
 }
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: metadata.c (same file).
+ */
 
 static lc_status lc_skip_resolvable_profile(lc_buf *b) {
   int32_t kind;
@@ -201,6 +240,9 @@ static lc_status lc_skip_resolvable_profile(lc_buf *b) {
   if (present && lc_buf_read_varint(b, &kind) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
+/* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
+ * Callers: metadata.c (same file).
+ */
 
 static lc_status lc_skip_metadata_value(lc_buf *b, int type_id) {
   switch (type_id) {
@@ -245,18 +287,30 @@ static lc_status lc_skip_metadata_value(lc_buf *b, int type_id) {
       return lc_buf_read_f32_le(b, &f);
     }
     case 10:
+/* Good for: Read position from packet cursor lc_buf (all parsers).
+ * Callers: block_change.c, metadata.c (same file), packets.c, play_stream.c, spawn_info.c.
+ */
       return lc_buf_read_position(b, &(lc_block_pos){0});
     case 11: {
       uint8_t present;
       if (lc_buf_read_bool(b, &present) != LC_OK) return LC_ERR_TRUNCATED;
       if (!present) return LC_OK;
+/* Good for: Read position from packet cursor lc_buf (all parsers).
+ * Callers: block_change.c, metadata.c (same file), packets.c, play_stream.c, spawn_info.c.
+ */
       return lc_buf_read_position(b, &(lc_block_pos){0});
     }
     case 12:
+/* Good for: Read varint from packet cursor lc_buf (all parsers).
+ * Callers: block_change.c, buf.c, c2s_move.c, chunk.c, entity_destroy.c, entity_equipment.c, entity_head_rotation.c, entity_metadata.c, entity_move_look.c, entity_velocity.c, initialize_world_border.c, map_chunk.c, mc_c2s_log.c, mc_server_common.c, mc_spectator.c, mc_static_server.c, metadata.c (same file), multi_block_change.c, packets.c, play_stream.c, position.c, registry_data.c, rel_entity_move.c, set_passengers.c, slot.c, slot_fprint.c, spawn_entity.c, spawn_info.c, sync_entity_position.c, update_light.c, update_tags.c.
+ */
       return lc_buf_read_varint(b, &(int32_t){0});
     case 13:
       return lc_skip_option_uuid(b);
     case 14:
+/* Good for: Read varint from packet cursor lc_buf (all parsers).
+ * Callers: block_change.c, buf.c, c2s_move.c, chunk.c, entity_destroy.c, entity_equipment.c, entity_head_rotation.c, entity_metadata.c, entity_move_look.c, entity_velocity.c, initialize_world_border.c, map_chunk.c, mc_c2s_log.c, mc_server_common.c, mc_spectator.c, mc_static_server.c, metadata.c (same file), multi_block_change.c, packets.c, play_stream.c, position.c, registry_data.c, rel_entity_move.c, set_passengers.c, slot.c, slot_fprint.c, spawn_entity.c, spawn_info.c, sync_entity_position.c, update_light.c, update_tags.c.
+ */
       return lc_buf_read_varint(b, &(int32_t){0});
     case 15: {
       int32_t v;
@@ -310,6 +364,9 @@ static lc_status lc_skip_metadata_value(lc_buf *b, int type_id) {
       return LC_ERR_INVALID;
   }
 }
+/* Good for: Decode Minecraft wire payload for metadata value into a struct.
+ * Callers: metadata.c (same file).
+ */
 
 static lc_status lc_parse_metadata_value(lc_buf *b, int type_id, lc_metadata_entry *e) {
   size_t start = b->off;
@@ -365,6 +422,9 @@ static lc_status lc_parse_metadata_value(lc_buf *b, int type_id, lc_metadata_ent
     }
   }
 }
+/* Good for: Entity metadata index loop and type names.
+ * Callers: entity_metadata.c, packets.c.
+ */
 
 lc_status lc_metadata_read_loop(lc_buf *b, lc_metadata_arr *out) {
   size_t cap = 8;
@@ -407,6 +467,9 @@ lc_status lc_metadata_read_loop(lc_buf *b, lc_metadata_arr *out) {
   out->count = n;
   return LC_OK;
 }
+/* Good for: Release heap owned by lc_metadata arr.
+ * Callers: entity_metadata.c, metadata.c (same file), packets.c.
+ */
 
 void lc_metadata_arr_free(lc_metadata_arr *a) {
   if (!a->items) return;

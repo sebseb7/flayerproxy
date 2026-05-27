@@ -21,6 +21,9 @@ typedef struct lc_out_buf {
   size_t len;
   size_t cap;
 } lc_out_buf;
+/* Good for: Grow growable buffer used to encode chunk_data.
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_out_reserve(lc_out_buf *o, size_t need) {
   if (need <= o->cap) return LC_OK;
@@ -35,6 +38,9 @@ static lc_status lc_out_reserve(lc_out_buf *o, size_t need) {
   o->cap = ncap;
   return LC_OK;
 }
+/* Good for: Append raw bytes to chunk encode buffer.
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_out_write(lc_out_buf *o, const void *src, size_t n) {
   if (lc_out_reserve(o, o->len + n) != LC_OK) return LC_ERR_OOM;
@@ -42,18 +48,30 @@ static lc_status lc_out_write(lc_out_buf *o, const void *src, size_t n) {
   o->len += n;
   return LC_OK;
 }
+/* Good for: Write one byte to chunk encode buffer.
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_out_u8(lc_out_buf *o, uint8_t v) { return lc_out_write(o, &v, 1); }
+/* Good for: Write big-endian int16 to chunk encode buffer.
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_out_i16_be(lc_out_buf *o, int16_t v) {
   uint8_t b[2] = {(uint8_t)((uint16_t)v >> 8), (uint8_t)v};
   return lc_out_write(o, b, 2);
 }
+/* Good for: Write little-endian int16 to chunk encode buffer.
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_out_i16_le(lc_out_buf *o, int16_t v) {
   uint8_t b[2] = {(uint8_t)v, (uint8_t)((uint16_t)v >> 8)};
   return lc_out_write(o, b, 2);
 }
+/* Good for: Write little-endian int32 to chunk encode buffer.
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_out_i32_le(lc_out_buf *o, int32_t v) {
   uint8_t b[4];
@@ -63,17 +81,17 @@ static lc_status lc_out_i32_le(lc_out_buf *o, int32_t v) {
   b[3] = (uint8_t)(v >> 24);
   return lc_out_write(o, b, 4);
 }
+/* Good for: Write big-endian uint32 to chunk encode buffer.
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_out_u32_be(lc_out_buf *o, uint32_t v) {
   uint8_t b[4] = {(uint8_t)(v >> 24), (uint8_t)(v >> 16), (uint8_t)(v >> 8), (uint8_t)v};
   return lc_out_write(o, b, 4);
 }
-
-static lc_status lc_out_i64_le(lc_out_buf *o, int64_t v) {
-  uint8_t b[8];
-  for (int i = 0; i < 8; i++) b[i] = (uint8_t)(v >> (8 * i));
-  return lc_out_write(o, b, 8);
-}
+/* Good for: Write big-endian int64 to chunk encode buffer.
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_out_i64_be(lc_out_buf *o, int64_t v) {
   uint8_t b[8];
@@ -83,6 +101,9 @@ static lc_status lc_out_i64_be(lc_out_buf *o, int64_t v) {
   }
   return lc_out_write(o, b, 8);
 }
+/* Good for: Write Minecraft varint to chunk encode buffer.
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_out_varint(lc_out_buf *o, int32_t value) {
   uint32_t v = (uint32_t)value;
@@ -94,6 +115,9 @@ static lc_status lc_out_varint(lc_out_buf *o, int32_t value) {
   } while (v);
   return LC_OK;
 }
+/* Good for: Free chunk encode buffer storage.
+ * Callers: chunk.c (same file).
+ */
 
 static void lc_out_free(lc_out_buf *o) {
   free(o->data);
@@ -102,13 +126,22 @@ static void lc_out_free(lc_out_buf *o) {
 }
 
 /* --- section helpers --- */
+/* Good for: Linear index for 16×16×16 block within a section.
+ * Callers: chunk.c (same file).
+ */
 
 static int lc_block_index(int lx, int ly, int lz) { return (ly << 8) | (lz << 4) | lx; }
+/* Good for: Section Y index from world block Y and chunk min_y.
+ * Callers: chunk.c (same file).
+ */
 
 static int32_t lc_section_y_for_block(int32_t world_y, int32_t min_y) {
   (void)min_y;
   return world_y >> 4;
 }
+/* Good for: Number of longs for a paletted bit array at given bit width.
+ * Callers: chunk.c (same file).
+ */
 
 static int lc_paletted_long_count(int bits_per_value, int capacity) {
   if (bits_per_value <= 0 || bits_per_value > 32) return 0;
@@ -123,6 +156,9 @@ static lc_chunk_section *lc_chunk_find_section(lc_chunk *c, int32_t section_y) {
   }
   return NULL;
 }
+/* Good for: Append empty section at section_y to lc_chunk.
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_chunk_add_section(lc_chunk *c, int32_t section_y, lc_chunk_section **out) {
   lc_chunk_section *next =
@@ -135,6 +171,9 @@ static lc_status lc_chunk_add_section(lc_chunk *c, int32_t section_y, lc_chunk_s
   *out = sec;
   return LC_OK;
 }
+/* Good for: Find or allocate section for section_y.
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_chunk_get_or_create_section(lc_chunk *c, int32_t section_y, lc_chunk_section **out) {
   lc_chunk_section *sec = lc_chunk_find_section(c, section_y);
@@ -144,6 +183,9 @@ static lc_status lc_chunk_get_or_create_section(lc_chunk *c, int32_t section_y, 
   }
   return lc_chunk_add_section(c, section_y, out);
 }
+/* Good for: Count non-air blocks in a section (for solid_block_count field).
+ * Callers: chunk.c (same file).
+ */
 
 static int16_t lc_count_solid_blocks(const int32_t *state_ids) {
   int16_t count = 0;
@@ -157,6 +199,9 @@ static int16_t lc_count_solid_blocks(const int32_t *state_ids) {
 #define LC_HEIGHTMAP_LONGS 37
 
 static const int32_t LC_HEIGHTMAP_TYPES[] = {1, 4, 5};
+/* Good for: Read block state id at chunk-local x, world y, z.
+ * Callers: chunk.c (same file).
+ */
 
 static int32_t lc_chunk_block_at(const lc_chunk *c, int lx, int32_t world_y, int lz) {
   const int32_t sy = world_y >> 4;
@@ -174,16 +219,28 @@ static int32_t lc_chunk_block_at(const lc_chunk *c, int lx, int32_t world_y, int
 }
 
 /** Wire encoding: relative Y = world_y - min_y + 1 (matches Java 1.21.10 flat-world capture). */
+/* Good for: Convert world Y to heightmap stored Y (offset from min_y).
+ * Callers: chunk.c (same file).
+ */
 static int32_t lc_heightmap_store_y(const lc_chunk *c, int32_t world_y) {
   if (world_y < c->min_y) return 0;
   return world_y - c->min_y + 1;
 }
+/* Good for: Predicate: block counts for WORLD_SURFACE heightmap.
+ * Callers: none.
+ */
 
 static int lc_state_world_surface(int32_t sid) { return sid != 0; }
+/* Good for: Predicate: block counts for MOTION_BLOCKING heightmap.
+ * Callers: none.
+ */
 
 static int lc_state_motion_blocking(int32_t sid) {
   return sid != 0 || lc_state_id_is_water(sid);
 }
+/* Good for: Predicate: motion blocking excluding leaf blocks.
+ * Callers: none.
+ */
 
 static int lc_state_motion_blocking_no_leaves(int32_t sid) {
   if (sid == 0) return 0;
@@ -192,6 +249,9 @@ static int lc_state_motion_blocking_no_leaves(int32_t sid) {
   if (name && strstr(name, "_leaves") != NULL) return 0;
   return 1;
 }
+/* Good for: Highest Y in column matching predicate.
+ * Callers: chunk.c (same file).
+ */
 
 static int32_t lc_chunk_column_height(const lc_chunk *c, int lx, int lz, int (*pred)(int32_t)) {
   const int32_t y_max = c->min_y + c->world_height - 1;
@@ -202,6 +262,9 @@ static int32_t lc_chunk_column_height(const lc_chunk *c, int lx, int lz, int (*p
 }
 
 /** 9-bit columns; entries do not span longs (pad MSB, wiki chunk format). */
+/* Good for: Pack per-column heights into Java long[] heightmap format.
+ * Callers: chunk.c (same file).
+ */
 static void lc_heightmap_pack_columns(const int32_t *heights, int64_t *values, size_t count) {
   memset(values, 0, count * sizeof(int64_t));
   size_t long_idx = 0;
@@ -224,6 +287,9 @@ static void lc_heightmap_pack_columns(const int32_t *heights, int64_t *values, s
     }
   }
 }
+/* Good for: Append one heightmap type and packed data to array.
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_heightmap_add_columns(lc_heightmap_arr *hm, int type_id, const int32_t *heights) {
   size_t n = hm->count + 1;
@@ -240,6 +306,9 @@ static lc_status lc_heightmap_add_columns(lc_heightmap_arr *hm, int type_id, con
   lc_heightmap_pack_columns(heights, h->data.values, LC_HEIGHTMAP_LONGS);
   return LC_OK;
 }
+/* Good for: Recompute heightmaps from block columns after edits.
+ * Callers: mc_static_grass.c.
+ */
 
 lc_status lc_chunk_build_heightmaps(lc_chunk *c) {
   if (!c) return LC_ERR_INVALID;
@@ -276,11 +345,17 @@ typedef struct lc_bitarray {
   int values_per_long;
   uint32_t value_mask;
 } lc_bitarray;
+/* Good for: Free paletted bit array long storage.
+ * Callers: chunk.c (same file).
+ */
 
 static void lc_bitarray_free(lc_bitarray *ba) {
   free(ba->data);
   memset(ba, 0, sizeof(*ba));
 }
+/* Good for: Allocate paletted bit array with bits-per-value and capacity.
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_bitarray_init(lc_bitarray *ba, int bits_per_value, int capacity) {
   int values_per_long = 64 / bits_per_value;
@@ -294,6 +369,9 @@ static lc_status lc_bitarray_init(lc_bitarray *ba, int bits_per_value, int capac
   ba->value_mask = (1u << bits_per_value) - 1u;
   return LC_OK;
 }
+/* Good for: Read palette index from paletted bit array.
+ * Callers: chunk.c (same file).
+ */
 
 static uint32_t lc_bitarray_get(const lc_bitarray *ba, int index) {
   int start_long_index = index / ba->values_per_long;
@@ -313,6 +391,9 @@ static uint32_t lc_bitarray_get(const lc_bitarray *ba, int index) {
   }
   return result & ba->value_mask;
 }
+/* Good for: Write palette index into paletted bit array.
+ * Callers: chunk.c (same file).
+ */
 
 static void lc_bitarray_set(lc_bitarray *ba, int index, uint32_t value) {
   value &= ba->value_mask;
@@ -336,6 +417,9 @@ static void lc_bitarray_set(lc_bitarray *ba, int index, uint32_t value) {
         (value >> (32 - index_in_start_long));
   }
 }
+/* Good for: Decode paletted long[] from map_chunk section wire.
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_bitarray_read(lc_bitarray *ba, lc_buf *b, int long_count) {
   size_t need = (size_t)long_count * 2;
@@ -354,6 +438,9 @@ static lc_status lc_bitarray_read(lc_bitarray *ba, lc_buf *b, int long_count) {
   }
   return LC_OK;
 }
+/* Good for: Encode paletted bit array to chunk_data wire.
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_bitarray_write(const lc_bitarray *ba, lc_out_buf *o) {
   for (size_t i = 0; i + 1 < ba->data_len; i += 2) {
@@ -364,24 +451,9 @@ static lc_status lc_bitarray_write(const lc_bitarray *ba, lc_out_buf *o) {
 }
 
 /* --- chunk_data decode / encode --- */
-
-static lc_status lc_skip_paletted_data(lc_buf *b, int bits_per_value, int capacity) {
-  int long_count;
-  if (LC_MAP_CHUNK_NO_SIZE_PREFIX) {
-    long_count = lc_paletted_long_count(bits_per_value, capacity);
-  } else {
-    int32_t wire;
-    if (lc_buf_read_varint(b, &wire) != LC_OK) return LC_ERR_TRUNCATED;
-    if (wire < 0) return LC_ERR_INVALID;
-    int expected = lc_paletted_long_count(bits_per_value, capacity);
-    long_count = wire > 0 ? (int)wire : expected;
-    if (expected > 0 && long_count < expected) long_count = expected;
-  }
-  if (long_count < 0) return LC_ERR_INVALID;
-  if (lc_buf_need(b, (size_t)long_count * 8) != LC_OK) return LC_ERR_TRUNCATED;
-  b->off += (size_t)long_count * 8;
-  return LC_OK;
-}
+/* Good for: Decode biome paletted section from chunk_data.
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_decode_biome_section(lc_buf *b, lc_chunk_section *sec) {
   uint8_t bits_per_biome;
@@ -476,6 +548,9 @@ static lc_status lc_decode_biome_section(lc_buf *b, lc_chunk_section *sec) {
   sec->has_biomes = 1;
   return LC_OK;
 }
+/* Good for: Decode block paletted section from chunk_data.
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_decode_section(lc_buf *b, int32_t section_y, lc_chunk_section *sec) {
   int16_t solid;
@@ -580,6 +655,9 @@ static lc_status lc_decode_chunk_data(const lc_byte_buf *data, int32_t min_y, in
   }
   return LC_OK;
 }
+/* Good for: Bits-per-entry needed for palette of given size.
+ * Callers: chunk.c (same file).
+ */
 
 static int lc_bits_for_palette(size_t palette_len) {
   if (palette_len <= 1) return 0;
@@ -598,6 +676,9 @@ typedef struct lc_palette_build {
   size_t count;
   uint16_t indices[LC_BLOCK_VOLUME];
 } lc_palette_build;
+/* Good for: Build unique state-id palette from 4096 section blocks.
+ * Callers: chunk.c (same file).
+ */
 
 static void lc_build_palette(const int32_t *state_ids, lc_palette_build *pal) {
   pal->count = 0;
@@ -611,6 +692,9 @@ static void lc_build_palette(const int32_t *state_ids, lc_palette_build *pal) {
     pal->indices[i] = (uint16_t)j;
   }
 }
+/* Good for: Encode biome section to chunk_data wire.
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_encode_biome_section(const lc_chunk_section *sec, lc_out_buf *o) {
   int32_t biome = sec->has_biomes ? sec->biome_ids[0] : LC_PLAINS_BIOME_ID_DEFAULT;
@@ -621,6 +705,9 @@ static lc_status lc_encode_biome_section(const lc_chunk_section *sec, lc_out_buf
   }
   return LC_OK;
 }
+/* Good for: Encode block section to chunk_data wire.
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_encode_section(const lc_chunk_section *sec, lc_out_buf *o) {
   lc_palette_build pal;
@@ -667,14 +754,9 @@ static lc_status lc_encode_section(const lc_chunk_section *sec, lc_out_buf *o) {
   lc_bitarray_free(&ba);
   return st;
 }
-
-static int lc_chunk_compare_section_y(const void *a, const void *b) {
-  const lc_chunk_section *sa = (const lc_chunk_section *)a;
-  const lc_chunk_section *sb = (const lc_chunk_section *)b;
-  if (sa->section_y < sb->section_y) return -1;
-  if (sa->section_y > sb->section_y) return 1;
-  return 0;
-}
+/* Good for: Serialize all sections to map_chunk chunk_data blob.
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_encode_chunk_data(const lc_chunk *c, lc_byte_buf *out) {
   lc_out_buf o;
@@ -720,6 +802,9 @@ static lc_status lc_encode_chunk_data(const lc_chunk *c, lc_byte_buf *out) {
 }
 
 /* --- deep copy helpers --- */
+/* Good for: Deep-copy light/heightmap long bitset array.
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_copy_i64_arr(const lc_i64_arr *src, lc_i64_arr *dst) {
   memset(dst, 0, sizeof(*dst));
@@ -730,6 +815,9 @@ static lc_status lc_copy_i64_arr(const lc_i64_arr *src, lc_i64_arr *dst) {
   dst->count = src->count;
   return LC_OK;
 }
+/* Good for: Deep-copy sky/block light nibble grids.
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_copy_u8_grid(const lc_u8_grid *src, lc_u8_grid *dst) {
   memset(dst, 0, sizeof(*dst));
@@ -754,6 +842,9 @@ static lc_status lc_copy_u8_grid(const lc_u8_grid *src, lc_u8_grid *dst) {
   }
   return LC_OK;
 }
+/* Good for: Deep-copy byte buffer (chunk_data or NBT).
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_copy_byte_buf(const lc_byte_buf *src, lc_byte_buf *dst) {
   memset(dst, 0, sizeof(*dst));
@@ -764,6 +855,9 @@ static lc_status lc_copy_byte_buf(const lc_byte_buf *src, lc_byte_buf *dst) {
   dst->len = src->len;
   return LC_OK;
 }
+/* Good for: Deep-copy heightmap array.
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_copy_heightmap_arr(const lc_heightmap_arr *src, lc_heightmap_arr *dst) {
   memset(dst, 0, sizeof(*dst));
@@ -781,6 +875,9 @@ static lc_status lc_copy_heightmap_arr(const lc_heightmap_arr *src, lc_heightmap
   }
   return LC_OK;
 }
+/* Good for: Deep-copy block entity list.
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_copy_block_entity_arr(const lc_block_entity_arr *src, lc_block_entity_arr *dst) {
   memset(dst, 0, sizeof(*dst));
@@ -800,6 +897,9 @@ static lc_status lc_copy_block_entity_arr(const lc_block_entity_arr *src, lc_blo
   }
   return LC_OK;
 }
+/* Good for: Encode heightmaps compound for map_chunk wire.
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_write_heightmaps(lc_out_buf *o, const lc_heightmap_arr *hm) {
   if (lc_out_varint(o, (int32_t)hm->count) != LC_OK) return LC_ERR_OOM;
@@ -812,6 +912,9 @@ static lc_status lc_write_heightmaps(lc_out_buf *o, const lc_heightmap_arr *hm) 
   }
   return LC_OK;
 }
+/* Good for: Decode heightmaps from map_chunk wire.
+ * Callers: chunk.c (same file), map_chunk.c, packets.c.
+ */
 
 static lc_status lc_read_heightmaps(lc_buf *b, lc_heightmap_arr *out) {
   int32_t count;
@@ -832,6 +935,9 @@ fail:
   lc_heightmap_arr_free(out);
   return LC_ERR_TRUNCATED;
 }
+/* Good for: Encode block entity list for map_chunk wire.
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_write_block_entities(lc_out_buf *o, const lc_block_entity_arr *be) {
   if (lc_out_varint(o, (int32_t)be->count) != LC_OK) return LC_ERR_OOM;
@@ -850,6 +956,9 @@ static lc_status lc_write_block_entities(lc_out_buf *o, const lc_block_entity_ar
   }
   return LC_OK;
 }
+/* Good for: Decode block entity list from map_chunk wire.
+ * Callers: chunk.c (same file), map_chunk.c, packets.c.
+ */
 
 static lc_status lc_read_block_entities(lc_buf *b, lc_block_entity_arr *out) {
   int32_t count;
@@ -879,6 +988,9 @@ fail:
   lc_block_entity_arr_free(out);
   return LC_ERR_TRUNCATED;
 }
+/* Good for: Encode varint-length long[] (light masks).
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_write_i64_array(lc_out_buf *o, const lc_i64_arr *a) {
   if (lc_out_varint(o, (int32_t)a->count) != LC_OK) return LC_ERR_OOM;
@@ -887,6 +999,9 @@ static lc_status lc_write_i64_array(lc_out_buf *o, const lc_i64_arr *a) {
   }
   return LC_OK;
 }
+/* Good for: Encode light arrays (nibble grids).
+ * Callers: chunk.c (same file).
+ */
 
 static lc_status lc_write_u8_grid(lc_out_buf *o, const lc_u8_grid *g) {
   if (lc_out_varint(o, (int32_t)g->row_count) != LC_OK) return LC_ERR_OOM;
@@ -900,12 +1015,18 @@ static lc_status lc_write_u8_grid(lc_out_buf *o, const lc_u8_grid *g) {
 }
 
 /* --- public API --- */
+/* Good for: Lifecycle for merged in-memory chunk column.
+ * Callers: chunk.c (same file), dump_json.c, map_png.c, map_tile.c, mc_static_grass.c, summarize_raw_dir.c.
+ */
 
 void lc_chunk_init(lc_chunk *c) {
   memset(c, 0, sizeof(*c));
   c->min_y = LC_CHUNK_DEFAULT_MIN_Y;
   c->world_height = LC_CHUNK_DEFAULT_WORLD_HEIGHT;
 }
+/* Good for: Sample biome id at chunk-local block column.
+ * Callers: map_png.c.
+ */
 
 int32_t lc_chunk_biome_at(const lc_chunk *c, int lx, int32_t world_y, int lz) {
   if (!c) return LC_PLAINS_BIOME_ID_DEFAULT;
@@ -923,6 +1044,9 @@ int32_t lc_chunk_biome_at(const lc_chunk *c, int lx, int32_t world_y, int lz) {
   int idx = (lx >> 2) + ((lz >> 2) << 2) + ((ly >> 2) << 4);
   return sec->biome_ids[idx];
 }
+/* Good for: Release heap owned by lc_chunk.
+ * Callers: chunk.c (same file), dump_json.c, map_png.c, map_tile.c, mc_static_grass.c, mc_wire_templates.c, summarize_raw_dir.c.
+ */
 
 void lc_chunk_free(lc_chunk *c) {
   if (!c) return;
@@ -937,6 +1061,9 @@ void lc_chunk_free(lc_chunk *c) {
   lc_u8_grid_free(&c->block_light);
   memset(c, 0, sizeof(*c));
 }
+/* Good for: Build lc_chunk from parsed map_chunk (decode / map tools).
+ * Callers: dump_json.c, map_png.c, map_tile.c, summarize_raw_dir.c.
+ */
 
 lc_status lc_chunk_from_map_chunk(const lc_map_chunk *mc, lc_chunk *out) {
   if (!mc || !out) return LC_ERR_INVALID;
@@ -972,6 +1099,9 @@ fail:
   lc_chunk_free(out);
   return st;
 }
+/* Good for: Merge incremental play packet into lc_chunk (update light).
+ * Callers: libchunk.h (public API, no .c callers in tree).
+ */
 
 lc_status lc_chunk_apply_update_light(lc_chunk *c, const lc_update_light *ul) {
   if (!c || !ul) return LC_ERR_INVALID;
@@ -996,6 +1126,9 @@ lc_status lc_chunk_apply_update_light(lc_chunk *c, const lc_update_light *ul) {
   if (st != LC_OK) return st;
   return lc_copy_u8_grid(&ul->block_light, &c->block_light);
 }
+/* Good for: Merge incremental play packet into lc_chunk (block change).
+ * Callers: libchunk.h (public API, no .c callers in tree).
+ */
 
 lc_status lc_chunk_apply_block_change(lc_chunk *c, const lc_block_change *bc) {
   if (!c || !bc) return LC_ERR_INVALID;
@@ -1016,6 +1149,9 @@ lc_status lc_chunk_apply_block_change(lc_chunk *c, const lc_block_change *bc) {
   sec->solid_block_count = lc_count_solid_blocks(sec->state_ids);
   return LC_OK;
 }
+/* Good for: Merge incremental play packet into lc_chunk (multi block change).
+ * Callers: libchunk.h (public API, no .c callers in tree).
+ */
 
 lc_status lc_chunk_apply_multi_block_change(lc_chunk *c, const lc_multi_block_change *mbc) {
   if (!c || !mbc) return LC_ERR_INVALID;
@@ -1037,6 +1173,9 @@ lc_status lc_chunk_apply_multi_block_change(lc_chunk *c, const lc_multi_block_ch
   sec->solid_block_count = lc_count_solid_blocks(sec->state_ids);
   return LC_OK;
 }
+/* Good for: Re-encode merged lc_chunk as map_chunk wire fields.
+ * Callers: mc_wire_templates.c.
+ */
 
 lc_status lc_chunk_to_map_chunk(const lc_chunk *c, lc_map_chunk *out) {
   if (!c || !out) return LC_ERR_INVALID;
@@ -1070,6 +1209,9 @@ fail:
   lc_map_chunk_free(&tmp);
   return st;
 }
+/* Good for: Binary snapshot of lc_chunk (serialize).
+ * Callers: libchunk.h (public API, no .c callers in tree).
+ */
 
 lc_status lc_chunk_serialize(const lc_chunk *c, lc_byte_buf *out) {
   if (!c || !out) return LC_ERR_INVALID;
@@ -1110,6 +1252,9 @@ oom:
   lc_out_free(&o);
   return LC_ERR_OOM;
 }
+/* Good for: Binary snapshot of lc_chunk (deserialize).
+ * Callers: libchunk.h (public API, no .c callers in tree).
+ */
 
 lc_status lc_chunk_deserialize(const uint8_t *data, size_t len, lc_chunk *out) {
   if (!data || !out) return LC_ERR_INVALID;
@@ -1163,6 +1308,9 @@ fail:
   lc_chunk_free(out);
   return LC_ERR_TRUNCATED;
 }
+/* Good for: One-line debug summary of lc_chunk (sniffer / decode tools).
+ * Callers: libchunk.h (public API, no .c callers in tree).
+ */
 
 int lc_chunk_to_string(const lc_chunk *c, char *buf, size_t buflen) {
   if (!c || !buf || buflen == 0) return 0;
