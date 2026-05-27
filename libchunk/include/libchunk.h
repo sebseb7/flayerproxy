@@ -295,6 +295,37 @@ typedef struct lc_position {
   uint32_t flags;
 } lc_position;
 
+/** Serverbound move player (client → server). */
+typedef struct lc_c2s_move_flags {
+  uint8_t raw;
+  int on_ground;
+  int horizontal_collision;
+} lc_c2s_move_flags;
+
+typedef struct lc_c2s_position {
+  double x, y, z;
+  lc_c2s_move_flags flags;
+} lc_c2s_position;
+
+typedef struct lc_c2s_position_look {
+  double x, y, z;
+  float yaw, pitch;
+  lc_c2s_move_flags flags;
+} lc_c2s_position_look;
+
+typedef struct lc_c2s_look {
+  float yaw, pitch;
+  lc_c2s_move_flags flags;
+} lc_c2s_look;
+
+typedef struct lc_c2s_flying {
+  lc_c2s_move_flags flags;
+} lc_c2s_flying;
+
+typedef struct lc_c2s_teleport_confirm {
+  int32_t teleport_id;
+} lc_c2s_teleport_confirm;
+
 typedef struct lc_respawn {
   lc_spawn_info world_state;
   uint8_t copy_metadata;
@@ -313,6 +344,23 @@ typedef struct lc_registry_data {
   char *id;
   lc_registry_entry_arr entries;
 } lc_registry_data;
+
+typedef struct lc_tag_group_entry {
+  char *name;
+  int32_t *ids;
+  size_t id_count;
+} lc_tag_group_entry;
+
+typedef struct lc_tag_group {
+  char *registry_id;
+  lc_tag_group_entry *tags;
+  size_t tag_count;
+} lc_tag_group;
+
+typedef struct lc_update_tags {
+  lc_tag_group *groups;
+  size_t group_count;
+} lc_update_tags;
 
 /* --- merged chunk column --- */
 
@@ -370,6 +418,7 @@ void lc_entity_equipment_free(lc_entity_equipment *p);
 void lc_entity_destroy_free(lc_entity_destroy *p);
 void lc_set_passengers_free(lc_set_passengers *p);
 void lc_registry_data_free(lc_registry_data *p);
+void lc_update_tags_free(lc_update_tags *p);
 void lc_tile_entity_data_free(lc_tile_entity_data *p);
 void lc_entity_update_attributes_free(lc_entity_update_attributes *p);
 void lc_respawn_free(lc_respawn *p);
@@ -380,6 +429,8 @@ lc_status lc_chunk_from_map_chunk(const lc_map_chunk *mc, lc_chunk *out);
 lc_status lc_chunk_apply_update_light(lc_chunk *c, const lc_update_light *ul);
 lc_status lc_chunk_apply_block_change(lc_chunk *c, const lc_block_change *bc);
 lc_status lc_chunk_apply_multi_block_change(lc_chunk *c, const lc_multi_block_change *mbc);
+/** Scan block columns and fill heightmaps (types 1,4,5; Java send order). Replaces c->heightmaps. */
+lc_status lc_chunk_build_heightmaps(lc_chunk *c);
 /** Export merged state as map_chunk fields (re-encodes chunk_data). `out` must be zero-initialized or cleared with lc_map_chunk_free() before reuse. */
 lc_status lc_chunk_to_map_chunk(const lc_chunk *c, lc_map_chunk *out);
 lc_status lc_chunk_serialize(const lc_chunk *c, lc_byte_buf *out);
@@ -406,9 +457,15 @@ lc_status lc_parse_entity_head_rotation(const uint8_t *data, size_t len, lc_enti
 lc_status lc_parse_entity_update_attributes(const uint8_t *data, size_t len,
                                             lc_entity_update_attributes *out);
 lc_status lc_parse_position(const uint8_t *data, size_t len, lc_position *out);
+lc_status lc_parse_c2s_position(const uint8_t *data, size_t len, lc_c2s_position *out);
+lc_status lc_parse_c2s_position_look(const uint8_t *data, size_t len, lc_c2s_position_look *out);
+lc_status lc_parse_c2s_look(const uint8_t *data, size_t len, lc_c2s_look *out);
+lc_status lc_parse_c2s_flying(const uint8_t *data, size_t len, lc_c2s_flying *out);
+lc_status lc_parse_c2s_teleport_confirm(const uint8_t *data, size_t len, lc_c2s_teleport_confirm *out);
 lc_status lc_parse_respawn(const uint8_t *data, size_t len, lc_respawn *out);
 lc_status lc_parse_initialize_world_border(const uint8_t *data, size_t len, lc_initialize_world_border *out);
 lc_status lc_parse_registry_data(const uint8_t *data, size_t len, lc_registry_data *out);
+lc_status lc_parse_update_tags(const uint8_t *data, size_t len, lc_update_tags *out);
 
 /**
  * Write human-readable debug summary into buf (NUL-terminated if buflen > 0).
@@ -481,6 +538,11 @@ int lc_entity_update_attributes_to_string(const lc_entity_update_attributes *p, 
                                             size_t buflen);
 int lc_entity_update_attributes_fprint(FILE *f, const lc_entity_update_attributes *p);
 int lc_position_to_string(const lc_position *p, char *buf, size_t buflen);
+int lc_c2s_position_to_string(const lc_c2s_position *p, char *buf, size_t buflen);
+int lc_c2s_position_look_to_string(const lc_c2s_position_look *p, char *buf, size_t buflen);
+int lc_c2s_look_to_string(const lc_c2s_look *p, char *buf, size_t buflen);
+int lc_c2s_flying_to_string(const lc_c2s_flying *p, char *buf, size_t buflen);
+int lc_c2s_teleport_confirm_to_string(const lc_c2s_teleport_confirm *p, char *buf, size_t buflen);
 int lc_respawn_to_string(const lc_respawn *p, char *buf, size_t buflen);
 int lc_initialize_world_border_to_string(const lc_initialize_world_border *p, char *buf, size_t buflen);
 int lc_registry_data_to_string(const lc_registry_data *p, char *buf, size_t buflen);

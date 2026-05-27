@@ -89,6 +89,38 @@ const STREAM_WORLD_PACKETS = [
   'recipe_book_settings',
 ];
 
+/** C2S play packets: client movement (minecraft-protocol names on the wire). */
+const STREAM_CLIENT_MOVEMENT_PACKETS = [
+  'position',
+  'position_look',
+  'look',
+  'flying',
+  'teleport_confirm',
+];
+
+/** Frame names sent to chunk_stream_receiver (avoid S2C `position` collision). */
+const C2S_CHUNK_STREAM_NAME = {
+  position: 'c2s_position',
+  position_look: 'c2s_position_look',
+  look: 'c2s_look',
+  flying: 'c2s_flying',
+  teleport_confirm: 'c2s_teleport_confirm',
+};
+
+const STREAM_C2S_PACKETS = new Set(STREAM_CLIENT_MOVEMENT_PACKETS);
+
+/** S2C configuration packets (registry sync before play). */
+const STREAM_CONFIG_PACKETS = [
+  'registry_data',
+  'feature_flags',
+  'tags',
+  'custom_payload',
+  'reset_chat',
+  'select_known_packs',
+  'server_links',
+  'code_of_conduct',
+];
+
 /** Forwarded to chunk_stream_receiver (length-prefixed framed wire). */
 const STREAM_PACKETS = new Set([
   ...STREAM_BLOCK_PACKETS,
@@ -97,6 +129,16 @@ const STREAM_PACKETS = new Set([
   ...STREAM_INVENTORY_PACKETS,
   ...STREAM_WORLD_PACKETS,
 ]);
+
+const STREAM_CONFIG_PACKET_SET = new Set(STREAM_CONFIG_PACKETS);
+
+/**
+ * @param {string} metaName - minecraft-protocol C2S packet name
+ * @returns {string|null}
+ */
+function c2sChunkStreamName(metaName) {
+  return C2S_CHUNK_STREAM_NAME[metaName] ?? null;
+}
 
 /**
  * @param {object|false|null|undefined} chunkStream - config.sniffer.chunkStream
@@ -199,6 +241,23 @@ class ChunkStream {
   send(wireBuffer, packetName) {
     if (this._closed || !wireBuffer?.length || !packetName) return;
     if (!STREAM_PACKETS.has(packetName)) return;
+    this._enqueue(wireBuffer, packetName);
+  }
+
+  /**
+   * Forward a C2S play packet (client → server movement).
+   * @param {Buffer} wireBuffer
+   * @param {string} metaName - minecraft-protocol meta.name
+   */
+  sendC2s(wireBuffer, metaName) {
+    if (this._closed || !wireBuffer?.length || !metaName) return;
+    if (!STREAM_C2S_PACKETS.has(metaName)) return;
+    const frameName = c2sChunkStreamName(metaName);
+    if (!frameName) return;
+    this._enqueue(wireBuffer, frameName);
+  }
+
+  _enqueue(wireBuffer, packetName) {
     if (this._socket?.writable) {
       this._writeFrame(wireBuffer, packetName);
       return;
@@ -222,10 +281,15 @@ class ChunkStream {
 module.exports = {
   ChunkStream,
   parseChunkStreamConfig,
+  c2sChunkStreamName,
   STREAM_PACKETS,
+  STREAM_C2S_PACKETS,
+  STREAM_CLIENT_MOVEMENT_PACKETS,
   STREAM_BLOCK_PACKETS,
   STREAM_ENTITY_PACKETS,
   STREAM_PLAYER_PACKETS,
   STREAM_INVENTORY_PACKETS,
   STREAM_WORLD_PACKETS,
+  STREAM_CONFIG_PACKETS,
+  STREAM_CONFIG_PACKET_SET,
 };

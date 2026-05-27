@@ -281,7 +281,7 @@ lc_status lc_buf_read_i64_array(lc_buf *b, lc_i64_arr *out) {
   out->values = count ? (int64_t *)calloc((size_t)count, sizeof(int64_t)) : NULL;
   if (count && !out->values) return LC_ERR_OOM;
   for (int32_t i = 0; i < count; i++) {
-    if (lc_buf_read_i64_le(b, &out->values[i]) != LC_OK) {
+    if (lc_buf_read_i64_be(b, &out->values[i]) != LC_OK) {
       lc_i64_arr_free(out);
       return LC_ERR_TRUNCATED;
     }

@@ -11,13 +11,13 @@ AVIF_LIBS = -lavif
 endif
 CHUNK_LIBS = -lchunk $(AVIF_LIBS)
 
-SRC = src/buf.c src/nbt.c src/metadata.c src/slot.c src/slot_fprint.c src/packets.c src/debug.c src/chunk.c src/dump_json.c src/decode_wire.c src/play_stream.c src/block_entity.c src/map_colors.c src/state_map_color.c src/state_block_name.c src/state_top_rgb.c src/biome_tint.c src/map_png.c src/map_avif.c src/map_tile.c
+SRC = src/buf.c src/nbt.c src/metadata.c src/slot.c src/slot_fprint.c src/packets.c src/c2s_move.c src/debug.c src/chunk.c src/dump_json.c src/decode_wire.c src/play_stream.c src/block_entity.c src/map_colors.c src/state_map_color.c src/state_block_name.c src/state_top_rgb.c src/biome_tint.c src/map_png.c src/map_avif.c src/map_tile.c src/packets_write.c src/update_tags.c src/mc_wire.c src/mc_static_grass.c src/mc_static_config.c src/mc_static_registries.c src/mc_static_registries_data.c
 CFLAGS += $(AVIF_CFLAGS)
 OBJ = $(SRC:src/%.c=build/%.o)
 
-.PHONY: all clean test install show_decode decode_raw_dir summarize_raw_dir list_map_surface stitch_megatiles chunk_stream_receiver
+.PHONY: all clean test install show_decode decode_raw_dir summarize_raw_dir list_map_surface stitch_megatiles chunk_stream_receiver mc_static_server mc_reference_client compare_join_capture
 
-all: build/libchunk.a build/show_decode build/decode_raw_dir build/summarize_raw_dir build/list_map_surface build/stitch_megatiles build/chunk_stream_receiver
+all: build/libchunk.a build/show_decode build/decode_raw_dir build/summarize_raw_dir build/list_map_surface build/stitch_megatiles build/chunk_stream_receiver build/mc_static_server build/mc_reference_client build/compare_join_capture
 
 build:
 	mkdir -p build
@@ -52,8 +52,22 @@ build/list_map_surface: examples/list_map_surface.c build/libchunk.a | build
 build/stitch_megatiles: examples/stitch_megatiles.c build/libchunk.a | build
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ examples/stitch_megatiles.c -Lbuild $(CHUNK_LIBS) -pthread
 
-build/chunk_stream_receiver: examples/chunk_stream_receiver.c build/libchunk.a | build
-	$(CC) $(CFLAGS) $(INCLUDES) -o $@ examples/chunk_stream_receiver.c -Lbuild $(CHUNK_LIBS) -lm
+MC_SPECTATOR_SRC = src/mc_log.c src/mc_wire.c src/mc_spectator.c src/mc_server_common.c src/mc_auth_offline.c src/mc_wire_templates.c src/mc_s2c_log.c src/mc_static_grass.c src/mc_static_config.c src/mc_static_registries.c src/mc_static_registries_data.c
+MC_STATIC_SRC = src/mc_log.c src/mc_wire.c src/mc_server_common.c src/mc_auth_offline.c src/mc_wire_templates.c src/mc_static_grass.c src/mc_static_config.c src/mc_static_registries.c src/mc_static_registries_data.c src/mc_c2s_log.c src/mc_s2c_log.c src/mc_chunk_stream.c src/mc_static_server.c
+
+build/mc_static_server: examples/mc_static_server.c build/libchunk.a $(MC_STATIC_SRC) | build
+	$(CC) $(CFLAGS) $(INCLUDES) -Isrc -o $@ examples/mc_static_server.c $(MC_STATIC_SRC) -Lbuild $(CHUNK_LIBS) -lm -pthread
+
+MC_CLIENT_SRC = src/mc_wire.c src/mc_server_common.c src/mc_log.c
+
+build/mc_reference_client: examples/mc_reference_client.c build/libchunk.a $(MC_CLIENT_SRC) | build
+	$(CC) $(CFLAGS) $(INCLUDES) -Isrc -o $@ examples/mc_reference_client.c $(MC_CLIENT_SRC) -Lbuild $(CHUNK_LIBS)
+
+build/compare_join_capture: examples/compare_join_capture.c build/libchunk.a | build
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ examples/compare_join_capture.c -Lbuild $(CHUNK_LIBS)
+
+build/chunk_stream_receiver: examples/chunk_stream_receiver.c build/libchunk.a $(MC_SPECTATOR_SRC) | build
+	$(CC) $(CFLAGS) $(INCLUDES) -Isrc -o $@ examples/chunk_stream_receiver.c $(MC_SPECTATOR_SRC) -Lbuild $(CHUNK_LIBS) -lm -pthread
 
 build/test_packets: test/test_packets.c build/libchunk.a | build
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test/test_packets.c -Lbuild $(CHUNK_LIBS)
@@ -69,6 +83,12 @@ list_map_surface: build/list_map_surface
 stitch_megatiles: build/stitch_megatiles
 
 chunk_stream_receiver: build/chunk_stream_receiver
+
+mc_static_server: build/mc_static_server
+
+mc_reference_client: build/mc_reference_client
+
+compare_join_capture: build/compare_join_capture
 
 test: build/test_packets
 	./build/test_packets

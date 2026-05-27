@@ -5,12 +5,17 @@
  * Frame: uint32 BE inner_len, uint16 BE name_len, packet name UTF-8, wire (id + payload).
  *
  * Usage:
- *   chunk_stream_receiver [-v] <port> <png_dir> [raw_dir]
- *   chunk_stream_receiver [-v] <bind_host> <port> <png_dir> [raw_dir]
+ *   chunk_stream_receiver [-v] [--position-ingest HOST:PORT] [--spectator-port PORT]
+ *       [--spectator-host HOST] <port> <png_dir> [raw_dir]
+ *   chunk_stream_receiver [-v] ... <bind_host> <port> <png_dir> [raw_dir]
  *
  *   -v, --verbose  log each processed packet (default: periodic stats only)
+ *   --position-ingest HOST:PORT  newline-delimited JSON to player-map TCP ingest (default off)
+ *   --spectator-port PORT  offline spectator MC server (C, replays stream / grass placeholder)
+ *   --spectator-host HOST  bind for spectator server (default 0.0.0.0)
  */
 #include "libchunk.h"
+#include "mc_spectator.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -34,6 +39,161 @@
 #define POS_ARG_MAX 4
 
 static int verbose_packets = 0;
+static int spectator_port = 0;
+static char spectator_host[64] = "0.0.0.0";
+
+/** TCP ingest for player-map (see player-map/server.js). */
+static char position_ingest_host[64] = "127.0.0.1";
+static int position_ingest_port = 0;
+static int position_ingest_fd = -1;
+
+typedef struct live_player {
+  double x, y, z;
+  float yaw, pitch;
+  int have_pos;
+  int have_rot;
+} live_player;
+
+static live_player g_player;
+
+static int parse_position_ingest(const char *spec) {
+  const char *colon = strrchr(spec, ':');
+  if (!colon || colon == spec) return -1;
+  size_t host_len = (size_t)(colon - spec);
+  if (host_len >= sizeof position_ingest_host) return -1;
+  memcpy(position_ingest_host, spec, host_len);
+  position_ingest_host[host_len] = '\0';
+  char *end = NULL;
+  long v = strtol(colon + 1, &end, 10);
+  if (!colon[1] || (end && *end) || v <= 0 || v > 65535) return -1;
+  position_ingest_port = (int)v;
+  return 0;
+}
+
+static void live_player_reset(void) {
+  memset(&g_player, 0, sizeof g_player);
+}
+
+static void position_ingest_close(void) {
+  if (position_ingest_fd >= 0) {
+    close(position_ingest_fd);
+    position_ingest_fd = -1;
+  }
+}
+
+static int position_ingest_open(void) {
+  position_ingest_close();
+  if (position_ingest_port <= 0) return 0;
+
+  int fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (fd < 0) {
+    perror("position ingest socket");
+    return -1;
+  }
+
+  struct sockaddr_in addr;
+  memset(&addr, 0, sizeof addr);
+  addr.sin_family = AF_INET;
+  addr.sin_port = htons((uint16_t)position_ingest_port);
+  if (inet_pton(AF_INET, position_ingest_host, &addr.sin_addr) != 1) {
+    fprintf(stderr, "position ingest: invalid host %s\n", position_ingest_host);
+    close(fd);
+    return -1;
+  }
+
+  if (connect(fd, (struct sockaddr *)&addr, sizeof addr) != 0) {
+    fprintf(stderr, "position ingest: connect %s:%d (%s)\n", position_ingest_host,
+            position_ingest_port, strerror(errno));
+    close(fd);
+    return -1;
+  }
+
+  position_ingest_fd = fd;
+  fprintf(stderr, "position ingest -> %s:%d\n", position_ingest_host, position_ingest_port);
+  return 0;
+}
+
+static void position_ingest_send(const char *line, size_t len) {
+  if (position_ingest_fd < 0 || len == 0) return;
+  ssize_t sent = send(position_ingest_fd, line, len, MSG_NOSIGNAL);
+  if (sent == (ssize_t)len) return;
+  fprintf(stderr, "position ingest: send failed (%s), reconnecting\n", strerror(errno));
+  position_ingest_close();
+  if (position_ingest_open() == 0 && position_ingest_fd >= 0)
+    (void)send(position_ingest_fd, line, len, MSG_NOSIGNAL);
+}
+
+/** Position only (c2s_position has no yaw — do not repeat stale rotation). */
+static void position_ingest_emit_xyz(const char *source) {
+  if (position_ingest_fd < 0 || !g_player.have_pos) return;
+
+  struct timespec ts;
+  clock_gettime(CLOCK_REALTIME, &ts);
+  int64_t t_ms = (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+
+  char line[256];
+  int n = snprintf(line, sizeof line,
+                   "{\"x\":%.3f,\"y\":%.3f,\"z\":%.3f,\"source\":\"%s\",\"t\":%" PRId64 "}\n",
+                   g_player.x, g_player.y, g_player.z, source, t_ms);
+  if (n <= 0 || (size_t)n >= sizeof line) return;
+  position_ingest_send(line, (size_t)n);
+}
+
+/** Position + yaw/pitch (S2C position, c2s_position_look, c2s_look). */
+static void position_ingest_emit_full(const char *source) {
+  if (position_ingest_fd < 0 || !g_player.have_pos) return;
+
+  struct timespec ts;
+  clock_gettime(CLOCK_REALTIME, &ts);
+  int64_t t_ms = (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+
+  char line[320];
+  int n = snprintf(line, sizeof line,
+                   "{\"x\":%.3f,\"y\":%.3f,\"z\":%.3f,\"yaw\":%.2f,\"pitch\":%.2f,"
+                   "\"source\":\"%s\",\"t\":%" PRId64 "}\n",
+                   g_player.x, g_player.y, g_player.z, g_player.yaw, g_player.pitch, source,
+                   t_ms);
+  if (n <= 0 || (size_t)n >= sizeof line) return;
+  position_ingest_send(line, (size_t)n);
+}
+
+static void position_set_xyz(double x, double y, double z) {
+  g_player.x = x;
+  g_player.y = y;
+  g_player.z = z;
+  g_player.have_pos = 1;
+}
+
+static void position_set_rot(float yaw, float pitch) {
+  g_player.yaw = yaw;
+  g_player.pitch = pitch;
+  g_player.have_rot = 1;
+}
+
+static void stream_ingest_emit_chunk(int32_t cx, int32_t cz) {
+  if (position_ingest_fd < 0) return;
+  struct timespec ts;
+  clock_gettime(CLOCK_REALTIME, &ts);
+  int64_t t_ms = (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+  char line[128];
+  int n = snprintf(line, sizeof line, "{\"type\":\"chunk\",\"cx\":%" PRId32 ",\"cz\":%" PRId32
+                                    ",\"t\":%" PRId64 "}\n",
+                   cx, cz, t_ms);
+  if (n > 0 && (size_t)n < sizeof line) position_ingest_send(line, (size_t)n);
+}
+
+static void stream_ingest_emit_chunk_unload(int32_t cx, int32_t cz) {
+  if (position_ingest_fd < 0) return;
+  struct timespec ts;
+  clock_gettime(CLOCK_REALTIME, &ts);
+  int64_t t_ms = (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+  char line[128];
+  int n = snprintf(line, sizeof line,
+                   "{\"type\":\"chunk_unload\",\"cx\":%" PRId32 ",\"cz\":%" PRId32 ",\"t\":%" PRId64
+                   "}\n",
+                   cx, cz, t_ms);
+  if (n > 0 && (size_t)n < sizeof line) position_ingest_send(line, (size_t)n);
+}
 
 typedef struct rx_buf {
   uint8_t *data;
@@ -294,6 +454,28 @@ static int raw_path_player_position(char *out, size_t outlen, const char *raw_di
   return path_fits(n, outlen) ? 0 : -1;
 }
 
+/** Client → server movement (latest packet overwrites per coord or flat path). */
+static int raw_path_client_coord(char *out, size_t outlen, const char *raw_dir, const char *pkt,
+                                 int32_t cx, int32_t cz, double wx, double wy, double wz) {
+  int32_t rx = cx >> 5;
+  int32_t rz = cz >> 5;
+  int n = snprintf(out, outlen, "%s/client/%s/rx%d/rz%d/cx%d/cz%d/x%d_y%d_z%d.%s.wire", raw_dir, pkt,
+                   rx, rz, cx, cz, (int)floor(wx), (int)floor(wy), (int)floor(wz), pkt);
+  return path_fits(n, outlen) ? 0 : -1;
+}
+
+static int raw_path_client_flat(char *out, size_t outlen, const char *raw_dir, const char *pkt) {
+  int n = snprintf(out, outlen, "%s/client/%s/%s.%s.wire", raw_dir, pkt, pkt, pkt);
+  return path_fits(n, outlen) ? 0 : -1;
+}
+
+static int raw_path_client_teleport_confirm(char *out, size_t outlen, const char *raw_dir,
+                                            int32_t teleport_id) {
+  int n = snprintf(out, outlen, "%s/client/teleport_confirm/%d.c2s_teleport_confirm.wire", raw_dir,
+                   teleport_id);
+  return path_fits(n, outlen) ? 0 : -1;
+}
+
 typedef struct {
   const char *pkt;
   const char *category;
@@ -434,6 +616,7 @@ static int process_map_chunk(const char *png_dir, const char *raw_dir, const uin
 
   int32_t cx = mc.x;
   int32_t cz = mc.z;
+  stream_ingest_emit_chunk(cx, cz);
   lc_map_chunk_free(&mc);
 
   clock_gettime(CLOCK_MONOTONIC, &t1);
@@ -911,9 +1094,128 @@ static int process_position_pkt(const char *raw_dir, const uint8_t *wire, size_t
     if (archive_raw(raw_dir, path, wire, wire_len) != 0) return -1;
   }
 
+  position_set_xyz(pos.x, pos.y, pos.z);
+  position_set_rot(pos.yaw, pos.pitch);
+  position_ingest_emit_full("position");
+
   clock_gettime(CLOCK_MONOTONIC, &t1);
   *handler_ns = timespec_ns(&t1) - timespec_ns(&t0);
   log_done("position", "player/position", *handler_ns);
+  return 0;
+}
+
+static int process_c2s_position_pkt(const char *raw_dir, const char *pkt_name, const uint8_t *wire,
+                                    size_t wire_len, uint64_t *handler_ns) {
+  struct timespec t0, t1;
+  clock_gettime(CLOCK_MONOTONIC, &t0);
+
+  const uint8_t *payload = wire;
+  size_t payload_len = wire_len;
+  if (skip_payload(wire, wire_len, &payload, &payload_len) != 0) return 1;
+
+  char path[PATH_MAX_LC];
+  if (strcmp(pkt_name, "c2s_position_look") == 0) {
+    lc_c2s_position_look pos;
+    if (lc_parse_c2s_position_look(payload, payload_len, &pos) != LC_OK) return 1;
+    int32_t cx = (int32_t)floor(pos.x / 16.0);
+    int32_t cz = (int32_t)floor(pos.z / 16.0);
+    if (raw_dir &&
+        raw_path_client_coord(path, sizeof path, raw_dir, pkt_name, cx, cz, pos.x, pos.y, pos.z) ==
+            0) {
+      if (archive_raw(raw_dir, path, wire, wire_len) != 0) return -1;
+    }
+    position_set_xyz(pos.x, pos.y, pos.z);
+    position_set_rot(pos.yaw, pos.pitch);
+    position_ingest_emit_full(pkt_name);
+  } else {
+    lc_c2s_position pos;
+    if (lc_parse_c2s_position(payload, payload_len, &pos) != LC_OK) return 1;
+    int32_t cx = (int32_t)floor(pos.x / 16.0);
+    int32_t cz = (int32_t)floor(pos.z / 16.0);
+    if (raw_dir &&
+        raw_path_client_coord(path, sizeof path, raw_dir, pkt_name, cx, cz, pos.x, pos.y, pos.z) ==
+            0) {
+      if (archive_raw(raw_dir, path, wire, wire_len) != 0) return -1;
+    }
+    position_set_xyz(pos.x, pos.y, pos.z);
+    position_ingest_emit_xyz(pkt_name);
+  }
+
+  clock_gettime(CLOCK_MONOTONIC, &t1);
+  *handler_ns = timespec_ns(&t1) - timespec_ns(&t0);
+  log_done(pkt_name, "client", *handler_ns);
+  return 0;
+}
+
+static int process_c2s_look_pkt(const char *raw_dir, const uint8_t *wire, size_t wire_len,
+                                uint64_t *handler_ns) {
+  struct timespec t0, t1;
+  clock_gettime(CLOCK_MONOTONIC, &t0);
+
+  const uint8_t *payload = wire;
+  size_t payload_len = wire_len;
+  if (skip_payload(wire, wire_len, &payload, &payload_len) != 0) return 1;
+
+  lc_c2s_look lk;
+  if (lc_parse_c2s_look(payload, payload_len, &lk) != LC_OK) return 1;
+
+  char path[PATH_MAX_LC];
+  if (raw_dir && raw_path_client_flat(path, sizeof path, raw_dir, "c2s_look") == 0) {
+    if (archive_raw(raw_dir, path, wire, wire_len) != 0) return -1;
+  }
+
+  position_set_rot(lk.yaw, lk.pitch);
+  position_ingest_emit_full("c2s_look");
+
+  clock_gettime(CLOCK_MONOTONIC, &t1);
+  *handler_ns = timespec_ns(&t1) - timespec_ns(&t0);
+  log_done("c2s_look", "client/look", *handler_ns);
+  return 0;
+}
+
+static int process_c2s_flying_pkt(const char *raw_dir, const uint8_t *wire, size_t wire_len,
+                                   uint64_t *handler_ns) {
+  struct timespec t0, t1;
+  clock_gettime(CLOCK_MONOTONIC, &t0);
+
+  const uint8_t *payload = wire;
+  size_t payload_len = wire_len;
+  if (skip_payload(wire, wire_len, &payload, &payload_len) != 0) return 1;
+
+  lc_c2s_flying fl;
+  if (lc_parse_c2s_flying(payload, payload_len, &fl) != LC_OK) return 1;
+
+  char path[PATH_MAX_LC];
+  if (raw_dir && raw_path_client_flat(path, sizeof path, raw_dir, "c2s_flying") == 0) {
+    if (archive_raw(raw_dir, path, wire, wire_len) != 0) return -1;
+  }
+
+  clock_gettime(CLOCK_MONOTONIC, &t1);
+  *handler_ns = timespec_ns(&t1) - timespec_ns(&t0);
+  log_done("c2s_flying", "client/flying", *handler_ns);
+  return 0;
+}
+
+static int process_c2s_teleport_confirm_pkt(const char *raw_dir, const uint8_t *wire,
+                                            size_t wire_len, uint64_t *handler_ns) {
+  struct timespec t0, t1;
+  clock_gettime(CLOCK_MONOTONIC, &t0);
+
+  const uint8_t *payload = wire;
+  size_t payload_len = wire_len;
+  if (skip_payload(wire, wire_len, &payload, &payload_len) != 0) return 1;
+
+  lc_c2s_teleport_confirm tc;
+  if (lc_parse_c2s_teleport_confirm(payload, payload_len, &tc) != LC_OK) return 1;
+
+  char path[PATH_MAX_LC];
+  if (raw_dir && raw_path_client_teleport_confirm(path, sizeof path, raw_dir, tc.teleport_id) == 0) {
+    if (archive_raw(raw_dir, path, wire, wire_len) != 0) return -1;
+  }
+
+  clock_gettime(CLOCK_MONOTONIC, &t1);
+  *handler_ns = timespec_ns(&t1) - timespec_ns(&t0);
+  log_done("c2s_teleport_confirm", "client/teleport_confirm", *handler_ns);
   return 0;
 }
 
@@ -935,6 +1237,8 @@ static int process_unload_chunk_pkt(const char *raw_dir, const uint8_t *wire, si
     if (archive_raw(raw_dir, path, wire, wire_len) != 0) return -1;
   }
 
+  stream_ingest_emit_chunk_unload(uc.x, uc.z);
+
   clock_gettime(CLOCK_MONOTONIC, &t1);
   *handler_ns = timespec_ns(&t1) - timespec_ns(&t0);
   log_done("unload_chunk", "chunk", *handler_ns);
@@ -943,6 +1247,8 @@ static int process_unload_chunk_pkt(const char *raw_dir, const uint8_t *wire, si
 
 static int process_stream_packet(const char *pkt_name, const char *png_dir, const char *raw_dir,
                                  const uint8_t *wire, size_t wire_len, perf_stats *ps) {
+  mc_stream_cache_ingest(pkt_name, wire, wire_len);
+
   uint64_t handler_ns = 0;
   int rc = 1;
 
@@ -985,6 +1291,14 @@ static int process_stream_packet(const char *pkt_name, const char *png_dir, cons
     rc = process_raw_flat(raw_dir, pkt_name, wire, wire_len, &handler_ns);
   } else if (strcmp(pkt_name, "position") == 0) {
     rc = process_position_pkt(raw_dir, wire, wire_len, &handler_ns);
+  } else if (strcmp(pkt_name, "c2s_position") == 0 || strcmp(pkt_name, "c2s_position_look") == 0) {
+    rc = process_c2s_position_pkt(raw_dir, pkt_name, wire, wire_len, &handler_ns);
+  } else if (strcmp(pkt_name, "c2s_look") == 0) {
+    rc = process_c2s_look_pkt(raw_dir, wire, wire_len, &handler_ns);
+  } else if (strcmp(pkt_name, "c2s_flying") == 0) {
+    rc = process_c2s_flying_pkt(raw_dir, wire, wire_len, &handler_ns);
+  } else if (strcmp(pkt_name, "c2s_teleport_confirm") == 0) {
+    rc = process_c2s_teleport_confirm_pkt(raw_dir, wire, wire_len, &handler_ns);
   } else if (strcmp(pkt_name, "unload_chunk") == 0) {
     rc = process_unload_chunk_pkt(raw_dir, wire, wire_len, &handler_ns);
   } else {
@@ -1007,6 +1321,10 @@ static int serve_client(int fd, const char *png_dir, const char *raw_dir, perf_s
   uint8_t chunk[SOCK_READ_SZ];
   char pkt_name[PKT_NAME_MAX];
 
+  live_player_reset();
+  position_ingest_open();
+  mc_stream_cache_reset();
+
   for (;;) {
     perf_maybe_report(ps);
 
@@ -1015,12 +1333,14 @@ static int serve_client(int fd, const char *png_dir, const char *raw_dir, perf_s
       if (errno == EINTR) continue;
       perror("recv");
       rx_buf_free(&rb);
+      position_ingest_close();
       return -1;
     }
     if (n == 0) break;
     if (rx_buf_append(&rb, chunk, (size_t)n) != 0) {
       fprintf(stderr, "receive buffer overflow\n");
       rx_buf_free(&rb);
+      position_ingest_close();
       return -1;
     }
 
@@ -1033,12 +1353,14 @@ static int serve_client(int fd, const char *png_dir, const char *raw_dir, perf_s
         fprintf(stderr, "invalid frame\n");
         free(wire);
         rx_buf_free(&rb);
+        position_ingest_close();
         return -1;
       }
       int rc = process_stream_packet(pkt_name, png_dir, raw_dir, wire, wire_len, ps);
       free(wire);
       if (rc < 0) {
         rx_buf_free(&rb);
+        position_ingest_close();
         return -1;
       }
     }
@@ -1049,6 +1371,7 @@ static int serve_client(int fd, const char *png_dir, const char *raw_dir, perf_s
   perf_report_window(ps, &now);
 
   rx_buf_free(&rb);
+  position_ingest_close();
   return 0;
 }
 
@@ -1098,9 +1421,13 @@ static void default_raw_dir(const char *png_dir, char *out, size_t outlen) {
 
 static void usage(const char *prog) {
   fprintf(stderr,
-          "Usage: %s [-v] <port> <png_dir> [raw_dir]\n"
-          "       %s [-v] <bind_host> <port> <png_dir> [raw_dir]\n"
-          "  -v, --verbose  log each processed packet (default: stats only)\n",
+          "Usage: %s [-v] [--position-ingest HOST:PORT] [--spectator-port PORT] <port> <png_dir> "
+          "[raw_dir]\n"
+          "       %s [-v] ... [--spectator-host HOST] <bind_host> <port> <png_dir> [raw_dir]\n"
+          "  -v, --verbose  log each processed packet (default: stats only)\n"
+          "  --position-ingest  TCP JSON lines to player-map ingest (e.g. 127.0.0.1:3002)\n"
+          "  --spectator-port  C spectator MC server (offline auth, replays sniffer stream)\n"
+          "  --spectator-host  bind host for spectator (default 0.0.0.0)\n",
           prog, prog);
 }
 
@@ -1110,6 +1437,40 @@ static int parse_cli(int argc, char **argv, int *pos_argc, const char **pos_argv
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
       verbose_packets = 1;
+      continue;
+    }
+    if (strcmp(argv[i], "--position-ingest") == 0) {
+      if (i + 1 >= argc) {
+        fprintf(stderr, "--position-ingest requires HOST:PORT\n");
+        return -1;
+      }
+      if (parse_position_ingest(argv[++i]) != 0) {
+        fprintf(stderr, "invalid --position-ingest: %s\n", argv[i]);
+        return -1;
+      }
+      continue;
+    }
+    if (strcmp(argv[i], "--spectator-port") == 0) {
+      if (i + 1 >= argc) {
+        fprintf(stderr, "--spectator-port requires PORT\n");
+        return -1;
+      }
+      if (parse_port(argv[++i], &spectator_port) != 0) {
+        fprintf(stderr, "invalid --spectator-port: %s\n", argv[i]);
+        return -1;
+      }
+      continue;
+    }
+    if (strcmp(argv[i], "--spectator-host") == 0) {
+      if (i + 1 >= argc) {
+        fprintf(stderr, "--spectator-host requires HOST\n");
+        return -1;
+      }
+      if (strlen(argv[++i]) >= sizeof spectator_host) {
+        fprintf(stderr, "spectator host too long\n");
+        return -1;
+      }
+      snprintf(spectator_host, sizeof spectator_host, "%s", argv[i]);
       continue;
     }
     if (argv[i][0] == '-') {
@@ -1189,11 +1550,19 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  if (spectator_port > 0) {
+    if (mc_spectator_start(spectator_host, spectator_port) != 0) return 1;
+    atexit(mc_spectator_stop);
+  }
+
   int listen_fd = listen_tcp(bind_host, port);
   if (listen_fd < 0) return 1;
 
   fprintf(stderr, "chunk_stream_receiver %s:%d%s\n", bind_host, port,
           verbose_packets ? " (verbose)" : "");
+  if (spectator_port > 0) {
+    fprintf(stderr, "  spectator -> %s:%d (C, offline auth)\n", spectator_host, spectator_port);
+  }
   fprintf(stderr, "  png -> %s/rx*/rz*/cx*/cz*/x*_z*.png (map_chunk only)\n", png_dir);
   fprintf(stderr,
           "  raw -> %s/{map_chunk,block_change,multi_block_change,update_light,"
@@ -1201,7 +1570,7 @@ int main(int argc, char **argv) {
           raw_dir);
   fprintf(stderr,
           "        coord.<packet>.wire; spawn_entity by block pos; other entity by id (overwrite); "
-          "PNG only from map_chunk\n");
+          "client/c2s_* movement (overwrite); PNG only from map_chunk\n");
 
   perf_stats stats;
   perf_init(&stats);
@@ -1229,6 +1598,7 @@ int main(int argc, char **argv) {
 
     perf_session_summary(&stats);
     fprintf(stderr, "client disconnected\n");
+    mc_stream_cache_reset();
     close(client);
   }
 

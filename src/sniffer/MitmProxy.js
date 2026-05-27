@@ -201,6 +201,15 @@ class MitmProxy {
         upstreamState: session.upstream?.state,
       });
 
+      if (
+        meta.state === states.PLAY &&
+        client.state === states.PLAY &&
+        session.chunkStream &&
+        buffer?.length
+      ) {
+        session.chunkStream.sendC2s(buffer, meta.name);
+      }
+
       if (meta.name === 'login_acknowledged') {
         stripVanillaLoginHandlers(client);
         ensureClientConfigurationState(client);

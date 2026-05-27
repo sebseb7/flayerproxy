@@ -26,6 +26,11 @@ int lc_packet_name_supported(const char *name) {
       "entity_head_rotation",
       "entity_update_attributes",
       "position",
+      "c2s_position",
+      "c2s_position_look",
+      "c2s_look",
+      "c2s_flying",
+      "c2s_teleport_confirm",
       "respawn",
       "initialize_world_border",
       "registry_data",
@@ -156,6 +161,26 @@ int lc_decode_wire_to_string(const char *name, const uint8_t *wire, size_t wire_
     lc_position p;
     st = lc_parse_position(after_id, after_len, &p);
     if (st == LC_OK) lc_position_to_string(&p, out, out_sz);
+  } else if (strcmp(name, "c2s_position") == 0) {
+    lc_c2s_position p;
+    st = lc_parse_c2s_position(after_id, after_len, &p);
+    if (st == LC_OK) lc_c2s_position_to_string(&p, out, out_sz);
+  } else if (strcmp(name, "c2s_position_look") == 0) {
+    lc_c2s_position_look p;
+    st = lc_parse_c2s_position_look(after_id, after_len, &p);
+    if (st == LC_OK) lc_c2s_position_look_to_string(&p, out, out_sz);
+  } else if (strcmp(name, "c2s_look") == 0) {
+    lc_c2s_look p;
+    st = lc_parse_c2s_look(after_id, after_len, &p);
+    if (st == LC_OK) lc_c2s_look_to_string(&p, out, out_sz);
+  } else if (strcmp(name, "c2s_flying") == 0) {
+    lc_c2s_flying p;
+    st = lc_parse_c2s_flying(after_id, after_len, &p);
+    if (st == LC_OK) lc_c2s_flying_to_string(&p, out, out_sz);
+  } else if (strcmp(name, "c2s_teleport_confirm") == 0) {
+    lc_c2s_teleport_confirm p;
+    st = lc_parse_c2s_teleport_confirm(after_id, after_len, &p);
+    if (st == LC_OK) lc_c2s_teleport_confirm_to_string(&p, out, out_sz);
   } else if (strcmp(name, "respawn") == 0) {
     lc_respawn p;
     memset(&p, 0, sizeof p);

@@ -1,4 +1,7 @@
 #include "internal.h"
+#include "map_colors.h"
+
+#include <string.h>
 
 #define LC_CHUNK_MAGIC 0x4b43434c /* "LCCK" little-endian */
 #define LC_CHUNK_FMT_VERSION 1
@@ -8,6 +11,8 @@
 #define LC_MAX_BITS_PER_BIOME 3
 /** 1.21.5+ chunkData paletted containers omit long-count varint and single-value pad byte. */
 #define LC_MAP_CHUNK_NO_SIZE_PREFIX 1
+/** minecraft:plains in 1.21.10 registry; Java uses this for empty section biomes on flat worlds. */
+#define LC_PLAINS_BIOME_ID_DEFAULT 40
 
 /* --- growable output buffer --- */
 
@@ -67,6 +72,15 @@ static lc_status lc_out_u32_be(lc_out_buf *o, uint32_t v) {
 static lc_status lc_out_i64_le(lc_out_buf *o, int64_t v) {
   uint8_t b[8];
   for (int i = 0; i < 8; i++) b[i] = (uint8_t)(v >> (8 * i));
+  return lc_out_write(o, b, 8);
+}
+
+static lc_status lc_out_i64_be(lc_out_buf *o, int64_t v) {
+  uint8_t b[8];
+  for (int i = 7; i >= 0; i--) {
+    b[i] = (uint8_t)v;
+    v >>= 8;
+  }
   return lc_out_write(o, b, 8);
 }
 
@@ -137,6 +151,119 @@ static int16_t lc_count_solid_blocks(const int32_t *state_ids) {
     if (state_ids[i] != 0) count++;
   }
   return count;
+}
+
+#define LC_HEIGHTMAP_COLS 256
+#define LC_HEIGHTMAP_LONGS 37
+
+static const int32_t LC_HEIGHTMAP_TYPES[] = {1, 4, 5};
+
+static int32_t lc_chunk_block_at(const lc_chunk *c, int lx, int32_t world_y, int lz) {
+  const int32_t sy = world_y >> 4;
+  const lc_chunk_section *sec = NULL;
+  for (size_t i = 0; i < c->section_count; i++) {
+    if (c->sections[i].section_y == sy) {
+      sec = &c->sections[i];
+      break;
+    }
+  }
+  if (!sec) return 0;
+  const int32_t ly = world_y - (sy << 4);
+  if (ly < 0 || ly > 15) return 0;
+  return sec->state_ids[lc_block_index(lx, ly, lz)];
+}
+
+/** Wire encoding: relative Y = world_y - min_y + 1 (matches Java 1.21.10 flat-world capture). */
+static int32_t lc_heightmap_store_y(const lc_chunk *c, int32_t world_y) {
+  if (world_y < c->min_y) return 0;
+  return world_y - c->min_y + 1;
+}
+
+static int lc_state_world_surface(int32_t sid) { return sid != 0; }
+
+static int lc_state_motion_blocking(int32_t sid) {
+  return sid != 0 || lc_state_id_is_water(sid);
+}
+
+static int lc_state_motion_blocking_no_leaves(int32_t sid) {
+  if (sid == 0) return 0;
+  if (lc_state_id_is_water(sid)) return 1;
+  const char *name = lc_state_id_block_name(sid);
+  if (name && strstr(name, "_leaves") != NULL) return 0;
+  return 1;
+}
+
+static int32_t lc_chunk_column_height(const lc_chunk *c, int lx, int lz, int (*pred)(int32_t)) {
+  const int32_t y_max = c->min_y + c->world_height - 1;
+  for (int32_t wy = y_max; wy >= c->min_y; wy--) {
+    if (pred(lc_chunk_block_at(c, lx, wy, lz))) return wy;
+  }
+  return c->min_y - 1;
+}
+
+/** 9-bit columns; entries do not span longs (pad MSB, wiki chunk format). */
+static void lc_heightmap_pack_columns(const int32_t *heights, int64_t *values, size_t count) {
+  memset(values, 0, count * sizeof(int64_t));
+  size_t long_idx = 0;
+  int bit_in_long = 0;
+  for (int col = 0; col < LC_HEIGHTMAP_COLS; col++) {
+    const uint32_t v = (uint32_t)heights[col] & 0x1ffu;
+    for (int b = 0; b < 9; b++) {
+      if (bit_in_long >= 64) {
+        long_idx++;
+        bit_in_long = 0;
+      }
+      if ((v >> b) & 1) {
+        values[long_idx] |= (int64_t)1 << bit_in_long;
+      }
+      bit_in_long++;
+    }
+    if (bit_in_long > 0 && (64 - bit_in_long) < 9) {
+      long_idx++;
+      bit_in_long = 0;
+    }
+  }
+}
+
+static lc_status lc_heightmap_add_columns(lc_heightmap_arr *hm, int type_id, const int32_t *heights) {
+  size_t n = hm->count + 1;
+  lc_heightmap *items = (lc_heightmap *)realloc(hm->items, n * sizeof(lc_heightmap));
+  if (!items) return LC_ERR_OOM;
+  hm->items = items;
+  lc_heightmap *h = &hm->items[hm->count++];
+  memset(h, 0, sizeof *h);
+  h->type_id = type_id;
+  h->type_name = lc_heightmap_type_name(type_id);
+  h->data.count = LC_HEIGHTMAP_LONGS;
+  h->data.values = (int64_t *)calloc(LC_HEIGHTMAP_LONGS, sizeof(int64_t));
+  if (!h->data.values) return LC_ERR_OOM;
+  lc_heightmap_pack_columns(heights, h->data.values, LC_HEIGHTMAP_LONGS);
+  return LC_OK;
+}
+
+lc_status lc_chunk_build_heightmaps(lc_chunk *c) {
+  if (!c) return LC_ERR_INVALID;
+
+  int32_t cols[LC_HEIGHTMAP_COLS];
+  int (*preds[])(int32_t) = {lc_state_world_surface, lc_state_motion_blocking,
+                              lc_state_motion_blocking_no_leaves};
+
+  lc_heightmap_arr_free(&c->heightmaps);
+
+  for (size_t ti = 0; ti < sizeof(LC_HEIGHTMAP_TYPES) / sizeof(LC_HEIGHTMAP_TYPES[0]); ti++) {
+    int col_i = 0;
+    for (int lz = 0; lz < 16; lz++) {
+      for (int lx = 0; lx < 16; lx++) {
+        const int32_t wy = lc_chunk_column_height(c, lx, lz, preds[ti]);
+        cols[col_i++] = lc_heightmap_store_y(c, wy);
+      }
+    }
+    if (lc_heightmap_add_columns(&c->heightmaps, LC_HEIGHTMAP_TYPES[ti], cols) != LC_OK) {
+      lc_heightmap_arr_free(&c->heightmaps);
+      return LC_ERR_OOM;
+    }
+  }
+  return LC_OK;
 }
 
 /* --- wire BitArray (Minecraft PalettedContainer: BE u32 pairs per 64-bit long) --- */
@@ -485,6 +612,16 @@ static void lc_build_palette(const int32_t *state_ids, lc_palette_build *pal) {
   }
 }
 
+static lc_status lc_encode_biome_section(const lc_chunk_section *sec, lc_out_buf *o) {
+  int32_t biome = sec->has_biomes ? sec->biome_ids[0] : LC_PLAINS_BIOME_ID_DEFAULT;
+  if (lc_out_u8(o, 0) != LC_OK) return LC_ERR_OOM;
+  if (lc_out_varint(o, biome) != LC_OK) return LC_ERR_OOM;
+  if (!LC_MAP_CHUNK_NO_SIZE_PREFIX) {
+    if (lc_out_u8(o, 0) != LC_OK) return LC_ERR_OOM;
+  }
+  return LC_OK;
+}
+
 static lc_status lc_encode_section(const lc_chunk_section *sec, lc_out_buf *o) {
   lc_palette_build pal;
   lc_build_palette(sec->state_ids, &pal);
@@ -494,20 +631,18 @@ static lc_status lc_encode_section(const lc_chunk_section *sec, lc_out_buf *o) {
   if (lc_out_i16_be(o, solid) != LC_OK) return LC_ERR_OOM;
   if (lc_out_u8(o, (uint8_t)bits) != LC_OK) return LC_ERR_OOM;
 
+  /* bits=0 uses SingleValuePalette: one registry id varint, no long array. */
+  if (bits == 0) {
+    if (pal.count != 1) return LC_ERR_INVALID;
+    if (lc_out_varint(o, pal.entries[0]) != LC_OK) return LC_ERR_OOM;
+    return LC_OK;
+  }
+
   if (bits <= LC_MAX_BITS_PER_BLOCK) {
     if (lc_out_varint(o, (int32_t)pal.count) != LC_OK) return LC_ERR_OOM;
     for (size_t i = 0; i < pal.count; i++) {
       if (lc_out_varint(o, pal.entries[i]) != LC_OK) return LC_ERR_OOM;
     }
-  }
-
-  if (bits == 0) {
-    if (pal.count != 1) return LC_ERR_INVALID;
-    if (lc_out_varint(o, pal.entries[0]) != LC_OK) return LC_ERR_OOM;
-    if (!LC_MAP_CHUNK_NO_SIZE_PREFIX) {
-      if (lc_out_u8(o, 0) != LC_OK) return LC_ERR_OOM;
-    }
-    return LC_OK;
   }
 
   int bits_per_value = bits;
@@ -544,28 +679,22 @@ static int lc_chunk_compare_section_y(const void *a, const void *b) {
 static lc_status lc_encode_chunk_data(const lc_chunk *c, lc_byte_buf *out) {
   lc_out_buf o;
   memset(&o, 0, sizeof(o));
-  if (c->section_count == 0) {
+
+  const int32_t base_y = c->min_y >> 4;
+  const int num_sections = c->world_height >> 4;
+  if (num_sections <= 0) {
     out->data = NULL;
     out->len = 0;
     return LC_OK;
   }
 
-  lc_chunk_section *sorted = (lc_chunk_section *)malloc(c->section_count * sizeof(lc_chunk_section));
-  if (!sorted) return LC_ERR_OOM;
-  memcpy(sorted, c->sections, c->section_count * sizeof(lc_chunk_section));
-  qsort(sorted, c->section_count, sizeof(lc_chunk_section), lc_chunk_compare_section_y);
-
-  int32_t first_y = sorted[0].section_y;
-  int32_t last_y = sorted[c->section_count - 1].section_y;
-  int32_t base_y = c->min_y >> 4;
-  if (first_y < base_y) first_y = base_y;
-
   lc_status st = LC_OK;
-  for (int32_t sy = first_y; sy <= last_y; sy++) {
+  for (int i = 0; i < num_sections; i++) {
+    const int32_t sy = base_y + i;
     lc_chunk_section *match = NULL;
-    for (size_t i = 0; i < c->section_count; i++) {
-      if (c->sections[i].section_y == sy) {
-        match = &c->sections[i];
+    for (size_t j = 0; j < c->section_count; j++) {
+      if (c->sections[j].section_y == sy) {
+        match = &c->sections[j];
         break;
       }
     }
@@ -577,9 +706,10 @@ static lc_status lc_encode_chunk_data(const lc_chunk *c, lc_byte_buf *out) {
     }
     st = lc_encode_section(match, &o);
     if (st != LC_OK) break;
+    st = lc_encode_biome_section(match, &o);
+    if (st != LC_OK) break;
   }
 
-  free(sorted);
   if (st != LC_OK) {
     lc_out_free(&o);
     return st;
@@ -677,7 +807,7 @@ static lc_status lc_write_heightmaps(lc_out_buf *o, const lc_heightmap_arr *hm) 
     if (lc_out_varint(o, hm->items[i].type_id) != LC_OK) return LC_ERR_OOM;
     if (lc_out_varint(o, (int32_t)hm->items[i].data.count) != LC_OK) return LC_ERR_OOM;
     for (size_t j = 0; j < hm->items[i].data.count; j++) {
-      if (lc_out_i64_le(o, hm->items[i].data.values[j]) != LC_OK) return LC_ERR_OOM;
+      if (lc_out_i64_be(o, hm->items[i].data.values[j]) != LC_OK) return LC_ERR_OOM;
     }
   }
   return LC_OK;
@@ -753,7 +883,7 @@ fail:
 static lc_status lc_write_i64_array(lc_out_buf *o, const lc_i64_arr *a) {
   if (lc_out_varint(o, (int32_t)a->count) != LC_OK) return LC_ERR_OOM;
   for (size_t i = 0; i < a->count; i++) {
-    if (lc_out_i64_le(o, a->values[i]) != LC_OK) return LC_ERR_OOM;
+    if (lc_out_i64_be(o, a->values[i]) != LC_OK) return LC_ERR_OOM;
   }
   return LC_OK;
 }
@@ -776,8 +906,6 @@ void lc_chunk_init(lc_chunk *c) {
   c->min_y = LC_CHUNK_DEFAULT_MIN_Y;
   c->world_height = LC_CHUNK_DEFAULT_WORLD_HEIGHT;
 }
-
-#define LC_PLAINS_BIOME_ID_DEFAULT 40
 
 int32_t lc_chunk_biome_at(const lc_chunk *c, int lx, int32_t world_y, int lz) {
   if (!c) return LC_PLAINS_BIOME_ID_DEFAULT;

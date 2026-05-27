@@ -127,13 +127,16 @@ make chunk_stream_receiver
 # terminal 1 — receiver (default bind 0.0.0.0; add -v for per-packet stderr logs)
 ./build/chunk_stream_receiver 25570 logs/sniffer/chunks/png2 logs/sniffer/chunks/raw2
 
+# optional C spectator server (offline auth; replays sniffer config/play wires, else grass world)
+./build/chunk_stream_receiver --spectator-port 25568 25570 logs/sniffer/chunks/png logs/sniffer/chunks/png/raw
+
 # config.json: "chunkStream": { "host": "127.0.0.1", "port": 25570 }
 
 # terminal 2 — sniffer + Minecraft client
 npm run sniffer
 ```
 
-PNG and raw `map_chunk` use the same hierarchy: `<dir>/rx…/rz…/cx…/cz…/` with `x{worldX}_z{worldZ}.png` and `x{worldX}_z{worldZ}.map_chunk.wire` (latest packet overwrites). Chunk/block packets use `coord.<packet>.wire` (e.g. `x…_z….update_light.wire`, `x…_y…_z….block_change.wire`, `unload_chunk/…/x…_z….unload_chunk.wire`). `spawn_entity` is coordinate-based under `spawn_entity/rx…/rz…/cx…/cz…/x…_y…_z….spawn_entity.wire`. Other entity packets: `<raw_dir>/<packet>/eu…/eu…/e<id>/<entityId>.<packet>.wire` (`entity_teleport`, effects, `entity_look` flat under `<packet>/` until parsed). Player packets: `<raw_dir>/player/<packet>/<packet>.wire` (`position` uses `player/position/rx…/…/x…_y…_z….position.wire`). Registry/recipe sync: `<raw_dir>/config/…`. Tab list, scoreboard, border, time, view: `<raw_dir>/misc/…`. Without `-v`, stderr only shows connect/disconnect, errors, and periodic stats (every 60s when packets arrived: packets/s and handler CPU share; session end: total handler time and wall-time %). Pass `-v` / `--verbose` to log each processed packet.
+PNG and raw `map_chunk` use the same hierarchy: `<dir>/rx…/rz…/cx…/cz…/` with `x{worldX}_z{worldZ}.png` and `x{worldX}_z{worldZ}.map_chunk.wire` (latest packet overwrites). Chunk/block packets use `coord.<packet>.wire` (e.g. `x…_z….update_light.wire`, `x…_y…_z….block_change.wire`, `unload_chunk/…/x…_z….unload_chunk.wire`). `spawn_entity` is coordinate-based under `spawn_entity/rx…/rz…/cx…/cz…/x…_y…_z….spawn_entity.wire`. Other entity packets: `<raw_dir>/<packet>/eu…/eu…/e<id>/<entityId>.<packet>.wire` (`entity_teleport`, effects, `entity_look` flat under `<packet>/` until parsed). Player packets: `<raw_dir>/player/<packet>/<packet>.wire` (`position` uses `player/position/rx…/…/x…_y…_z….position.wire`). Client movement (C2S): `<raw_dir>/client/c2s_position/…/x…_y…_z….c2s_position.wire` (and `c2s_position_look`); `c2s_look` / `c2s_flying` flat under `client/`; `c2s_teleport_confirm/<id>.c2s_teleport_confirm.wire`. Registry/recipe sync: `<raw_dir>/config/…`. Tab list, scoreboard, border, time, view: `<raw_dir>/misc/…`. Without `-v`, stderr only shows connect/disconnect, errors, and periodic stats (every 60s when packets arrived: packets/s and handler CPU share; session end: total handler time and wall-time %). Pass `-v` / `--verbose` to log each processed packet.
 
 Stitch those chunk PNGs into **512×512** megatile AVIFs (16×16 chunks, black gaps). Requires `libavif-dev` (links `-lavif`). `stitch_megatiles` walks `<png_dir>` recursively (`rx…/rz…/cx…/cz…/x*_z*.png`; skips `raw/` and `X16/`). Default output: `<png_dir>/X16/`; pass a second argument for another directory.
 

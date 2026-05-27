@@ -95,11 +95,29 @@ static int decode_window_items(const uint8_t *payload, size_t payload_len, char 
   memset(&carried, 0, sizeof carried);
   if (lc_slot_read(&b, &carried) != LC_OK) return -1;
   lc_byte_buf_free(&carried.item_extra);
-  return lc_snprintf(out, out_sz,
-                     "window_items{windowId=%u,stateId=%d,slots=%d,nonEmpty=%d,carriedCount=%d}",
-                     (unsigned)window_id, state_id, n, non_empty, carried.item_count) > 0
-             ? 1
-             : -1;
+  int w = lc_snprintf(out, out_sz,
+                      "window_items{windowId=%u,stateId=%d,slots=%d,nonEmpty=%d,carriedCount=%d}",
+                      (unsigned)window_id, state_id, n, non_empty, carried.item_count);
+  return w > 0 && (size_t)w < out_sz ? 1 : -1;
+}
+
+static int decode_window_items_summary(const uint8_t *payload, size_t payload_len, char *out,
+                                       size_t out_sz) {
+  lc_buf b;
+  lc_buf_init(&b, payload, payload_len);
+  uint8_t window_id = 0;
+  int32_t state_id = 0;
+  int32_t n = -1;
+  if (lc_buf_read_u8(&b, &window_id) == LC_OK && lc_buf_read_varint(&b, &state_id) == LC_OK &&
+      lc_buf_read_varint(&b, &n) == LC_OK && n >= 0) {
+    return lc_snprintf(out, out_sz,
+                       "window_items{windowId=%u,stateId=%d,slots=%d,"
+                       "payload=%zu bytes (slot parse incomplete)}",
+                       (unsigned)window_id, state_id, n, payload_len) > 0
+               ? 1
+               : -1;
+  }
+  return summary_only("window_items", payload_len, out, out_sz);
 }
 
 static int decode_set_slot(const uint8_t *payload, size_t payload_len, char *out, size_t out_sz) {
@@ -305,8 +323,11 @@ int lc_decode_play_stream_to_string(const char *name, const uint8_t *payload, si
   if (!name || !out || out_sz == 0) return -1;
 
   if (strcmp(name, "login") == 0) return decode_login(payload, payload_len, out, out_sz);
-  if (strcmp(name, "window_items") == 0)
-    return decode_window_items(payload, payload_len, out, out_sz);
+  if (strcmp(name, "window_items") == 0) {
+    int rc = decode_window_items(payload, payload_len, out, out_sz);
+    if (rc == 1) return 1;
+    return decode_window_items_summary(payload, payload_len, out, out_sz);
+  }
   if (strcmp(name, "set_slot") == 0) return decode_set_slot(payload, payload_len, out, out_sz);
   if (strcmp(name, "set_player_inventory") == 0)
     return decode_set_player_inventory(payload, payload_len, out, out_sz);
@@ -532,6 +553,46 @@ int lc_decode_play_stream_to_string(const char *name, const uint8_t *payload, si
     lc_initialize_world_border wb;
     if (lc_parse_initialize_world_border(payload, payload_len, &wb) != LC_OK) return -1;
     return lc_initialize_world_border_to_string(&wb, out, out_sz) > 0 ? 1 : -1;
+  }
+
+  if (strcmp(name, "player_remove") == 0) {
+    lc_buf b;
+    lc_buf_init(&b, payload, payload_len);
+    int32_t n;
+    if (lc_buf_read_varint(&b, &n) != LC_OK) return -1;
+    if (n < 0) return -1;
+    char uuid0[40] = "";
+    if (n > 0) {
+      lc_uuid u;
+      if (lc_buf_read_uuid(&b, &u) != LC_OK) return -1;
+      lc_uuid_to_string(&u, uuid0, sizeof uuid0);
+    }
+    for (int32_t i = 1; i < n; i++) {
+      lc_uuid u;
+      if (lc_buf_read_uuid(&b, &u) != LC_OK) return -1;
+    }
+    if (n == 0) {
+      return lc_snprintf(out, out_sz, "player_remove{count=0}") > 0 ? 1 : -1;
+    }
+    if (n == 1) {
+      return lc_snprintf(out, out_sz, "player_remove{count=1,uuid0=%s}", uuid0) > 0 ? 1 : -1;
+    }
+    return lc_snprintf(out, out_sz, "player_remove{count=%d,uuid0=%s,...}", n, uuid0) > 0 ? 1 : -1;
+  }
+
+  if (strcmp(name, "playerlist_header") == 0) {
+    lc_buf b;
+    lc_buf_init(&b, payload, payload_len);
+    size_t pos0 = b.off;
+    if (lc_nbt_skip_anonymous(&b) != LC_OK) return -1;
+    size_t header_nbt = b.off - pos0;
+    pos0 = b.off;
+    if (lc_nbt_skip_anonymous(&b) != LC_OK) return -1;
+    size_t footer_nbt = b.off - pos0;
+    return lc_snprintf(out, out_sz, "playerlist_header{headerNbt=%zu,footerNbt=%zu}", header_nbt,
+                      footer_nbt) > 0
+               ? 1
+               : -1;
   }
 
   return summary_only(name, payload_len, out, out_sz) > 0 ? 1 : -1;
