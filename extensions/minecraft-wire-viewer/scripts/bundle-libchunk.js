@@ -12,6 +12,7 @@ const COPY = [
   'index.js',
   'index.d.ts',
   'wirePath.js',
+  'playPacketNames.js',
   'package.json',
   'build/Release/chunk.node',
 ];
@@ -57,5 +58,43 @@ fs.writeFileSync(
     2
   ) + '\n'
 );
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const wirePath = require(path.join(destRoot, 'wirePath.js'));
+const probe = 'raw/client/c2s_position/rx0/rz0/cx0/cz0/x0_y0_z0.c2s_position.wire';
+if (wirePath.packetNameFromPath(probe) !== 'c2s_position') {
+  console.error('Bundled wirePath.js does not recognize c2s_position paths');
+  process.exit(1);
+}
+const captureProbes = [
+  ['0290_play_51_entity_head_rotation.wire', 'entity_head_rotation'],
+  ['0062_play_10_declare_commands.wire', 'declare_commands'],
+  ['0047_play_77_system_chat.wire', 'system_chat'],
+  ['0058_play_7d_set_ticking_state.wire', 'set_ticking_state'],
+  ['0031_play_83_update_recipes.wire', 'update_recipes'],
+];
+for (const [capturePath, packet] of captureProbes) {
+  if (wirePath.packetNameFromPath(capturePath) !== packet) {
+    console.error(`Bundled wirePath.js: expected ${packet} from ${capturePath}`);
+    process.exit(1);
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const native = require(path.join(destRoot, 'index.js'));
+const requiredDecoders = [
+  'c2s_position',
+  'entity_head_rotation',
+  'declare_commands',
+  'system_chat',
+  'set_ticking_state',
+  'update_recipes',
+];
+for (const packet of requiredDecoders) {
+  if (!native.isPacketSupported(packet)) {
+    console.error('Bundled native addon missing decoder:', packet);
+    process.exit(1);
+  }
+}
 
 console.log('Bundled libchunk into', destRoot);

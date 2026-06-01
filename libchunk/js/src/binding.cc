@@ -50,6 +50,7 @@ Napi::Value SupportedPackets(const Napi::CallbackInfo &info) {
       "world_border_warning_reach",
       "simulation_distance", "update_view_distance",
       "update_view_position", "declare_commands",
+      "system_chat",          "set_ticking_state",
       "player_info",         "player_remove",
       "playerlist_header",   "scoreboard_objective",
       "scoreboard_display_objective",

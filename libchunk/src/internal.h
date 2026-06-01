@@ -72,6 +72,12 @@ int lc_wire_hex_fprint(FILE *f, const uint8_t *wire, size_t len);
 int lc_registry_data_fprint(FILE *f, const lc_registry_data *p);
 
 lc_status lc_slot_read(lc_buf *b, lc_equipment *eq);
+lc_status lc_slot_skip(lc_buf *b);
+lc_status lc_nbt_extract_chat_summary(lc_buf *b, char **text_out, char **translate_out);
+int lc_decode_declare_commands(const uint8_t *payload, size_t payload_len, char *out, size_t out_sz);
+int lc_decode_update_recipes(const uint8_t *payload, size_t payload_len, char *out, size_t out_sz);
+int lc_decode_system_chat(const uint8_t *payload, size_t payload_len, char *out, size_t out_sz);
+int lc_decode_set_ticking_state(const uint8_t *payload, size_t payload_len, char *out, size_t out_sz);
 lc_status lc_read_top_bit_array(lc_buf *b, lc_equipment_arr *out);
 const char *lc_slot_component_type_name(int32_t id);
 int lc_slot_fprint_equipment_entry(FILE *f, const lc_equipment *eq, const char *indent);

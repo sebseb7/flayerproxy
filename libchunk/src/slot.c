@@ -378,6 +378,13 @@ static lc_status lc_skip_slot_component_data(lc_buf *b, int32_t comp_type) {
 /* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
  * Callers: metadata.c, play_stream.c, slot.c (same file).
  */
+lc_status lc_slot_skip(lc_buf *b) {
+  lc_equipment eq;
+  lc_status st = lc_slot_read(b, &eq);
+  lc_byte_buf_free(&eq.item_extra);
+  return st;
+}
+
 lc_status lc_slot_read(lc_buf *b, lc_equipment *eq) {
   memset(eq, 0, sizeof(*eq));
   eq->item_id = -1;

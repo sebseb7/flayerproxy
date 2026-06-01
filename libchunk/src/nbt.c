@@ -535,6 +535,84 @@ static lc_status lc_nbt_compound_take_text(lc_buf *b, char **out) {
     if (lc_nbt_skip_payload(b, tag) != LC_OK) return LC_ERR_TRUNCATED;
   }
 }
+
+lc_status lc_nbt_extract_chat_summary(lc_buf *b, char **text_out, char **translate_out) {
+  if (text_out) *text_out = NULL;
+  if (translate_out) *translate_out = NULL;
+  if (!b) return LC_ERR_INVALID;
+
+  uint8_t tag;
+  if (lc_buf_read_u8(b, &tag) != LC_OK) return LC_ERR_TRUNCATED;
+  if (tag != TAG_COMPOUND) {
+    if (lc_nbt_skip_payload(b, tag) != LC_OK) return LC_ERR_TRUNCATED;
+    return LC_OK;
+  }
+
+  while (1) {
+    if (lc_buf_read_u8(b, &tag) != LC_OK) return LC_ERR_TRUNCATED;
+    if (tag == TAG_END) return LC_OK;
+    uint16_t name_len;
+    if (lc_buf_read_u16_be(b, &name_len) != LC_OK) return LC_ERR_TRUNCATED;
+    if ((size_t)name_len > lc_buf_remaining(b)) return LC_ERR_TRUNCATED;
+    const char *name = (const char *)(b->data + b->off);
+    b->off += name_len;
+
+    if (name_len == 4 && memcmp(name, "text", 4) == 0 && tag == TAG_STRING) {
+      char *s = NULL;
+      if (lc_nbt_read_wire_string(b, &s) != LC_OK) return LC_ERR_TRUNCATED;
+      lc_sign_merge_line(text_out, s);
+      continue;
+    }
+    if (name_len == 9 && memcmp(name, "insertion", 9) == 0 && tag == TAG_STRING) {
+      char *s = NULL;
+      if (lc_nbt_read_wire_string(b, &s) != LC_OK) return LC_ERR_TRUNCATED;
+      lc_sign_merge_line(text_out, s);
+      continue;
+    }
+    if (name_len == 9 && memcmp(name, "translate", 9) == 0 && tag == TAG_STRING) {
+      char *s = NULL;
+      if (lc_nbt_read_wire_string(b, &s) != LC_OK) return LC_ERR_TRUNCATED;
+      if (translate_out) {
+        free(*translate_out);
+        *translate_out = s;
+      } else {
+        free(s);
+      }
+      continue;
+    }
+    if (name_len == 4 && memcmp(name, "text", 4) == 0 && tag == TAG_COMPOUND) {
+      char *s = NULL;
+      if (lc_nbt_compound_take_text(b, &s) != LC_OK) return LC_ERR_TRUNCATED;
+      lc_sign_merge_line(text_out, s);
+      continue;
+    }
+    if (((name_len == 5 && memcmp(name, "extra", 5) == 0) ||
+         (name_len == 4 && memcmp(name, "with", 4) == 0)) &&
+        tag == TAG_LIST) {
+      uint8_t elem;
+      uint32_t count;
+      if (lc_buf_read_u8(b, &elem) != LC_OK) return LC_ERR_TRUNCATED;
+      if (lc_buf_read_u32_be(b, &count) != LC_OK) return LC_ERR_TRUNCATED;
+      for (uint32_t i = 0; i < count; i++) {
+        if (elem == TAG_STRING) {
+          char *part = NULL;
+          if (lc_nbt_read_wire_string(b, &part) != LC_OK) return LC_ERR_TRUNCATED;
+          lc_sign_merge_line(text_out, part);
+          continue;
+        }
+        if (elem == TAG_COMPOUND) {
+          char *part = NULL;
+          if (lc_nbt_compound_take_text(b, &part) != LC_OK) return LC_ERR_TRUNCATED;
+          lc_sign_merge_line(text_out, part);
+          continue;
+        }
+        if (lc_nbt_skip_payload(b, elem) != LC_OK) return LC_ERR_TRUNCATED;
+      }
+      continue;
+    }
+    if (lc_nbt_skip_payload(b, tag) != LC_OK) return LC_ERR_TRUNCATED;
+  }
+}
 /* Good for: Read sign messages[] into line pointers.
  * Callers: nbt.c (same file).
  */

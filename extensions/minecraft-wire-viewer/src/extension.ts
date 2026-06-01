@@ -2,16 +2,64 @@ import * as fs from 'fs';
 import * as vscode from 'vscode';
 import * as path from 'path';
 
-// Bundled at vendor/libchunk (VSIX) or ../../libchunk/js (extension dev host)
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const libchunk: typeof import('@flayerproxy/libchunk') = (() => {
-  const vendored = path.join(__dirname, '..', 'vendor', 'libchunk');
-  try {
-    return require(vendored);
-  } catch {
-    return require(path.join(__dirname, '..', '..', '..', 'libchunk', 'js'));
+const C2S_PATH_PROBE =
+  'raw/client/c2s_position/rx0/rz0/cx0/cz0/x0_y0_z0.c2s_position.wire';
+const REF_CAPTURE_PROBE = '0290_play_51_entity_head_rotation.wire';
+
+/** Path + packet name probes (mc_reference_client / out2 capture filenames). */
+const CAPTURE_PATH_PROBES: ReadonlyArray<readonly [string, string]> = [
+  [REF_CAPTURE_PROBE, 'entity_head_rotation'],
+  ['0062_play_10_declare_commands.wire', 'declare_commands'],
+  ['0047_play_77_system_chat.wire', 'system_chat'],
+  ['0058_play_7d_set_ticking_state.wire', 'set_ticking_state'],
+  ['0031_play_83_update_recipes.wire', 'update_recipes'],
+];
+
+type LibchunkModule = typeof import('@flayerproxy/libchunk') & { __libchunkRoot?: string };
+type WireMeta = ReturnType<LibchunkModule['parseWirePath']>;
+
+function libchunkProbeFailure(mod: LibchunkModule): string | null {
+  if (mod.packetNameFromPath(C2S_PATH_PROBE) !== 'c2s_position') {
+    return 'c2s_position path inference';
   }
-})();
+  for (const [capturePath, packet] of CAPTURE_PATH_PROBES) {
+    if (mod.packetNameFromPath(capturePath) !== packet) {
+      return `${packet} capture path (${capturePath})`;
+    }
+    if (!mod.isPacketSupported(packet)) {
+      return `${packet} decoder`;
+    }
+  }
+  return null;
+}
+
+/** Prefer a build that recognizes c2s_* sniffer paths (vendor, then repo libchunk/js). */
+function loadLibchunk(): LibchunkModule {
+  const candidates = [
+    path.join(__dirname, '..', 'vendor', 'libchunk'),
+    path.join(__dirname, '..', '..', '..', 'libchunk', 'js'),
+  ];
+  const errors: string[] = [];
+  for (const root of candidates) {
+    try {
+      const resolved = require.resolve(root);
+      delete require.cache[resolved];
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const mod = require(root) as LibchunkModule;
+      const fail = libchunkProbeFailure(mod);
+      if (!fail) {
+        mod.__libchunkRoot = root;
+        return mod;
+      }
+      errors.push(`${root}: missing ${fail}`);
+    } catch (err) {
+      errors.push(`${root}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  throw new Error(`libchunk not loaded (${errors.join('; ')})`);
+}
+
+const libchunk = loadLibchunk();
 
 const WIRE_EDITOR_VIEW = 'minecraftWireViewer.wireDecode';
 const HEX_MAX_BYTES = 4096;
@@ -44,6 +92,44 @@ function fileMtimeMs(filePath: string): number {
   return fs.statSync(filePath).mtimeMs;
 }
 
+function appendHexDump(lines: string[], wire: Buffer): void {
+  lines.push('## hex');
+  if (wire.length <= HEX_MAX_BYTES) {
+    lines.push(libchunk.hexDump(wire));
+  } else {
+    lines.push(
+      libchunk.hexDump(wire.subarray(0, HEX_MAX_BYTES)) +
+        `\n… (${wire.length - HEX_MAX_BYTES} more bytes; enable smaller captures or raise limit in settings)`
+    );
+  }
+  lines.push('');
+}
+
+function appendMetaHeader(lines: string[], filePath: string, meta: WireMeta): void {
+  lines.push(`# ${path.basename(filePath)}`);
+  lines.push(`# packet: ${meta.packet ?? '(unknown)'}`);
+  if (libchunk.__libchunkRoot) lines.push(`# libchunk: ${libchunk.__libchunkRoot}`);
+  if (meta.captureSeq != null) {
+    const id =
+      meta.protocolId != null
+        ? `0x${meta.protocolId.toString(16).padStart(2, '0')}`
+        : '?';
+    lines.push(
+      `# capture: [${String(meta.captureSeq).padStart(4, '0')}] ${meta.capturePhase ?? '?'} ${id}`
+    );
+  }
+  if (meta.category && meta.category !== meta.capturePhase) {
+    lines.push(`# archive: ${meta.category}/`);
+  }
+  if (meta.worldX != null) {
+    lines.push(
+      `# world: ${meta.worldX}${meta.worldY != null ? `, ${meta.worldY}` : ''}, ${meta.worldZ}`
+    );
+  }
+  if (meta.entityId != null) lines.push(`# entityId: ${meta.entityId}`);
+  if (meta.rx != null) lines.push(`# region rx${meta.rx} rz${meta.rz} cx${meta.cx} cz${meta.cz}`);
+}
+
 function formatDecode(filePath: string): string {
   const mtime = fileMtimeMs(filePath);
   const cached = decodeCache.get(filePath);
@@ -53,16 +139,7 @@ function formatDecode(filePath: string): string {
 
   const lines: string[] = [];
   const meta = libchunk.parseWirePath(filePath);
-  lines.push(`# ${path.basename(filePath)}`);
-  lines.push(`# packet: ${meta.packet ?? '(unknown)'}`);
-  if (meta.category) lines.push(`# archive: ${meta.category}/`);
-  if (meta.worldX != null) {
-    lines.push(
-      `# world: ${meta.worldX}${meta.worldY != null ? `, ${meta.worldY}` : ''}, ${meta.worldZ}`
-    );
-  }
-  if (meta.entityId != null) lines.push(`# entityId: ${meta.entityId}`);
-  if (meta.rx != null) lines.push(`# region rx${meta.rx} rz${meta.rz} cx${meta.cx} cz${meta.cz}`);
+  appendMetaHeader(lines, filePath, meta);
   lines.push('');
 
   try {
@@ -70,33 +147,43 @@ function formatDecode(filePath: string): string {
     lines.push(`# wire bytes: ${wire.length}`);
     lines.push('');
 
-    const showHex = getConfig().get<boolean>('showHexDump', false);
-    if (showHex) {
-      lines.push('## hex');
-      if (wire.length <= HEX_MAX_BYTES) {
-        lines.push(libchunk.hexDump(wire));
-      } else {
-        lines.push(
-          libchunk.hexDump(wire.subarray(0, HEX_MAX_BYTES)) +
-            `\n… (${wire.length - HEX_MAX_BYTES} more bytes; enable smaller captures or raise limit in settings)`
-        );
-      }
-      lines.push('');
+    const showHexAlways = getConfig().get<boolean>('showHexDump', false);
+    const showHexWhenUndecoded = getConfig().get<boolean>('showHexWhenUndecoded', true);
+
+    if (showHexAlways) {
+      appendHexDump(lines, wire);
     }
 
     lines.push('## decoded');
 
-    const packet = meta.packet ?? libchunk.packetNameFromPath(filePath);
+    const result = libchunk.decodeWireFile(filePath, wire);
+    const packet = result.packet ?? meta.packet ?? libchunk.packetNameFromPath(filePath);
+
     if (!packet) {
-      lines.push('(cannot infer packet from path)');
-    } else if (!libchunk.isPacketSupported(packet)) {
-      lines.push(`(libchunk does not decode: ${packet})`);
-    } else {
-      const result = libchunk.decodeWire(packet, wire);
-      if (result.ok && result.text) {
-        lines.push(result.text);
+      if (meta.protocolId != null) {
+        lines.push(
+          `(unknown packet name; protocol id 0x${meta.protocolId.toString(16).padStart(2, '0')})`
+        );
       } else {
-        lines.push(`error: ${result.error ?? 'parse failed'}`);
+        lines.push('(cannot infer packet from path)');
+      }
+      if (!showHexAlways && showHexWhenUndecoded) {
+        lines.push('');
+        appendHexDump(lines, wire);
+      }
+    } else if (result.unsupported) {
+      lines.push(`(libchunk has no structured decoder for ${packet})`);
+      if (!showHexAlways && showHexWhenUndecoded) {
+        lines.push('');
+        appendHexDump(lines, wire);
+      }
+    } else if (result.ok && result.text) {
+      lines.push(result.text);
+    } else {
+      lines.push(`error: ${result.error ?? 'parse failed'}`);
+      if (!showHexAlways && showHexWhenUndecoded) {
+        lines.push('');
+        appendHexDump(lines, wire);
       }
     }
   } catch (e) {
@@ -261,6 +348,12 @@ function refreshActiveWireEditor() {
 }
 
 export function activate(context: vscode.ExtensionContext) {
+  const libchunkGap = libchunkProbeFailure(libchunk);
+  if (libchunkGap) {
+    void vscode.window.showWarningMessage(
+      `Minecraft Wire Viewer: libchunk is outdated (missing ${libchunkGap}). Run: cd extensions/minecraft-wire-viewer && npm run bundle:libchunk`
+    );
+  }
   context.subscriptions.push(
     vscode.window.registerCustomEditorProvider(
       WIRE_EDITOR_VIEW,

@@ -310,6 +310,8 @@ static const char *PLAY_STREAM_NAMES[] = {
     "update_view_distance",
     "update_view_position",
     "declare_commands",
+    "system_chat",
+    "set_ticking_state",
     "player_info",
     "player_remove",
     "playerlist_header",
@@ -606,6 +608,15 @@ int lc_decode_play_stream_to_string(const char *name, const uint8_t *payload, si
     }
     return lc_snprintf(out, out_sz, "player_remove{count=%d,uuid0=%s,...}", n, uuid0) > 0 ? 1 : -1;
   }
+
+  if (strcmp(name, "declare_commands") == 0)
+    return lc_decode_declare_commands(payload, payload_len, out, out_sz);
+  if (strcmp(name, "update_recipes") == 0 || strcmp(name, "declare_recipes") == 0)
+    return lc_decode_update_recipes(payload, payload_len, out, out_sz);
+  if (strcmp(name, "system_chat") == 0)
+    return lc_decode_system_chat(payload, payload_len, out, out_sz);
+  if (strcmp(name, "set_ticking_state") == 0)
+    return lc_decode_set_ticking_state(payload, payload_len, out, out_sz);
 
   if (strcmp(name, "playerlist_header") == 0) {
     lc_buf b;

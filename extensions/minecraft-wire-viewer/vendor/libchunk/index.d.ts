@@ -9,7 +9,10 @@ export interface DecodeResult {
 
 export interface WireMeta {
   packet: string | null;
-  category?: 'player' | 'config' | 'misc';
+  category?: 'player' | 'config' | 'misc' | 'client' | string;
+  captureSeq?: number;
+  capturePhase?: string;
+  protocolId?: number;
   worldX?: number;
   worldY?: number;
   worldZ?: number;

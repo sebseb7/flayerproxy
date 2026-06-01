@@ -2,15 +2,12 @@
   "name": "minecraft-wire-viewer",
   "displayName": "Minecraft Wire Viewer",
   "description": "Decode flayerproxy sniffer .wire captures with libchunk",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "publisher": "flayerproxy",
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": ["Other"],
-  "activationEvents": [
-    "onCustomEditor:minecraftWireViewer.wireDecode"
-  ],
   "main": "./out/extension.js",
   "contributes": {
     "languages": [
@@ -59,6 +56,11 @@
           "type": "boolean",
           "default": false,
           "description": "Include hex dump in the decode view (slower for large captures)."
+        },
+        "minecraftWireViewer.showHexWhenUndecoded": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show hex dump when the packet is recognized but libchunk has no structured decoder (or decode failed)."
         },
         "minecraftWireViewer.watchFileChanges": {
           "type": "boolean",

@@ -4,62 +4,12 @@
 #include "libchunk.h"
 #include "mc_log.h"
 #include "mc_packet_ids.h"
+#include "mc_play_s2c_names.h"
 
 #include <stdio.h>
 #include <string.h>
 
-static const char *s2c_play_name(int32_t pkt_id) {
-  switch (pkt_id) {
-    case MC_PKT_PLAY_DIFFICULTY:
-      return "change_difficulty";
-    case MC_PKT_PLAY_CHUNK_BATCH_FINISHED:
-      return "chunk_batch_finished";
-    case MC_PKT_PLAY_CHUNK_BATCH_START:
-      return "chunk_batch_start";
-    case MC_PKT_PLAY_GAME_STATE_CHANGE:
-      return "game_event";
-    case MC_PKT_PLAY_INITIALIZE_WORLD_BORDER:
-      return "initialize_world_border";
-    case MC_PKT_PLAY_KEEP_ALIVE:
-      return "keep_alive";
-    case MC_PKT_PLAY_UNLOAD_CHUNK:
-      return "unload_chunk";
-    case MC_PKT_PLAY_MAP_CHUNK:
-      return "map_chunk";
-    case MC_PKT_PLAY_LIGHT_UPDATE:
-      return "light_update";
-    case MC_PKT_PLAY_LOGIN:
-      return "login";
-    case MC_PKT_PLAY_PING:
-      return "ping";
-    case MC_PKT_PLAY_ABILITIES:
-      return "abilities";
-    case MC_PKT_PLAY_PLAYER_INFO:
-      return "player_info";
-    case MC_PKT_PLAY_POSITION:
-      return "position";
-    case MC_PKT_PLAY_UPDATE_VIEW_POSITION:
-      return "update_view_position";
-    case MC_PKT_PLAY_UPDATE_VIEW_DISTANCE:
-      return "update_view_distance";
-    case MC_PKT_PLAY_SPAWN_POSITION:
-      return "spawn_position";
-    case MC_PKT_PLAY_EXPERIENCE:
-      return "experience";
-    case MC_PKT_PLAY_UPDATE_HEALTH:
-      return "update_health";
-    case MC_PKT_PLAY_SIMULATION_DISTANCE:
-      return "simulation_distance";
-    case MC_PKT_PLAY_UPDATE_TIME:
-      return "update_time";
-    case MC_PKT_PLAY_SET_TICKING_STATE:
-      return "ticking_state";
-    case MC_PKT_PLAY_STEP_TICK:
-      return "step_tick";
-    default:
-      return NULL;
-  }
-}
+static const char *s2c_play_name(int32_t pkt_id) { return mc_play_s2c_name(pkt_id); }
 /* Good for: Log map_chunk light mask summary to stderr.
  * Callers: mc_s2c_log.c (same file).
  */

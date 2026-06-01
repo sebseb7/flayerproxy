@@ -20,6 +20,7 @@
     "index.js",
     "index.d.ts",
     "wirePath.js",
+    "playPacketNames.js",
     "binding.gyp",
     "src/binding.cc"
   ],

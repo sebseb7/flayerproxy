@@ -1,9 +1,10 @@
 'use strict';
 
 const path = require('path');
+const playPacketNames = require('./playPacketNames');
 
 /** Packet names libchunk can decode (decode_wire.c + play_stream.c). */
-const PACKET_NAMES = new Set([
+const DECODED_PACKET_NAMES = new Set([
   'map_chunk',
   'unload_chunk',
   'update_light',
@@ -26,6 +27,11 @@ const PACKET_NAMES = new Set([
   'entity_effect',
   'remove_entity_effect',
   'position',
+  'c2s_position',
+  'c2s_position_look',
+  'c2s_look',
+  'c2s_flying',
+  'c2s_teleport_confirm',
   'respawn',
   'initialize_world_border',
   'registry_data',
@@ -54,6 +60,8 @@ const PACKET_NAMES = new Set([
   'update_view_distance',
   'update_view_position',
   'declare_commands',
+  'system_chat',
+  'set_ticking_state',
   'player_info',
   'player_remove',
   'playerlist_header',
@@ -73,15 +81,38 @@ const PACKET_NAMES = new Set([
   'recipe_book_settings',
 ]);
 
-const ARCHIVE_CATEGORIES = new Set(['player', 'config', 'misc']);
+/** Decodable + all protocol 773 play S2C / capture labels (path inference). */
+const PACKET_NAMES = new Set([...DECODED_PACKET_NAMES, ...playPacketNames]);
 
-const RE_COORD_XZ = /^x(-?\d+)_z(-?\d+)(?:\.([a-z_]+))?\.wire$/;
-const RE_COORD_XYZ = /^x(-?\d+)_y(-?\d+)_z(-?\d+)(?:\.([a-z_]+))?\.wire$/;
-const RE_ENTITY_ID_PKT = /^(-?\d+)\.([a-z_]+)\.wire$/;
-const RE_PKT_ONLY = /^([a-z_]+)\.wire$/;
-const RE_FLAT = /^([a-z_]+)\/([a-z_]+)\.wire$/;
-const RE_CATEGORY = /^(player|config|misc)\/([a-z_]+)\.wire$/;
-const RE_LEGACY = /^\d+-([a-z_]+)(?:-\d+)?$/;
+const ARCHIVE_CATEGORIES = new Set(['player', 'config', 'misc', 'client']);
+
+/** mc_reference_client: 0042_play_2c_map_chunk.wire */
+const RE_REFERENCE_CAPTURE =
+  /^(\d{4})_(login|config|play|hs)_([0-9a-f]{2})_([a-z0-9_]+)\.wire$/i;
+
+/** Packet suffix in filenames (includes c2s_* and numeric wire names). */
+const RE_PKT_SUFFIX = '[a-z0-9_]+';
+
+const RE_COORD_XZ = new RegExp(`^x(-?\\d+)_z(-?\\d+)(?:\\.(${RE_PKT_SUFFIX}))?\\.wire$`);
+const RE_COORD_XYZ = new RegExp(`^x(-?\\d+)_y(-?\\d+)_z(-?\\d+)(?:\\.(${RE_PKT_SUFFIX}))?\\.wire$`);
+const RE_ENTITY_ID_PKT = new RegExp(`^(-?\\d+)\\.(${RE_PKT_SUFFIX})\\.wire$`);
+const RE_PKT_ONLY = new RegExp(`^(${RE_PKT_SUFFIX})\\.wire$`);
+const RE_FLAT = new RegExp(`^(${RE_PKT_SUFFIX})\\/(${RE_PKT_SUFFIX})\\.wire$`);
+const RE_CATEGORY = new RegExp(`^(player|config|misc|client)\\/(${RE_PKT_SUFFIX})\\.wire$`);
+const RE_CLIENT_FLAT = new RegExp(`^(${RE_PKT_SUFFIX})\\.(${RE_PKT_SUFFIX})\\.wire$`);
+const RE_LEGACY = /^\d+-([a-z0-9_]+)(?:-\d+)?$/;
+
+function parseReferenceCaptureBasename(base) {
+  const m = base.match(RE_REFERENCE_CAPTURE);
+  if (!m) return null;
+  const label = m[4];
+  return {
+    captureSeq: Number(m[1]),
+    capturePhase: m[2],
+    protocolId: parseInt(m[3], 16),
+    packet: label === 'pkt' ? null : label,
+  };
+}
 
 /**
  * Infer packet name from a sniffer wire file path.
@@ -90,12 +121,18 @@ const RE_LEGACY = /^\d+-([a-z_]+)(?:-\d+)?$/;
  */
 function packetNameFromPath(filePath) {
   const base = path.basename(filePath);
+  const ref = parseReferenceCaptureBasename(base);
+  if (ref?.packet) return ref.packet;
+
   const parts = filePath.split(/[/\\]/);
 
   let m = base.match(RE_CATEGORY);
   if (m && PACKET_NAMES.has(m[2])) return m[2];
 
   m = base.match(RE_FLAT);
+  if (m && m[1] === m[2] && PACKET_NAMES.has(m[1])) return m[1];
+
+  m = base.match(RE_CLIENT_FLAT);
   if (m && m[1] === m[2] && PACKET_NAMES.has(m[1])) return m[1];
 
   m = base.match(RE_ENTITY_ID_PKT);
@@ -134,10 +171,19 @@ function packetFromParentDirs(parts) {
       if (ARCHIVE_CATEGORIES.has(next)) {
         const pkt = parts[i + 2];
         if (pkt && PACKET_NAMES.has(pkt)) return pkt;
+        if (next === 'client' && i + 2 < parts.length) {
+          const sub = parts[i + 2];
+          if (PACKET_NAMES.has(sub)) return sub;
+        }
       }
       if (next && PACKET_NAMES.has(next)) return next;
       break;
     }
+    if (seg === 'client') {
+      const pkt = parts[i + 1];
+      if (pkt && PACKET_NAMES.has(pkt)) return pkt;
+    }
+    if (seg === 'teleport_confirm') return 'c2s_teleport_confirm';
     if (ARCHIVE_CATEGORIES.has(seg)) {
       const pkt = parts[i + 1];
       if (pkt && PACKET_NAMES.has(pkt)) return pkt;
@@ -150,7 +196,7 @@ function packetFromParentDirs(parts) {
 /**
  * player/, config/, or misc/ when path uses chunk_stream_receiver category dirs.
  * @param {string} filePath
- * @returns {'player'|'config'|'misc'|null}
+ * @returns {'player'|'config'|'misc'|'client'|null}
  */
 function archiveCategoryFromPath(filePath) {
   const parts = filePath.split(/[/\\]/);
@@ -166,13 +212,20 @@ function archiveCategoryFromPath(filePath) {
 /**
  * Parse coordinates / entity id from path + basename.
  * @param {string} filePath
- * @returns {{ packet: string|null, category?: string, worldX?: number, worldY?: number, worldZ?: number, entityId?: number, rx?: number, rz?: number, cx?: number, cz?: number }}
+ * @returns {{ packet: string|null, category?: string, captureSeq?: number, capturePhase?: string, protocolId?: number, worldX?: number, worldY?: number, worldZ?: number, entityId?: number, rx?: number, rz?: number, cx?: number, cz?: number }}
  */
 function parseWirePath(filePath) {
   const base = path.basename(filePath);
   const parts = filePath.split(/[/\\]/);
-  const packet = packetNameFromPath(filePath);
-  const out = { packet, category: archiveCategoryFromPath(filePath) ?? undefined };
+  const ref = parseReferenceCaptureBasename(base);
+  const packet = ref?.packet ?? packetNameFromPath(filePath);
+  const out = {
+    packet,
+    category: archiveCategoryFromPath(filePath) ?? ref?.capturePhase ?? undefined,
+    captureSeq: ref?.captureSeq,
+    capturePhase: ref?.capturePhase,
+    protocolId: ref?.protocolId,
+  };
 
   let m = base.match(RE_COORD_XZ);
   if (m) {
@@ -254,10 +307,12 @@ function pngPathForWire(filePath, pngRoot) {
 }
 
 module.exports = {
+  DECODED_PACKET_NAMES,
   PACKET_NAMES,
   ARCHIVE_CATEGORIES,
   packetNameFromPath,
   parseWirePath,
   archiveCategoryFromPath,
   pngPathForWire,
+  parseReferenceCaptureBasename,
 };

@@ -34,4 +34,13 @@ if (blockChange) {
 }
 
 assert.ok(lib.supportedPackets().includes('map_chunk'));
+assert.ok(lib.supportedPackets().includes('c2s_position'));
+
+const c2s = findWire('client/c2s_position/rx');
+if (c2s) {
+  const r = lib.decodeWireFile(c2s);
+  assert.strictEqual(r.ok, true, r.error);
+  assert.strictEqual(r.packet, 'c2s_position');
+}
+
 console.log('ok', lib.supportedPackets().length, 'packets');
