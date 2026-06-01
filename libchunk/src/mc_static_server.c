@@ -9,7 +9,6 @@
 #include "mc_c2s_log.h"
 #include "mc_packet_ids.h"
 #include "mc_static_registries.h"
-#include "mc_static_registries_data.h"
 #include "mc_wire.h"
 #include "mc_wire_templates.h"
 
@@ -354,14 +353,16 @@ static void handle_client(int fd) {
       } else if (pkt_id == MC_PKT_C2S_CFG_KEEP_ALIVE) {
         handled = 1;
         mc_client_handle_keep_alive(&cli, payload, payload_len);
+      } else if (pkt_id == MC_PKT_C2S_CFG_SETTINGS || pkt_id == MC_PKT_C2S_CFG_CUSTOM_PAYLOAD) {
+        handled = 1;
       } else if (!config_sync_sent && pkt_id == MC_PKT_C2S_CFG_SELECT_KNOWN_PACKS) {
         handled = 1;
-        if (mc_static_send_registry_sync(cli.fd) != 0) {
+        if (mc_static_send_registry_sync(cli.fd, payload, payload_len) != 0) {
           free(packet);
           break;
         }
         config_sync_sent = 1;
-        MC_LOGEV("static_server", "registry sync sent (%zu registries + tags)", mc_static_registry_blob_count);
+        MC_LOGEV("static_server", "registry sync sent (%zu registries + tags)", mc_static_registry_count());
       } else if (pkt_id == MC_PKT_C2S_CFG_FINISH) {
         handled = 1;
         cli.state = MC_CLI_PLAY;
@@ -493,6 +494,12 @@ int mc_static_server_start(const mc_static_server_opts *opts) {
   if (g_opts.port <= 0) g_opts.port = 25565;
   if (!g_opts.host) g_opts.host = "0.0.0.0";
 
+  if (opts->registry_from_enabled) {
+    mc_static_registries_set_fetch(&opts->registry_from);
+  } else {
+    mc_static_registries_set_fetch(NULL);
+  }
+
   if (mc_templates_init() != 0) {
     MC_LOGE("static_server", "failed to init packet builders");
     return -1;
@@ -536,6 +543,13 @@ int mc_static_server_start(const mc_static_server_opts *opts) {
     g_listen_fd = -1;
     mc_templates_free();
     return -1;
+  }
+  if (opts->registry_from_enabled) {
+    MC_LOGI("static_server", "registry source: remote %s:%d (user=%s, load on first join)",
+            opts->registry_from.host, opts->registry_from.port,
+            opts->registry_from.username ? opts->registry_from.username : "FlayerBot");
+  } else {
+    MC_LOGI("static_server", "registry source: embedded (load on first join)");
   }
   MC_LOGI("static_server", "listening on %s:%d gamemode=%d", g_opts.host, g_opts.port, (int)g_opts.gamemode);
   return 0;

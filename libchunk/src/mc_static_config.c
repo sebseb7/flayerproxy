@@ -45,7 +45,7 @@ static int send_select_known_packs(int fd) {
   if (mc_buf_varint(&b, 1) != LC_OK) return -1;
   if (mc_buf_string(&b, "minecraft") != LC_OK) return -1;
   if (mc_buf_string(&b, "core") != LC_OK) return -1;
-  if (mc_buf_string(&b, "1.21.4") != LC_OK) return -1;
+  if (mc_buf_string(&b, "1.21.10") != LC_OK) return -1;
   int rc = mc_send_frame(fd, MC_PKT_CFG_SELECT_KNOWN_PACKS, b.data, b.len);
   mc_buf_free(&b);
   return rc;

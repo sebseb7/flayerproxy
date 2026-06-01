@@ -4,45 +4,238 @@
 #include "internal.h"
 #include "libchunk.h"
 #include "mc_packet_ids.h"
+#include "mc_registry_capture.h"
 #include "mc_server_common.h"
 #include "mc_static_registries_data.h"
 #include "mc_wire.h"
 #include "packets_write.h"
 
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
+
+static mc_static_registry_fetch g_fetch;
+static int g_fetch_enabled;
 
 static lc_registry_data *g_registries;
 static size_t g_registry_count;
 static lc_update_tags g_tags;
 static int g_tags_loaded;
-/* Good for: Send one registry_data blob on wire.
- * Callers: mc_static_registries.c (same file).
- */
 
-static int send_registry_blob(int fd, const mc_static_blob *blob) {
-  return mc_send_frame(fd, MC_PKT_CFG_REGISTRY_DATA, blob->data, blob->len);
-}
-/* Good for: Send update_tags blob on wire.
- * Callers: mc_static_registries.c (same file).
- */
+static mc_reg_sync_step *g_steps;
+static size_t g_step_count;
+static int g_owns_steps;
+static int g_send_reset_chat_before_finish;
 
-static int send_tags_blob(int fd) {
-  return mc_send_frame(fd, MC_PKT_COMMON_UPDATE_TAGS, mc_static_tags.data, mc_static_tags.len);
+static uint8_t *g_packs_key;
+static size_t g_packs_key_len;
+
+typedef enum {
+  REG_STATE_EMPTY = 0,
+  REG_STATE_LOADING,
+  REG_STATE_READY,
+  REG_STATE_FAILED,
+} reg_load_state;
+
+static pthread_mutex_t g_load_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t g_load_cond = PTHREAD_COND_INITIALIZER;
+static reg_load_state g_load_state = REG_STATE_EMPTY;
+
+static uint8_t *dup_bytes(const uint8_t *src, size_t len) {
+  if (len == 0) return (uint8_t *)calloc(1, 1);
+  uint8_t *p = (uint8_t *)malloc(len);
+  if (!p) return NULL;
+  memcpy(p, src, len);
+  return p;
 }
-/* Good for: Send reset_chat configuration packet.
- * Callers: mc_static_registries.c (same file).
- */
+
+static int packs_key_matches(const uint8_t *packs, size_t len) {
+  return g_packs_key && g_packs_key_len == len && memcmp(g_packs_key, packs, len) == 0;
+}
+
+static int send_registry_payload(int fd, const uint8_t *data, size_t len) {
+  return mc_send_frame(fd, MC_PKT_CFG_REGISTRY_DATA, data, len);
+}
+
+static int send_tags_payload(int fd, const uint8_t *data, size_t len) {
+  return mc_send_frame(fd, MC_PKT_COMMON_UPDATE_TAGS, data, len);
+}
 
 static int send_reset_chat(int fd) {
   return mc_send_frame(fd, MC_PKT_CFG_RESET_CHAT, NULL, 0);
 }
-/* Good for: Reference static Minecraft server: config / registries / grass world.
- * Callers: mc_wire_templates.c.
- */
 
-int mc_static_registries_init(void) {
-  mc_static_registries_free();
+void mc_static_registries_set_fetch(const mc_static_registry_fetch *fetch) {
+  g_fetch_enabled = 0;
+  memset(&g_fetch, 0, sizeof g_fetch);
+  if (fetch && fetch->host && fetch->host[0] && fetch->port > 0) {
+    g_fetch = *fetch;
+    g_fetch_enabled = 1;
+  }
+}
+
+static void clear_loaded_data(void) {
+  if (g_registries) {
+    for (size_t i = 0; i < g_registry_count; i++) lc_registry_data_free(&g_registries[i]);
+    free(g_registries);
+    g_registries = NULL;
+  }
+  g_registry_count = 0;
+  if (g_tags_loaded) lc_update_tags_free(&g_tags);
+  g_tags_loaded = 0;
+  if (g_steps) {
+    if (g_owns_steps) {
+      mc_registry_capture_result cap = {.steps = g_steps, .step_count = g_step_count};
+      mc_registry_capture_result_free(&cap);
+    } else {
+      free(g_steps);
+    }
+    g_steps = NULL;
+  }
+  g_step_count = 0;
+  g_owns_steps = 0;
+  g_send_reset_chat_before_finish = 0;
+  free(g_packs_key);
+  g_packs_key = NULL;
+  g_packs_key_len = 0;
+}
+
+static int build_steps_from_embedded(void) {
+  g_step_count = mc_static_registry_blob_count + 1;
+  if (mc_static_registry_blob_count <= 12) g_step_count++;
+  g_steps = (mc_reg_sync_step *)calloc(g_step_count, sizeof(mc_reg_sync_step));
+  if (!g_steps) return -1;
+  g_owns_steps = 0;
+  size_t n = 0;
+  for (size_t i = 0; i < mc_static_registry_blob_count; i++) {
+    if (i == 12) {
+      g_steps[n].kind = MC_REG_SYNC_TAGS;
+      g_steps[n].data = (uint8_t *)mc_static_tags.data;
+      g_steps[n].len = mc_static_tags.len;
+      snprintf(g_steps[n].label, sizeof g_steps[n].label, "update_tags");
+      n++;
+    }
+    const mc_static_blob *blob = &mc_static_registry_blobs[i];
+    g_steps[n].kind = MC_REG_SYNC_REGISTRY;
+    g_steps[n].data = (uint8_t *)blob->data;
+    g_steps[n].len = blob->len;
+    snprintf(g_steps[n].label, sizeof g_steps[n].label, "%s", blob->label ? blob->label : "registry");
+    n++;
+  }
+  if (mc_static_registry_blob_count <= 12) {
+    g_steps[n].kind = MC_REG_SYNC_TAGS;
+    g_steps[n].data = (uint8_t *)mc_static_tags.data;
+    g_steps[n].len = mc_static_tags.len;
+    snprintf(g_steps[n].label, sizeof g_steps[n].label, "update_tags");
+    n++;
+  }
+  g_step_count = n;
+  g_send_reset_chat_before_finish = 1;
+  return 0;
+}
+
+typedef struct fetch_thread_arg {
+  uint8_t *client_packs;
+  size_t client_packs_len;
+  mc_registry_capture_result result;
+  int rc;
+} fetch_thread_arg;
+
+static void *registry_fetch_thread(void *arg) {
+  fetch_thread_arg *a = (fetch_thread_arg *)arg;
+  mc_registry_capture_config cfg = {
+      .host = g_fetch.host,
+      .port = g_fetch.port,
+      .username = g_fetch.username ? g_fetch.username : "FlayerBot",
+      .client_known_packs = a->client_packs,
+      .client_known_packs_len = a->client_packs_len,
+  };
+  memset(&a->result, 0, sizeof a->result);
+  a->rc = mc_registry_capture_configuration(&cfg, &a->result);
+  return NULL;
+}
+
+static int load_from_remote_capture(const mc_registry_capture_result *cap) {
+  g_steps = cap->steps;
+  g_step_count = cap->step_count;
+  g_owns_steps = 1;
+  g_send_reset_chat_before_finish = 0;
+
+  g_registry_count = 0;
+  for (size_t i = 0; i < g_step_count; i++) {
+    if (g_steps[i].kind == MC_REG_SYNC_REGISTRY) g_registry_count++;
+  }
+
+  g_registries = (lc_registry_data *)calloc(g_registry_count, sizeof(lc_registry_data));
+  if (!g_registries) return -1;
+
+  size_t ri = 0;
+  for (size_t i = 0; i < g_step_count; i++) {
+    if (g_steps[i].kind != MC_REG_SYNC_REGISTRY) continue;
+    if (lc_parse_registry_data(g_steps[i].data, g_steps[i].len, &g_registries[ri]) != LC_OK) {
+      MC_LOGE("static_server", "failed to parse fetched registry %s", g_steps[i].label);
+      return -1;
+    }
+    ri++;
+  }
+
+  memset(&g_tags, 0, sizeof g_tags);
+  for (size_t i = 0; i < g_step_count; i++) {
+    if (g_steps[i].kind != MC_REG_SYNC_TAGS) continue;
+    if (lc_parse_update_tags(g_steps[i].data, g_steps[i].len, &g_tags) != LC_OK) {
+      MC_LOGE("static_server", "failed to parse fetched update_tags");
+      return -1;
+    }
+    g_tags_loaded = 1;
+    break;
+  }
+  if (!g_tags_loaded) {
+    MC_LOGE("static_server", "fetched registry set missing update_tags");
+    return -1;
+  }
+  return 0;
+}
+
+static int load_from_remote(const uint8_t *client_packs, size_t client_packs_len) {
+  fetch_thread_arg arg;
+  memset(&arg, 0, sizeof arg);
+  arg.client_packs = dup_bytes(client_packs, client_packs_len);
+  if (!arg.client_packs && client_packs_len > 0) return -1;
+  arg.client_packs_len = client_packs_len;
+
+  pthread_t tid;
+  MC_LOGI("static_server", "registry fetch: connecting to %s:%d as %s (client packs %zu B)", g_fetch.host,
+          g_fetch.port, g_fetch.username ? g_fetch.username : "FlayerBot", client_packs_len);
+  if (pthread_create(&tid, NULL, registry_fetch_thread, &arg) != 0) {
+    MC_LOGE("static_server", "registry fetch thread failed");
+    free(arg.client_packs);
+    return -1;
+  }
+  pthread_join(tid, NULL);
+  free(arg.client_packs);
+
+  if (arg.rc != 0) {
+    mc_registry_capture_result_free(&arg.result);
+    return -1;
+  }
+  if (load_from_remote_capture(&arg.result) != 0) {
+    mc_registry_capture_result_free(&arg.result);
+    return -1;
+  }
+  arg.result.steps = NULL;
+  arg.result.step_count = 0;
+  mc_registry_capture_result_free(&arg.result);
+
+  g_packs_key = dup_bytes(client_packs, client_packs_len);
+  if (!g_packs_key && client_packs_len > 0) return -1;
+  g_packs_key_len = client_packs_len;
+
+  MC_LOGI("static_server", "registry fetch: cached (%zu registries + tags)", g_registry_count);
+  return 0;
+}
+
+static int load_from_embedded(void) {
+  if (build_steps_from_embedded() != 0) return -1;
 
   g_registry_count = mc_static_registry_blob_count;
   g_registries = (lc_registry_data *)calloc(g_registry_count, sizeof(lc_registry_data));
@@ -52,7 +245,6 @@ int mc_static_registries_init(void) {
     const mc_static_blob *blob = &mc_static_registry_blobs[i];
     if (lc_parse_registry_data(blob->data, blob->len, &g_registries[i]) != LC_OK) {
       MC_LOGE("static_server", "failed to parse registry %s", blob->label);
-      mc_static_registries_free();
       return -1;
     }
   }
@@ -60,42 +252,95 @@ int mc_static_registries_init(void) {
   memset(&g_tags, 0, sizeof g_tags);
   if (lc_parse_update_tags(mc_static_tags.data, mc_static_tags.len, &g_tags) != LC_OK) {
     MC_LOGE("static_server", "failed to parse update_tags");
-    mc_static_registries_free();
     return -1;
   }
   g_tags_loaded = 1;
   return 0;
 }
-/* Good for: Reference static Minecraft server: config / registries / grass world.
- * Callers: mc_static_registries.c (same file), mc_wire_templates.c.
- */
+
+static int load_registries_once(const uint8_t *client_packs, size_t client_packs_len) {
+  clear_loaded_data();
+  if (g_fetch_enabled) return load_from_remote(client_packs, client_packs_len);
+  (void)client_packs;
+  (void)client_packs_len;
+  return load_from_embedded();
+}
+
+static int ensure_registries_loaded(const uint8_t *client_packs, size_t client_packs_len) {
+  pthread_mutex_lock(&g_load_mutex);
+  while (g_load_state == REG_STATE_LOADING) pthread_cond_wait(&g_load_cond, &g_load_mutex);
+
+  if (g_load_state == REG_STATE_READY) {
+    int ok = !g_fetch_enabled || packs_key_matches(client_packs, client_packs_len);
+    if (ok) {
+      pthread_mutex_unlock(&g_load_mutex);
+      return 0;
+    }
+    clear_loaded_data();
+    g_load_state = REG_STATE_EMPTY;
+  }
+  if (g_load_state == REG_STATE_FAILED) g_load_state = REG_STATE_EMPTY;
+
+  g_load_state = REG_STATE_LOADING;
+  pthread_mutex_unlock(&g_load_mutex);
+
+  int rc = load_registries_once(client_packs, client_packs_len);
+
+  pthread_mutex_lock(&g_load_mutex);
+  g_load_state = (rc == 0) ? REG_STATE_READY : REG_STATE_FAILED;
+  pthread_cond_broadcast(&g_load_cond);
+  pthread_mutex_unlock(&g_load_mutex);
+  return rc;
+}
+
+int mc_static_registries_init(void) {
+  mc_static_registries_free();
+  return 0;
+}
 
 void mc_static_registries_free(void) {
-  if (g_registries) {
-    for (size_t i = 0; i < g_registry_count; i++) lc_registry_data_free(&g_registries[i]);
-    free(g_registries);
-    g_registries = NULL;
-  }
-  g_registry_count = 0;
-  if (g_tags_loaded) lc_update_tags_free(&g_tags);
-  g_tags_loaded = 0;
+  pthread_mutex_lock(&g_load_mutex);
+  clear_loaded_data();
+  g_load_state = REG_STATE_EMPTY;
+  pthread_cond_broadcast(&g_load_cond);
+  pthread_mutex_unlock(&g_load_mutex);
 }
-/* Good for: Reference static Minecraft server: config / registries / grass world.
- * Callers: mc_static_server.c.
- */
 
-int mc_static_send_registry_sync(int fd) {
-  if (!g_registries || !g_tags_loaded) return -1;
+int mc_static_send_registry_sync(int fd, const uint8_t *client_known_packs, size_t client_known_packs_len) {
+  if (!client_known_packs && client_known_packs_len > 0) return -1;
+  if (ensure_registries_loaded(client_known_packs, client_known_packs_len) != 0) return -1;
+  if (!g_registries || !g_tags_loaded || !g_steps) return -1;
 
-  for (size_t i = 0; i < g_registry_count; i++) {
-    if (i == 12) {
-      if (send_tags_blob(fd) != 0) return -1;
+  int sent_reset_chat = 0;
+  for (size_t i = 0; i < g_step_count; i++) {
+    const mc_reg_sync_step *step = &g_steps[i];
+    switch (step->kind) {
+    case MC_REG_SYNC_REGISTRY:
+      if (send_registry_payload(fd, step->data, step->len) != 0) return -1;
+      break;
+    case MC_REG_SYNC_TAGS:
+      if (send_tags_payload(fd, step->data, step->len) != 0) return -1;
+      break;
+    case MC_REG_SYNC_RESET_CHAT:
+      if (step->len) {
+        if (mc_send_frame(fd, MC_PKT_CFG_RESET_CHAT, step->data, step->len) != 0) return -1;
+      } else if (send_reset_chat(fd) != 0) {
+        return -1;
+      }
+      sent_reset_chat = 1;
+      break;
+    default:
+      break;
     }
-    if (send_registry_blob(fd, &mc_static_registry_blobs[i]) != 0) return -1;
   }
-  if (g_registry_count <= 12) {
-    if (send_tags_blob(fd) != 0) return -1;
-  }
-  if (send_reset_chat(fd) != 0) return -1;
+  if (g_send_reset_chat_before_finish && !sent_reset_chat && send_reset_chat(fd) != 0) return -1;
   return mc_send_frame(fd, MC_PKT_CFG_FINISH, NULL, 0);
+}
+
+size_t mc_static_registry_count(void) {
+  pthread_mutex_lock(&g_load_mutex);
+  int ready = g_load_state == REG_STATE_READY;
+  size_t n = ready ? g_registry_count : 0;
+  pthread_mutex_unlock(&g_load_mutex);
+  return n;
 }
