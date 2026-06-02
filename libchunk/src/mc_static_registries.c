@@ -309,7 +309,10 @@ static void *registry_fetch_thread(void *arg) {
   } else if (g_load_state == REG_STATE_CONFIG_READY) {
     g_step_count = a->result.step_count;
     apply_join_template(&a->result.join);
-    MC_LOGW("static_server", "registry fetch: play join failed; config cache kept, play defaults on join");
+    MC_LOGW("static_server",
+            "registry fetch: play join failed (capture returned %d; see capture incomplete lines above); "
+            "config cache kept, play defaults on join",
+            a->rc);
     g_load_state = REG_STATE_READY;
   } else if (g_load_state == REG_STATE_LOADING) {
     mc_registry_capture_result_free(&a->result);

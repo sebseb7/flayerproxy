@@ -18,6 +18,7 @@
 #include "mc_server_common.h"
 #include "mc_wire.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -48,15 +49,33 @@ static int play_capture_complete(const play_capture_flags *flags) {
 }
 
 static int chunk_capture_complete(const chunk_capture_flags *flags) {
-  return flags->chunk_batches_finished > 0 && mc_static_chunks_count() > 0;
-}
-
-static int capture_complete(const play_capture_flags *play, const chunk_capture_flags *chunks) {
-  return play_capture_complete(play) && chunk_capture_complete(chunks);
+  (void)flags;
+  return mc_static_chunks_count() > 0;
 }
 
 static int config_capture_complete(int registries, int tags_seen, const play_capture_flags *flags) {
   return registries > 0 && tags_seen && flags->select_known_packs && play_capture_complete(flags);
+}
+
+static void log_registry_capture_incomplete(int packets_read, int32_t last_pkt_id, int hit_packet_limit,
+                                            const play_capture_flags *play, const chunk_capture_flags *chunks) {
+  MC_LOGW("static_server",
+          "registry fetch: capture incomplete after %d packets (last_pkt=0x%02x%s)", packets_read, last_pkt_id,
+          hit_packet_limit ? ", hit 1024 packet limit" : "");
+  if (!play->update_recipes) MC_LOGW("static_server", "registry fetch: still waiting on: update_recipes");
+  if (!play->recipe_book_settings)
+    MC_LOGW("static_server", "registry fetch: still waiting on: recipe_book_settings");
+  if (!play->recipe_book_add) MC_LOGW("static_server", "registry fetch: still waiting on: recipe_book_add");
+  if (!play->world_border) MC_LOGW("static_server", "registry fetch: still waiting on: world_border");
+  if (!play->update_time) MC_LOGW("static_server", "registry fetch: still waiting on: update_time");
+  if (chunks->map_chunks_seen == 0)
+    MC_LOGW("static_server", "registry fetch: still waiting on: map_chunk (0x%02x)", MC_PKT_PLAY_MAP_CHUNK);
+  else
+    MC_LOGW("static_server", "registry fetch: map_chunks_seen=%d", chunks->map_chunks_seen);
+  if (mc_static_chunks_count() == 0)
+    MC_LOGW("static_server", "registry fetch: still waiting on: cached chunks (count=0)");
+  else
+    MC_LOGW("static_server", "registry fetch: cached_chunks=%zu", mc_static_chunks_count());
 }
 
 static int read_varint(const uint8_t *data, size_t len, size_t *off, int32_t *out) {
@@ -448,16 +467,20 @@ int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_
   memset(&chunk_flags, 0, sizeof chunk_flags);
   int player_loaded_sent = 0;
   int rc = -1;
+  int32_t last_pkt_id = -1;
+  int packets_read = 0;
 
   for (int seq = 0; seq < 1024; seq++) {
     uint8_t *wire = NULL;
     size_t wire_len = 0;
     int32_t pkt_id = 0;
     if (mc_conn_read_packet(&conn, &wire, &wire_len, &pkt_id) != 0) {
-      MC_LOGE("static_server", "registry fetch: read failed after %d packets", seq);
+      MC_LOGE("static_server", "registry fetch: read failed after %d packets: %s", packets_read, strerror(errno));
       free(wire);
       break;
     }
+    last_pkt_id = pkt_id;
+    packets_read++;
 
     if (phase_login) {
       if (pkt_id == MC_PKT_LOGIN_ENCRYPTION_BEGIN) {
@@ -597,13 +620,7 @@ int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_
         break;
       }
       if (on_config_ready) {
-        if (capture_complete(&play_flags, &chunk_flags)) {
-          rc = 0;
-          MC_LOGI("static_server", "registry fetch: play join cached (%zu sync steps, %zu chunks)",
-                  out->step_count, mc_static_chunks_count());
-          free(wire);
-          break;
-        }
+        if (play_capture_complete(&play_flags)) rc = 0;
       } else if (config_capture_complete(registries, tags_seen, &play_flags) &&
                  chunk_capture_complete(&chunk_flags)) {
         rc = 0;
@@ -622,6 +639,12 @@ int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_
   free(owned_token);
   free(owned_profile);
 
-  if (rc != 0) mc_registry_capture_result_free(out);
+  if (rc == 0) {
+    MC_LOGI("static_server", "registry fetch: play join cached (%zu sync steps, %zu chunks)", out->step_count,
+            mc_static_chunks_count());
+  } else {
+    log_registry_capture_incomplete(packets_read, last_pkt_id, packets_read >= 1024, &play_flags, &chunk_flags);
+    mc_registry_capture_result_free(out);
+  }
   return rc;
 }
