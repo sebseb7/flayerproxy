@@ -5,6 +5,8 @@
  */
 #include "mc_registry_capture.h"
 
+#include "mc_registry_join_template.h"
+
 #include "internal.h"
 #include "libchunk.h"
 #include "mc_conn.h"
@@ -236,41 +238,129 @@ static int handle_play_response(mc_conn *conn, int32_t pkt_id, const uint8_t *bo
   return 0;
 }
 
-static const char *step_label_for_play(int32_t pkt_id) {
+static const char *recipe_step_label(int32_t pkt_id) {
   switch (pkt_id) {
-  case MC_PKT_PLAY_LOGIN:
-    return "login";
-  case MC_PKT_PLAY_POSITION:
-    return "position";
   case MC_PKT_PLAY_UPDATE_RECIPES:
     return "update_recipes";
   case MC_PKT_PLAY_RECIPE_BOOK_SETTINGS:
     return "recipe_book_settings";
   case MC_PKT_PLAY_RECIPE_BOOK_ADD:
     return "recipe_book_add";
-  case MC_PKT_PLAY_INITIALIZE_WORLD_BORDER:
-    return "initialize_world_border";
-  case MC_PKT_PLAY_UPDATE_TIME:
-    return "update_time";
   default:
     return "play";
   }
 }
 
+static int is_raw_cached_play_pkt(int32_t pkt_id) {
+  return pkt_id == MC_PKT_PLAY_UPDATE_RECIPES || pkt_id == MC_PKT_PLAY_RECIPE_BOOK_SETTINGS ||
+         pkt_id == MC_PKT_PLAY_RECIPE_BOOK_ADD;
+}
+
+static int capture_join_login(mc_registry_join_template *join, const uint8_t *body, size_t body_len) {
+  if (join->login_valid) return 0;
+  lc_play_login parsed;
+  char **wnames = NULL;
+  size_t wcount = 0;
+  if (lc_parse_play_login(body, body_len, &parsed, &wnames, &wcount) != LC_OK) return -1;
+  join->login_hardcore = parsed.hardcore;
+  join->login_world_names = wnames;
+  join->login_world_name_count = wcount;
+  join->login_max_players = parsed.max_players;
+  join->login_view_distance = parsed.view_distance;
+  join->login_simulation_distance = parsed.simulation_distance;
+  join->login_reduced_debug_info = parsed.reduced_debug_info;
+  join->login_enable_respawn_screen = parsed.enable_respawn_screen;
+  join->login_do_limited_crafting = parsed.do_limited_crafting;
+  join->login_enforces_secure_chat = parsed.enforces_secure_chat;
+  join->login_world_state = parsed.world_state;
+  parsed.world_state.name = NULL;
+  parsed.world_state.death_dimension_name = NULL;
+  join->login_valid = 1;
+  MC_LOGEV("static_server", "registry fetch: login fields (view=%d sim=%d)", join->login_view_distance,
+           join->login_simulation_distance);
+  return 0;
+}
+
+static int capture_join_spawn_position(mc_registry_join_template *join, const uint8_t *body, size_t body_len) {
+  if (join->spawn_position_valid) return 0;
+  lc_buf b;
+  lc_buf_init(&b, body, body_len);
+  char *dim = NULL;
+  if (lc_buf_read_string(&b, &dim) != LC_OK) return -1;
+  if (lc_buf_read_position(&b, &join->spawn_pos) != LC_OK) {
+    free(dim);
+    return -1;
+  }
+  if (lc_buf_read_f32_le(&b, &join->spawn_yaw) != LC_OK || lc_buf_read_f32_le(&b, &join->spawn_pitch) != LC_OK) {
+    free(dim);
+    return -1;
+  }
+  join->spawn_dimension = dim;
+  join->spawn_position_valid = 1;
+  MC_LOGEV("static_server", "registry fetch: spawn_position (%s)", dim ? dim : "?");
+  return 0;
+}
+
+static int capture_join_update_time(mc_registry_join_template *join, const uint8_t *body, size_t body_len) {
+  if (join->update_time_valid) return 0;
+  lc_buf b;
+  lc_buf_init(&b, body, body_len);
+  if (lc_buf_read_i64_be(&b, &join->time_world_age) != LC_OK) return -1;
+  if (lc_buf_read_i64_be(&b, &join->time_time_of_day) != LC_OK) return -1;
+  if (lc_buf_read_u8(&b, &join->time_tick_day_time) != LC_OK) return -1;
+  join->update_time_valid = 1;
+  MC_LOGEV("static_server", "registry fetch: update_time (age=%lld)", (long long)join->time_world_age);
+  return 0;
+}
+
 static int capture_play_packet(mc_registry_capture_result *out, play_capture_flags *flags, int32_t pkt_id,
                                const char *label, const uint8_t *body, size_t body_len) {
+  mc_registry_join_template *join = &out->join;
+
+  if (pkt_id == MC_PKT_PLAY_LOGIN) {
+    if (flags->login) return 0;
+    if (capture_join_login(join, body, body_len) != 0) return -1;
+    flags->login = 1;
+    return 0;
+  }
+  if (pkt_id == MC_PKT_PLAY_POSITION) {
+    if (flags->position) return 0;
+    if (lc_parse_position(body, body_len, &join->position) != LC_OK) return -1;
+    join->position_valid = 1;
+    flags->position = 1;
+    MC_LOGEV("static_server", "registry fetch: position (%.3f, %.3f, %.3f)", join->position.x, join->position.y,
+             join->position.z);
+    return 0;
+  }
+  if (pkt_id == MC_PKT_PLAY_INITIALIZE_WORLD_BORDER) {
+    if (flags->world_border) return 0;
+    if (lc_parse_initialize_world_border(body, body_len, &join->world_border) != LC_OK) return -1;
+    join->world_border_valid = 1;
+    flags->world_border = 1;
+    MC_LOGEV("static_server", "registry fetch: world_border");
+    return 0;
+  }
+  if (pkt_id == MC_PKT_PLAY_UPDATE_TIME) {
+    if (flags->update_time) return 0;
+    if (capture_join_update_time(join, body, body_len) != 0) return -1;
+    flags->update_time = 1;
+    return 0;
+  }
+  if (pkt_id == MC_PKT_PLAY_SPAWN_POSITION) {
+    if (capture_join_spawn_position(join, body, body_len) != 0) return -1;
+    return 0;
+  }
+
+  if (!is_raw_cached_play_pkt(pkt_id)) return 0;
+
   int *seen = NULL;
-  if (pkt_id == MC_PKT_PLAY_LOGIN) seen = &flags->login;
-  else if (pkt_id == MC_PKT_PLAY_POSITION) seen = &flags->position;
-  else if (pkt_id == MC_PKT_PLAY_UPDATE_RECIPES) seen = &flags->update_recipes;
+  if (pkt_id == MC_PKT_PLAY_UPDATE_RECIPES) seen = &flags->update_recipes;
   else if (pkt_id == MC_PKT_PLAY_RECIPE_BOOK_SETTINGS) seen = &flags->recipe_book_settings;
   else if (pkt_id == MC_PKT_PLAY_RECIPE_BOOK_ADD) seen = &flags->recipe_book_add;
-  else if (pkt_id == MC_PKT_PLAY_INITIALIZE_WORLD_BORDER) seen = &flags->world_border;
-  else if (pkt_id == MC_PKT_PLAY_UPDATE_TIME) seen = &flags->update_time;
   if (!seen || *seen) return 0;
   if (append_play_step(out, pkt_id, label, body, body_len) != 0) return -1;
   *seen = 1;
-  MC_LOGEV("static_server", "registry fetch: %s (0x%02x, %zu B)", label, (unsigned)(pkt_id & 0xff), body_len);
+  MC_LOGEV("static_server", "registry fetch: %s raw (0x%02x, %zu B)", label, (unsigned)(pkt_id & 0xff), body_len);
   return 0;
 }
 
@@ -291,6 +381,7 @@ void mc_registry_capture_result_free(mc_registry_capture_result *out) {
   if (!out) return;
   for (size_t i = 0; i < out->step_count; i++) free(out->steps[i].data);
   free(out->steps);
+  mc_registry_join_template_free(&out->join);
   memset(out, 0, sizeof *out);
 }
 
@@ -501,7 +592,7 @@ int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_
         free(wire);
         break;
       }
-      if (capture_play_packet(out, &play_flags, pkt_id, step_label_for_play(pkt_id), body, body_len) != 0) {
+      if (capture_play_packet(out, &play_flags, pkt_id, recipe_step_label(pkt_id), body, body_len) != 0) {
         free(wire);
         break;
       }

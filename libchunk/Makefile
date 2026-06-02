@@ -14,7 +14,7 @@ CHUNK_LIBS = -lchunk $(AVIF_LIBS)
 PACKET_SRC = src/packets/custom_payload.c src/packets/feature_flags.c src/packets/select_known_packs.c \
 	src/packets/finish_configuration.c src/packets/bundle_delimiter.c src/packets/step_tick.c \
 	src/packets/success.c src/packets/advancements.c
-SRC = src/buf.c src/nbt.c src/metadata.c src/slot.c src/slot_fprint.c src/packets.c $(PACKET_SRC) src/c2s_move.c src/debug.c src/chunk.c src/dump_json.c src/decode_wire.c src/play_stream.c src/play_wire_extra.c src/block_entity.c src/map_colors.c src/state_map_color.c src/state_block_name.c src/state_top_rgb.c src/biome_tint.c src/map_png.c src/map_avif.c src/map_tile.c src/packets_write.c src/update_tags.c src/mc_wire.c src/mc_static_grass.c src/mc_static_config.c src/mc_static_registries.c src/mc_static_registries_data.c
+SRC = src/buf.c src/nbt.c src/metadata.c src/slot.c src/slot_fprint.c src/packets.c $(PACKET_SRC) src/c2s_move.c src/debug.c src/chunk.c src/dump_json.c src/decode_wire.c src/play_stream.c src/play_wire_extra.c src/block_entity.c src/map_colors.c src/state_map_color.c src/state_block_name.c src/state_top_rgb.c src/biome_tint.c src/map_png.c src/map_avif.c src/map_tile.c src/packets_write.c src/update_tags.c src/mc_wire.c src/mc_static_grass.c src/mc_static_config.c src/mc_registry_join_template.c src/mc_static_registries.c src/mc_static_registries_data.c
 CFLAGS += $(AVIF_CFLAGS)
 OBJ = $(SRC:src/%.c=build/%.o)
 
@@ -56,8 +56,8 @@ build/list_map_surface: examples/list_map_surface.c build/libchunk.a | build
 build/stitch_megatiles: examples/stitch_megatiles.c build/libchunk.a | build
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ examples/stitch_megatiles.c -Lbuild $(CHUNK_LIBS) -pthread
 
-MC_SPECTATOR_SRC = src/mc_log.c src/mc_wire.c src/mc_spectator.c src/mc_server_common.c src/mc_auth_offline.c src/mc_wire_templates.c src/mc_s2c_log.c src/mc_play_s2c_names.c src/mc_static_grass.c src/mc_static_config.c src/mc_static_registries.c src/mc_static_registries_data.c src/mc_registry_capture.c src/mc_chunk_stream.c
-MC_STATIC_SRC = src/mc_log.c src/mc_wire.c src/mc_server_common.c src/mc_auth_offline.c src/mc_wire_templates.c src/mc_static_grass.c src/mc_static_config.c src/mc_static_registries.c src/mc_static_registries_data.c src/mc_registry_capture.c src/mc_c2s_log.c src/mc_s2c_log.c src/mc_play_s2c_names.c src/mc_chunk_stream.c src/mc_static_server.c
+MC_SPECTATOR_SRC = src/mc_log.c src/mc_wire.c src/mc_spectator.c src/mc_server_common.c src/mc_auth_offline.c src/mc_wire_templates.c src/mc_s2c_log.c src/mc_play_s2c_names.c src/mc_static_grass.c src/mc_static_config.c src/mc_registry_join_template.c src/mc_static_registries.c src/mc_static_registries_data.c src/mc_registry_capture.c src/mc_chunk_stream.c
+MC_STATIC_SRC = src/mc_log.c src/mc_wire.c src/mc_server_common.c src/mc_auth_offline.c src/mc_wire_templates.c src/mc_static_grass.c src/mc_static_config.c src/mc_registry_join_template.c src/mc_static_registries.c src/mc_static_registries_data.c src/mc_registry_capture.c src/mc_c2s_log.c src/mc_s2c_log.c src/mc_play_s2c_names.c src/mc_chunk_stream.c src/mc_static_server.c
 
 build/mc_static_server: examples/mc_static_server.c build/libchunk.a $(MC_STATIC_SRC) $(MC_REGISTRY_FETCH_SRC) | build
 	$(CC) $(CFLAGS) $(MC_CLIENT_CFLAGS) $(INCLUDES) -Isrc -o $@ examples/mc_static_server.c $(MC_STATIC_SRC) $(MC_REGISTRY_FETCH_SRC) -Lbuild $(CHUNK_LIBS) -lm -pthread $(MC_CLIENT_LIBS)

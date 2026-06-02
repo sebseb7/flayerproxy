@@ -7,7 +7,7 @@ lc_status lc_parse_spawn_info(lc_buf *b, lc_spawn_info *out) {
   memset(out, 0, sizeof(*out));
   if (lc_buf_read_varint(b, &out->dimension) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_string(b, &out->name) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_i64_le(b, &out->hashed_seed) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_i64_be(b, &out->hashed_seed) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_i8(b, &out->gamemode) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_u8(b, &out->previous_gamemode) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_bool(b, &out->is_debug) != LC_OK) return LC_ERR_TRUNCATED;

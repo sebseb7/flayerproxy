@@ -32,8 +32,12 @@ int mc_static_registries_play_ready(void);
 /** Cached select_known_packs payload from last successful fetch, or NULL. */
 const uint8_t *mc_static_cached_select_known_packs(size_t *len);
 
-/** Cached play payload by packet id from last successful fetch, or NULL. */
+/** Cached raw play payload (recipe burst only). */
 const uint8_t *mc_static_cached_play_payload(int32_t pkt_id, size_t *len);
+
+int mc_static_fill_join_world_border(lc_initialize_world_border *wb);
+int mc_static_fill_join_update_time(int64_t *world_age, int64_t *time_of_day, uint8_t *tick_day_time);
+int mc_static_fill_join_spawn_position(char **dimension, lc_block_pos *pos, float *yaw, float *pitch);
 
 /** Replay cached update_recipes / recipe_book_settings / recipe_book_add (skips missing). */
 int mc_static_send_cached_recipe_burst(int fd);

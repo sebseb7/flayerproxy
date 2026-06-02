@@ -161,7 +161,7 @@ lc_status lc_write_spawn_info(const lc_spawn_info *p, lc_byte_buf *out) {
   mc_buf b;
   memset(&b, 0, sizeof b);
   /* CommonPlayerSpawnInfo: Holder<DimensionType> then ResourceKey<Level>. */
-  if (mc_buf_varint(&b, p->dimension > 0 ? p->dimension : 1) != LC_OK) goto fail;
+  if (mc_buf_varint(&b, p->dimension) != LC_OK) goto fail;
   if (mc_buf_string(&b, p->name ? p->name : "minecraft:overworld") != LC_OK) goto fail;
   if (mc_buf_i64_be(&b, p->hashed_seed) != LC_OK) goto fail;
   if (mc_buf_u8(&b, (uint8_t)p->gamemode) != LC_OK) goto fail;
@@ -267,6 +267,34 @@ fail:
  * Callers: mc_wire_templates.c.
  */
 
+lc_status lc_write_spawn_position(const char *dimension, const lc_block_pos *pos, float yaw, float pitch,
+                                  lc_byte_buf *out) {
+  if (!pos || !out) return LC_ERR_INVALID;
+  mc_buf b;
+  memset(&b, 0, sizeof b);
+  if (mc_buf_string(&b, dimension ? dimension : "minecraft:overworld") != LC_OK) goto fail;
+  if (write_block_position(&b, pos) != LC_OK) goto fail;
+  if (mc_buf_f32_be(&b, yaw) != LC_OK) goto fail;
+  if (mc_buf_f32_be(&b, pitch) != LC_OK) goto fail;
+  return finish_mc_buf(&b, out);
+fail:
+  mc_buf_free(&b);
+  return LC_ERR_OOM;
+}
+
+lc_status lc_write_update_time(int64_t world_age, int64_t time_of_day, uint8_t tick_day_time, lc_byte_buf *out) {
+  if (!out) return LC_ERR_INVALID;
+  mc_buf b;
+  memset(&b, 0, sizeof b);
+  if (mc_buf_i64_be(&b, world_age) != LC_OK) goto fail;
+  if (mc_buf_i64_be(&b, time_of_day) != LC_OK) goto fail;
+  if (mc_buf_u8(&b, tick_day_time) != LC_OK) goto fail;
+  return finish_mc_buf(&b, out);
+fail:
+  mc_buf_free(&b);
+  return LC_ERR_OOM;
+}
+
 lc_status lc_write_initialize_world_border(const lc_initialize_world_border *p, lc_byte_buf *out) {
   if (!p || !out) return LC_ERR_INVALID;
   mc_buf b;
@@ -352,7 +380,7 @@ lc_status lc_parse_play_login(const uint8_t *data, size_t len, lc_play_login *ou
   *world_names_out = NULL;
   *world_name_count_out = 0;
 
-  if (lc_buf_read_i32_le(&b, &out->entity_id) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_i32_be(&b, &out->entity_id) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_u8(&b, &out->hardcore) != LC_OK) return LC_ERR_TRUNCATED;
   if (parse_string_array(&b, world_names_out, world_name_count_out) != LC_OK) return LC_ERR_TRUNCATED;
   out->world_names = (const char **)*world_names_out;

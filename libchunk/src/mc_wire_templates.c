@@ -160,7 +160,7 @@ static void free_built_play_login(lc_play_login *login) {
 static void log_play_login_send(const lc_play_login *login, const lc_byte_buf *wire, int from_upstream_cache) {
   const lc_spawn_info *ws = &login->world_state;
   MC_LOGI("static_server", "S2C login 0x%02x payload %zu B (source=%s)", (unsigned)MC_PKT_PLAY_LOGIN, wire->len,
-          from_upstream_cache ? "upstream cache" : "built-in defaults");
+          from_upstream_cache ? "upstream fields (assembled)" : "built-in defaults");
   MC_LOGI("static_server", "  entity_id=%d hardcore=%u max_players=%d view_distance=%d simulation_distance=%d",
           login->entity_id, (unsigned)login->hardcore, login->max_players, login->view_distance,
           login->simulation_distance);
@@ -262,11 +262,9 @@ fail:
  */
 
 static int send_play_initialize_world_border(int fd) {
-  size_t len = 0;
-  const uint8_t *cached = mc_static_cached_play_payload(MC_PKT_PLAY_INITIALIZE_WORLD_BORDER, &len);
-  if (cached) return send_payload(fd, MC_PKT_PLAY_INITIALIZE_WORLD_BORDER, cached, len);
-
-  lc_initialize_world_border wb = {
+  lc_initialize_world_border wb;
+  if (mc_static_fill_join_world_border(&wb) != 0) {
+    wb = (lc_initialize_world_border){
       .x = 0,
       .z = 0,
       .old_diameter = 59999968.0,
@@ -275,7 +273,8 @@ static int send_play_initialize_world_border(int fd) {
       .portal_teleport_boundary = 29999984,
       .warning_blocks = 5,
       .warning_time = 15,
-  };
+    };
+  }
   lc_byte_buf wire;
   memset(&wire, 0, sizeof wire);
   if (lc_write_initialize_world_border(&wb, &wire) != LC_OK) return -1;
@@ -386,24 +385,36 @@ static int send_play_abilities(int fd) {
  */
 
 static int send_play_update_time(int fd) {
-  size_t len = 0;
-  const uint8_t *cached = mc_static_cached_play_payload(MC_PKT_PLAY_UPDATE_TIME, &len);
-  if (cached) return send_payload(fd, MC_PKT_PLAY_UPDATE_TIME, cached, len);
-
-  const uint8_t payload[] = {0x00, 0x00, 0x00, 0x01, 0x25, 0xe3, 0x30, 0x2e,
-                             0x00, 0x00, 0x00, 0x01, 0x25, 0xea, 0x35, 0xc7, 0x01};
-  return send_payload(fd, MC_PKT_PLAY_UPDATE_TIME, payload, sizeof payload);
+  int64_t age = 0;
+  int64_t time = 0;
+  uint8_t tick = 1;
+  if (mc_static_fill_join_update_time(&age, &time, &tick) != 0) {
+    age = 0x125e330;
+    time = 0x125ea35c7LL;
+    tick = 1;
+  }
+  lc_byte_buf wire;
+  memset(&wire, 0, sizeof wire);
+  if (lc_write_update_time(age, time, tick, &wire) != LC_OK) return -1;
+  return send_byte_buf(fd, MC_PKT_PLAY_UPDATE_TIME, &wire);
 }
 /* Good for: Send spawn position packet.
  * Callers: mc_wire_templates.c (same file).
  */
 
 static int send_play_spawn_position(int fd) {
-  const uint8_t payload[] = {0x13, 0x6d, 0x69, 0x6e, 0x65, 0x63, 0x72, 0x61, 0x66, 0x74, 0x3a,
-                             0x6f, 0x76, 0x65, 0x72, 0x77, 0x6f, 0x72, 0x6c, 0x64, 0x00, 0x00,
-                             0x00, 0x00, 0x00, 0x00, 0x00, 0x41, 0x00, 0x00, 0x00, 0x00, 0x00,
-                             0x00, 0x00, 0x00};
-  return send_payload(fd, MC_PKT_PLAY_SPAWN_POSITION, payload, sizeof payload);
+  char *dimension = NULL;
+  lc_block_pos pos;
+  float yaw = 0.0f;
+  float pitch = 0.0f;
+  const char *dim = "minecraft:overworld";
+  memset(&pos, 0, sizeof pos);
+  if (mc_static_fill_join_spawn_position(&dimension, &pos, &yaw, &pitch) == 0 && dimension) dim = dimension;
+
+  lc_byte_buf wire;
+  memset(&wire, 0, sizeof wire);
+  if (lc_write_spawn_position(dim, &pos, yaw, pitch, &wire) != LC_OK) return -1;
+  return send_byte_buf(fd, MC_PKT_PLAY_SPAWN_POSITION, &wire);
 }
 /* Good for: Send game state change (e.g. no rain).
  * Callers: mc_wire_templates.c (same file).

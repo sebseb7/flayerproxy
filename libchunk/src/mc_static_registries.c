@@ -2,6 +2,8 @@
 #include "mc_log.h"
 #include "mc_static_registries.h"
 
+#include "mc_registry_join_template.h"
+
 #include "mc_chunk_stream.h"
 
 #include "internal.h"
@@ -48,6 +50,20 @@ static uint8_t g_login_enforces_secure_chat;
 
 static int g_cached_position_valid;
 static lc_position g_cached_position;
+
+static int g_cached_world_border_valid;
+static lc_initialize_world_border g_cached_world_border;
+
+static int g_cached_update_time_valid;
+static int64_t g_cached_time_world_age;
+static int64_t g_cached_time_time_of_day;
+static uint8_t g_cached_time_tick_day_time;
+
+static int g_cached_spawn_position_valid;
+static char *g_cached_spawn_dimension;
+static lc_block_pos g_cached_spawn_pos;
+static float g_cached_spawn_yaw;
+static float g_cached_spawn_pitch;
 
 typedef enum {
   REG_STATE_EMPTY = 0,
@@ -132,6 +148,13 @@ static void clear_loaded_data(void) {
   memset(&g_login_world_state, 0, sizeof g_login_world_state);
   g_cached_position_valid = 0;
   memset(&g_cached_position, 0, sizeof g_cached_position);
+  g_cached_world_border_valid = 0;
+  memset(&g_cached_world_border, 0, sizeof g_cached_world_border);
+  g_cached_update_time_valid = 0;
+  free(g_cached_spawn_dimension);
+  g_cached_spawn_dimension = NULL;
+  g_cached_spawn_position_valid = 0;
+  memset(&g_cached_spawn_pos, 0, sizeof g_cached_spawn_pos);
 }
 
 static int build_steps_from_embedded(void) {
@@ -170,41 +193,64 @@ static int build_steps_from_embedded(void) {
 
 static int load_from_remote_capture(const mc_registry_capture_result *cap);
 
-static void ingest_join_capture(void) {
-  if (!g_steps) return;
-  for (size_t i = 0; i < g_step_count; i++) {
-    const mc_reg_sync_step *step = &g_steps[i];
-    if (step->kind != MC_REG_SYNC_PLAY) continue;
-    if (step->pkt_id == MC_PKT_PLAY_LOGIN && !g_cached_login_valid) {
-      lc_play_login parsed;
-      char **wnames = NULL;
-      size_t wcount = 0;
-      if (lc_parse_play_login(step->data, step->len, &parsed, &wnames, &wcount) != LC_OK) continue;
-      g_login_hardcore = parsed.hardcore;
-      g_login_world_names = wnames;
-      g_login_world_name_count = wcount;
-      g_login_max_players = parsed.max_players;
-      g_login_view_distance = parsed.view_distance;
-      g_login_simulation_distance = parsed.simulation_distance;
-      g_login_reduced_debug_info = parsed.reduced_debug_info;
-      g_login_enable_respawn_screen = parsed.enable_respawn_screen;
-      g_login_do_limited_crafting = parsed.do_limited_crafting;
-      g_login_enforces_secure_chat = parsed.enforces_secure_chat;
-      g_login_world_state = parsed.world_state;
-      parsed.world_state.name = NULL;
-      parsed.world_state.death_dimension_name = NULL;
-      g_cached_login_valid = 1;
-      MC_LOGI("static_server",
-              "registry fetch: login template (dim=%d name=%s gamemode=%d seaLevel=%d view=%d sim=%d)",
-              g_login_world_state.dimension, g_login_world_state.name ? g_login_world_state.name : "?",
-              g_login_world_state.gamemode, g_login_world_state.sea_level, g_login_view_distance,
-              g_login_simulation_distance);
-    } else if (step->pkt_id == MC_PKT_PLAY_POSITION && !g_cached_position_valid) {
-      if (lc_parse_position(step->data, step->len, &g_cached_position) != LC_OK) continue;
-      g_cached_position_valid = 1;
-      MC_LOGI("static_server", "registry fetch: position template (%.3f, %.3f, %.3f)", g_cached_position.x,
-              g_cached_position.y, g_cached_position.z);
-    }
+static void apply_join_template(mc_registry_join_template *src) {
+  if (!src) return;
+
+  if (src->login_valid && !g_cached_login_valid) {
+    g_login_hardcore = src->login_hardcore;
+    g_login_world_names = src->login_world_names;
+    src->login_world_names = NULL;
+    g_login_world_name_count = src->login_world_name_count;
+    src->login_world_name_count = 0;
+    g_login_max_players = src->login_max_players;
+    g_login_view_distance = src->login_view_distance;
+    g_login_simulation_distance = src->login_simulation_distance;
+    g_login_reduced_debug_info = src->login_reduced_debug_info;
+    g_login_enable_respawn_screen = src->login_enable_respawn_screen;
+    g_login_do_limited_crafting = src->login_do_limited_crafting;
+    g_login_enforces_secure_chat = src->login_enforces_secure_chat;
+    g_login_world_state = src->login_world_state;
+    memset(&src->login_world_state, 0, sizeof src->login_world_state);
+    src->login_valid = 0;
+    g_cached_login_valid = 1;
+    MC_LOGI("static_server",
+            "registry fetch: login fields (dim=%d name=%s gamemode=%d seaLevel=%d view=%d sim=%d)",
+            g_login_world_state.dimension, g_login_world_state.name ? g_login_world_state.name : "?",
+            g_login_world_state.gamemode, g_login_world_state.sea_level, g_login_view_distance,
+            g_login_simulation_distance);
+  }
+
+  if (src->position_valid && !g_cached_position_valid) {
+    g_cached_position = src->position;
+    g_cached_position_valid = 1;
+    MC_LOGI("static_server", "registry fetch: position fields (%.3f, %.3f, %.3f)", g_cached_position.x,
+            g_cached_position.y, g_cached_position.z);
+  }
+
+  if (src->world_border_valid && !g_cached_world_border_valid) {
+    g_cached_world_border = src->world_border;
+    g_cached_world_border_valid = 1;
+    MC_LOGI("static_server", "registry fetch: world_border fields");
+  }
+
+  if (src->update_time_valid && !g_cached_update_time_valid) {
+    g_cached_time_world_age = src->time_world_age;
+    g_cached_time_time_of_day = src->time_time_of_day;
+    g_cached_time_tick_day_time = src->time_tick_day_time;
+    g_cached_update_time_valid = 1;
+    MC_LOGI("static_server", "registry fetch: update_time fields");
+  }
+
+  if (src->spawn_position_valid && !g_cached_spawn_position_valid) {
+    g_cached_spawn_dimension = src->spawn_dimension;
+    src->spawn_dimension = NULL;
+    g_cached_spawn_pos = src->spawn_pos;
+    g_cached_spawn_yaw = src->spawn_yaw;
+    g_cached_spawn_pitch = src->spawn_pitch;
+    src->spawn_position_valid = 0;
+    g_cached_spawn_position_valid = 1;
+    MC_LOGI("static_server", "registry fetch: spawn_position fields (%s)",
+            g_cached_spawn_dimension ? g_cached_spawn_dimension : "?");
   }
 }
 
@@ -257,12 +303,12 @@ static void *registry_fetch_thread(void *arg) {
   pthread_mutex_lock(&g_load_mutex);
   if (a->rc == 0 && g_load_state == REG_STATE_CONFIG_READY) {
     g_step_count = a->result.step_count;
-    ingest_join_capture();
+    apply_join_template(&a->result.join);
     g_load_state = REG_STATE_READY;
     MC_LOGI("static_server", "registry fetch: play join cached (%zu sync steps total)", g_step_count);
   } else if (g_load_state == REG_STATE_CONFIG_READY) {
     g_step_count = a->result.step_count;
-    ingest_join_capture();
+    apply_join_template(&a->result.join);
     MC_LOGW("static_server", "registry fetch: play join failed; config cache kept, play defaults on join");
     g_load_state = REG_STATE_READY;
   } else if (g_load_state == REG_STATE_LOADING) {
@@ -484,7 +530,13 @@ const uint8_t *mc_static_cached_select_known_packs(size_t *len) {
   return step->data;
 }
 
+static int is_raw_cached_play_pkt(int32_t pkt_id) {
+  return pkt_id == MC_PKT_PLAY_UPDATE_RECIPES || pkt_id == MC_PKT_PLAY_RECIPE_BOOK_SETTINGS ||
+         pkt_id == MC_PKT_PLAY_RECIPE_BOOK_ADD;
+}
+
 const uint8_t *mc_static_cached_play_payload(int32_t pkt_id, size_t *len) {
+  if (!is_raw_cached_play_pkt(pkt_id)) return NULL;
   const mc_reg_sync_step *step = find_cached_step(MC_REG_SYNC_PLAY, pkt_id);
   if (!step) return NULL;
   if (len) *len = step->len;
@@ -558,6 +610,29 @@ int mc_static_fill_join_position(lc_position *pos, int32_t teleport_id) {
   if (!pos || !g_cached_position_valid) return -1;
   *pos = g_cached_position;
   pos->teleport_id = teleport_id;
+  return 0;
+}
+
+int mc_static_fill_join_world_border(lc_initialize_world_border *wb) {
+  if (!wb || !g_cached_world_border_valid) return -1;
+  *wb = g_cached_world_border;
+  return 0;
+}
+
+int mc_static_fill_join_update_time(int64_t *world_age, int64_t *time_of_day, uint8_t *tick_day_time) {
+  if (!g_cached_update_time_valid) return -1;
+  if (world_age) *world_age = g_cached_time_world_age;
+  if (time_of_day) *time_of_day = g_cached_time_time_of_day;
+  if (tick_day_time) *tick_day_time = g_cached_time_tick_day_time;
+  return 0;
+}
+
+int mc_static_fill_join_spawn_position(char **dimension, lc_block_pos *pos, float *yaw, float *pitch) {
+  if (!g_cached_spawn_position_valid) return -1;
+  if (dimension) *dimension = g_cached_spawn_dimension;
+  if (pos) *pos = g_cached_spawn_pos;
+  if (yaw) *yaw = g_cached_spawn_yaw;
+  if (pitch) *pitch = g_cached_spawn_pitch;
   return 0;
 }
 

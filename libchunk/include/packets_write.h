@@ -30,6 +30,9 @@ lc_status lc_write_unload_chunk(const lc_unload_chunk *p, lc_byte_buf *out);
 lc_status lc_write_registry_data(const lc_registry_data *p, lc_byte_buf *out);
 lc_status lc_write_update_tags(const lc_update_tags *p, lc_byte_buf *out);
 lc_status lc_write_initialize_world_border(const lc_initialize_world_border *p, lc_byte_buf *out);
+lc_status lc_write_spawn_position(const char *dimension, const lc_block_pos *pos, float yaw, float pitch,
+                                  lc_byte_buf *out);
+lc_status lc_write_update_time(int64_t world_age, int64_t time_of_day, uint8_t tick_day_time, lc_byte_buf *out);
 
 void lc_play_login_free(lc_play_login *p);
 

@@ -49,7 +49,7 @@ static int decode_login(const uint8_t *payload, size_t payload_len, char *out, s
   lc_buf_init(&b, payload, payload_len);
   int32_t entity_id;
   uint8_t hardcore;
-  if (lc_buf_read_i32_le(&b, &entity_id) != LC_OK) return -1;
+  if (lc_buf_read_i32_be(&b, &entity_id) != LC_OK) return -1;
   if (lc_buf_read_bool(&b, &hardcore) != LC_OK) return -1;
   if (skip_string_array(&b) != LC_OK) return -1;
   int32_t max_players, view_dist, sim_dist;

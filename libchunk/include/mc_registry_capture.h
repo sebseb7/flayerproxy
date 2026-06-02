@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "mc_registry_join_template.h"
+
 /** Mirror S2C config packet to a connected downstream client (optional). */
 typedef int (*mc_registry_mirror_config_fn)(void *ctx, int32_t pkt_id, const uint8_t *body, size_t body_len);
 /** Block until downstream client sends C2S select_known_packs (optional). */
@@ -45,6 +47,7 @@ typedef struct mc_reg_sync_step {
 typedef struct mc_registry_capture_result {
   mc_reg_sync_step *steps;
   size_t step_count;
+  mc_registry_join_template join;
 } mc_registry_capture_result;
 
 /** Called once config (registry_data + update_tags) is captured; fetch may continue for play join. */
