@@ -43,16 +43,37 @@ ssize_t mc_send_all(int fd, const void *buf, size_t len) {
  */
 
 int mc_send_frame(int fd, int32_t pkt_id, const uint8_t *payload, size_t payload_len) {
+  return mc_send_frame_logged(fd, pkt_id, payload, payload_len, NULL);
+}
+
+int mc_send_frame_logged(int fd, int32_t pkt_id, const uint8_t *payload, size_t payload_len,
+                         const char *context) {
   mc_buf frame;
   memset(&frame, 0, sizeof(frame));
-  if (mc_buf_frame(&frame, pkt_id, payload, payload_len) != LC_OK) {
+  lc_status build = mc_buf_frame(&frame, pkt_id, payload, payload_len);
+  if (build != LC_OK) {
+    if (context) {
+      MC_LOGE("static_server", "%s: frame build failed pkt=0x%02x payload=%zu status=%d", context,
+              (unsigned)pkt_id & 0xff, payload_len, (int)build);
+    }
     mc_buf_free(&frame);
     return -1;
   }
   ssize_t rc = mc_send_all(fd, frame.data, frame.len);
   size_t want = frame.len;
   mc_buf_free(&frame);
-  return rc == (ssize_t)want ? 0 : -1;
+  if (rc == (ssize_t)want) return 0;
+  if (context) {
+    if (rc < 0) {
+      MC_LOGE("static_server", "%s: send() failed pkt=0x%02x payload=%zu frame=%zu errno=%d (%s)", context,
+              (unsigned)pkt_id & 0xff, payload_len, want, errno, strerror(errno));
+    } else {
+      MC_LOGE("static_server",
+              "%s: short write pkt=0x%02x payload=%zu frame=%zu (wrote %zd bytes; client likely disconnected)",
+              context, (unsigned)pkt_id & 0xff, payload_len, want, rc);
+    }
+  }
+  return -1;
 }
 /* Good for: Send pre-framed wire blob unchanged.
  * Callers: mc_spectator.c.

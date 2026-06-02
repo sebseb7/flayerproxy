@@ -128,9 +128,7 @@ static int enter_play(mc_client *cli, mc_chunk_stream *chunks) {
   mc_patch_ctx ctx = make_patch_ctx(cli);
   if (mc_template_send_play_join(cli->fd, &ctx) != 0) return -1;
   if (mc_static_chunks_upstream()) {
-    if (mc_template_send_upstream_world(cli->fd, &ctx) != 0) {
-      MC_LOGW("static_server", "upstream chunk send failed (wire error); continuing play join");
-    }
+    if (mc_template_send_upstream_world(cli->fd, &ctx) != 0) return -1;
   } else if (mc_template_send_grass_world(cli->fd, &ctx) != 0) {
     return -1;
   }

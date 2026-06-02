@@ -52,6 +52,8 @@ typedef struct mc_client {
 
 ssize_t mc_send_all(int fd, const void *buf, size_t len);
 int mc_send_frame(int fd, int32_t pkt_id, const uint8_t *payload, size_t payload_len);
+/** Like mc_send_frame; on failure logs context, packet id, sizes, and send errno / short write. */
+int mc_send_frame_logged(int fd, int32_t pkt_id, const uint8_t *payload, size_t payload_len, const char *context);
 int mc_send_wire_framed(int fd, const uint8_t *wire, size_t wire_len);
 int mc_read_packet(int fd, uint8_t **out, size_t *out_len, int32_t *pkt_id);
 

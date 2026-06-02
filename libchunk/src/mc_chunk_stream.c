@@ -8,6 +8,7 @@
 #include "mc_wire_templates.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -102,26 +103,36 @@ int mc_static_chunks_send_at(int fd, int32_t x, int32_t z) {
   const uint8_t *payload = NULL;
   size_t plen = 0;
   if (mc_static_chunks_lookup(x, z, &payload, &plen) != 0) return -1;
-  return mc_send_frame(fd, MC_PKT_PLAY_MAP_CHUNK, payload, plen);
+  char ctx[80];
+  snprintf(ctx, sizeof ctx, "upstream map_chunk (%d,%d)", x, z);
+  return mc_send_frame_logged(fd, MC_PKT_PLAY_MAP_CHUNK, payload, plen, ctx);
 }
 
 static int upstream_send_chunk_batch_start(int fd) {
-  return mc_send_frame(fd, MC_PKT_PLAY_CHUNK_BATCH_START, NULL, 0);
+  return mc_send_frame_logged(fd, MC_PKT_PLAY_CHUNK_BATCH_START, NULL, 0, "upstream chunk_batch_start");
 }
 
 static int upstream_send_chunk_batch_finished(int fd, int32_t batch_size) {
   mc_buf b;
   memset(&b, 0, sizeof b);
-  if (mc_buf_varint(&b, batch_size) != LC_OK) return -1;
-  int rc = mc_send_frame(fd, MC_PKT_PLAY_CHUNK_BATCH_FINISHED, b.data, b.len);
+  if (mc_buf_varint(&b, batch_size) != LC_OK) {
+    MC_LOGE("static_server", "upstream chunk_batch_finished: encode batch_size=%d failed", batch_size);
+    return -1;
+  }
+  char ctx[80];
+  snprintf(ctx, sizeof ctx, "upstream chunk_batch_finished (count=%d)", batch_size);
+  int rc = mc_send_frame_logged(fd, MC_PKT_PLAY_CHUNK_BATCH_FINISHED, b.data, b.len, ctx);
   mc_buf_free(&b);
   return rc;
 }
 
 int mc_static_chunks_send_grid(int fd, int32_t cx, int32_t cz, int32_t radius) {
-  if (radius < 0) return -1;
+  if (radius < 0) {
+    MC_LOGE("static_server", "upstream chunks: invalid radius %d for center (%d,%d)", radius, cx, cz);
+    return -1;
+  }
 
-  int sent = 0;
+  int planned = 0;
   size_t wire_total = 0;
 
   MC_LOGI("static_server", "upstream chunks near (%d,%d) radius=%d (%zu cached total)", cx, cz, radius,
@@ -136,29 +147,39 @@ int mc_static_chunks_send_grid(int fd, int32_t cx, int32_t cz, int32_t radius) {
     int32_t x = g_upstream_entries[i].x;
     int32_t z = g_upstream_entries[i].z;
     if (x < cx - radius || x > cx + radius || z < cz - radius || z > cz + radius) continue;
-    sent++;
+    planned++;
   }
 
-  if (sent == 0) {
+  if (planned == 0) {
     MC_LOGW("static_server", "upstream chunks: none within radius %d of (%d,%d)", radius, cx, cz);
     return 0;
   }
 
-  sent = 0;
+  MC_LOGI("static_server", "upstream chunks: sending batch of %d map_chunk(s)", planned);
+
+  int sent = 0;
   if (upstream_send_chunk_batch_start(fd) != 0) return -1;
 
   for (int i = 0; i < g_upstream_entry_count; i++) {
     int32_t x = g_upstream_entries[i].x;
     int32_t z = g_upstream_entries[i].z;
     if (x < cx - radius || x > cx + radius || z < cz - radius || z > cz + radius) continue;
-    if (mc_send_frame(fd, MC_PKT_PLAY_MAP_CHUNK, g_upstream_entries[i].data, g_upstream_entries[i].len) != 0)
+    char ctx[80];
+    snprintf(ctx, sizeof ctx, "upstream map_chunk (%d,%d) [%d/%d]", x, z, sent + 1, planned);
+    if (mc_send_frame_logged(fd, MC_PKT_PLAY_MAP_CHUNK, g_upstream_entries[i].data, g_upstream_entries[i].len,
+                             ctx) != 0) {
+      MC_LOGE("static_server", "upstream chunks: aborted after %d/%d map_chunk(s), %zuKiB sent", sent,
+              planned, (wire_total + 512) / 1024);
       return -1;
+    }
     wire_total += g_upstream_entries[i].len;
     sent++;
   }
 
-  MC_LOGI("static_server", "upstream chunks done: sent %d, wire=%zuKiB", sent, (wire_total + 512) / 1024);
+  MC_LOGI("static_server", "upstream chunks: all %d map_chunk(s) sent, payload=%zuKiB; sending batch_finished",
+          sent, (wire_total + 512) / 1024);
   if (upstream_send_chunk_batch_finished(fd, sent) != 0) return -1;
+  MC_LOGI("static_server", "upstream chunks done: %d chunk(s), %zuKiB", sent, (wire_total + 512) / 1024);
   return 0;
 }
 /* Good for: Test whether chunk (x,z) is in the loaded set.
@@ -294,11 +315,14 @@ static int sync_view_chunks(mc_chunk_stream *cs, int fd, int32_t center_cx, int3
       int32_t z = to_load_z[i];
       int rc;
       if (mc_static_chunks_upstream()) {
-        rc = mc_static_chunks_send_at(fd, x, z);
-        if (rc != 0) {
-          MC_LOGW("static_server", "upstream chunk missing on move (%d,%d)", x, z);
+        const uint8_t *probe = NULL;
+        size_t probe_len = 0;
+        if (mc_static_chunks_lookup(x, z, &probe, &probe_len) != 0) {
+          MC_LOGW("static_server", "upstream chunk not cached on move (%d,%d)", x, z);
           continue;
         }
+        rc = mc_static_chunks_send_at(fd, x, z);
+        if (rc != 0) continue;
       } else {
         rc = mc_template_send_map_chunk_at(fd, x, z);
         if (rc != 0) return -1;
