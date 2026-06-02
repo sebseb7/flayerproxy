@@ -103,6 +103,8 @@ static const char *k_world_names[] = {"minecraft:overworld", "minecraft:the_neth
 static lc_play_login build_play_login(const mc_patch_ctx *ctx, int32_t view_dist, int32_t sim_dist) {
   lc_play_login login;
   memset(&login, 0, sizeof login);
+  if (mc_static_fill_join_login(&login, ctx->entity_id) == 0) return login;
+
   login.entity_id = ctx->entity_id;
   login.hardcore = 0;
   login.world_names = k_world_names;
@@ -134,6 +136,8 @@ static lc_play_login build_play_login(const mc_patch_ctx *ctx, int32_t view_dist
 
 static lc_position build_play_position(const mc_patch_ctx *ctx) {
   lc_position pos;
+  if (mc_static_fill_join_position(&pos, ctx->teleport_id) == 0) return pos;
+
   memset(&pos, 0, sizeof pos);
   pos.teleport_id = ctx->teleport_id;
   pos.x = ctx->spawn_x;
@@ -445,15 +449,34 @@ int mc_template_send_config_sequence(int fd, const mc_patch_ctx *ctx) {
 
 int mc_template_send_play_join(int fd, const mc_patch_ctx *ctx) {
   const mc_server_world *w = &g_store.world;
-  const int32_t view = MC_STATIC_VIEW_DISTANCE;
-  const int32_t sim = MC_STATIC_SIM_DISTANCE;
+  mc_static_wait_play_cache();
 
-  MC_LOGI("static_server", "play join for %s entity=%d gamemode=%d view=%d sim=%d spawn=(%.1f,%.1f,%.1f) view_chunk=(%d,%d)",
-          ctx->username ? ctx->username : "?", ctx->entity_id, (int)ctx->gamemode, view, sim, ctx->spawn_x, ctx->spawn_y,
-          ctx->spawn_z, w->spawn_chunk_x, w->spawn_chunk_z);
+  lc_position spawn_pos;
+  if (mc_static_fill_join_position(&spawn_pos, 1) == 0) {
+    g_store.world.spawn_x = spawn_pos.x;
+    g_store.world.spawn_y = spawn_pos.y;
+    g_store.world.spawn_z = spawn_pos.z;
+    g_store.world.spawn_chunk_x = (int32_t)floor(spawn_pos.x / 16.0);
+    g_store.world.spawn_chunk_z = (int32_t)floor(spawn_pos.z / 16.0);
+  }
+
+  int32_t view = MC_STATIC_VIEW_DISTANCE;
+  int32_t sim = MC_STATIC_SIM_DISTANCE;
+  {
+    lc_play_login preview;
+    memset(&preview, 0, sizeof preview);
+    if (mc_static_fill_join_login(&preview, ctx->entity_id) == 0) {
+      view = preview.view_distance;
+      sim = preview.simulation_distance;
+      free(preview.world_state.name);
+    }
+  }
+
+  MC_LOGI("static_server", "play join for %s entity=%d view=%d sim=%d spawn=(%.1f,%.1f,%.1f) view_chunk=(%d,%d)",
+          ctx->username ? ctx->username : "?", ctx->entity_id, view, sim, g_store.world.spawn_x, g_store.world.spawn_y,
+          g_store.world.spawn_z, g_store.world.spawn_chunk_x, g_store.world.spawn_chunk_z);
 
   if (send_play_login(fd, ctx, view, sim) != 0) return -1;
-  mc_static_wait_play_cache();
   if (mc_static_send_cached_recipe_burst(fd) != 0) return -1;
   if (send_play_difficulty(fd) != 0) return -1;
   if (send_play_abilities(fd) != 0) return -1;

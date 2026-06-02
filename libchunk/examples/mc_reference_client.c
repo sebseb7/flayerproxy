@@ -32,6 +32,12 @@
 
 typedef enum { CAP_HS, CAP_LOGIN, CAP_CFG, CAP_PLAY } cap_phase;
 
+typedef struct {
+  FILE *idx;
+  const char *outdir;
+  int seq;
+} cap_ctx;
+
 /** 0 = protocol 773 (static server), 1 = +1 shifted ids (newer Java). */
 static int g_play_id_shift = -1;
 
@@ -80,6 +86,91 @@ static const char *phase_name(cap_phase p) {
   }
 }
 
+static const char *c2s_pkt_label(cap_phase phase, int32_t id) {
+  if (phase == CAP_HS) {
+    if (id == MC_PKT_HS_SET_PROTOCOL) return "handshake";
+  }
+  if (phase == CAP_LOGIN) {
+    if (id == MC_PKT_C2S_LOGIN_START) return "login_start";
+    if (id == MC_PKT_C2S_LOGIN_ACKNOWLEDGED) return "login_acknowledged";
+  }
+  if (phase == CAP_CFG) {
+    if (id == MC_PKT_C2S_CFG_SELECT_KNOWN_PACKS) return "select_known_packs";
+    if (id == MC_PKT_C2S_CFG_KEEP_ALIVE) return "keep_alive";
+    if (id == MC_PKT_C2S_CFG_PONG) return "pong";
+    if (id == MC_PKT_C2S_CFG_FINISH) return "finish_configuration";
+  }
+  if (phase == CAP_PLAY) {
+    if (id == MC_PKT_C2S_TELEPORT_CONFIRM) return "teleport_confirm";
+    if (id == MC_PKT_C2S_PLAYER_LOADED) return "player_loaded";
+    if (id == MC_PKT_C2S_KEEP_ALIVE) return "keep_alive";
+    if (id == MC_PKT_C2S_PONG) return "pong";
+    if (id == MC_PKT_C2S_CHUNK_BATCH_RECEIVED) return "chunk_batch_received";
+    if (id == MC_PKT_C2S_TICK_END) return "tick_end";
+  }
+  return NULL;
+}
+
+static int build_packet_wire(int32_t pkt_id, const uint8_t *payload, size_t payload_len,
+                             uint8_t **out, size_t *out_len) {
+  mc_buf b;
+  memset(&b, 0, sizeof b);
+  if (mc_buf_varint(&b, pkt_id) != LC_OK) return -1;
+  if (payload_len > 0 && mc_buf_write(&b, payload, payload_len) != LC_OK) {
+    mc_buf_free(&b);
+    return -1;
+  }
+  *out = b.data;
+  *out_len = b.len;
+  b.data = NULL;
+  b.len = 0;
+  return 0;
+}
+
+static int save_wire(cap_ctx *ctx, const char *dir, cap_phase phase, int32_t pkt_id,
+                     const char *label, const uint8_t *wire, size_t wire_len) {
+  int seq = ctx->seq++;
+  char id_hex[8];
+  snprintf(id_hex, sizeof id_hex, "%02x", (unsigned)(pkt_id & 0xff));
+  const char *name = label ? label : "pkt";
+  char fname[280];
+  snprintf(fname, sizeof fname, "%s/%04d_%s_%s_%s_%s.wire", ctx->outdir, seq, dir, phase_name(phase),
+           id_hex, name);
+
+  FILE *f = fopen(fname, "wb");
+  if (!f) {
+    perror(fname);
+    return -1;
+  }
+  if (wire_len > 0 && fwrite(wire, 1, wire_len, f) != wire_len) {
+    fclose(f);
+    return -1;
+  }
+  fclose(f);
+
+  fprintf(ctx->idx, "%04d %s %s 0x%s %s %zu %s\n", seq, dir, phase_name(phase), id_hex, name,
+          wire_len, fname);
+  fprintf(stderr, "[%04d] %s %s 0x%02x %s (%zu B)\n", seq, dir, phase_name(phase),
+          (unsigned)(pkt_id & 0xff), name, wire_len);
+  return 0;
+}
+
+static int save_c2s_payload(cap_ctx *ctx, cap_phase phase, int32_t pkt_id, const uint8_t *payload,
+                          size_t len) {
+  uint8_t *wire = NULL;
+  size_t wire_len = 0;
+  if (build_packet_wire(pkt_id, payload, len, &wire, &wire_len) != 0) return -1;
+  int rc = save_wire(ctx, "c2s", phase, pkt_id, c2s_pkt_label(phase, pkt_id), wire, wire_len);
+  free(wire);
+  return rc;
+}
+
+static int send_c2s(mc_conn *conn, cap_ctx *ctx, cap_phase phase, int32_t pkt_id,
+                    const uint8_t *payload, size_t len) {
+  if (save_c2s_payload(ctx, phase, pkt_id, payload, len) != 0) return -1;
+  return mc_conn_send_frame(conn, pkt_id, payload, len);
+}
+
 static const char *pkt_label(cap_phase phase, int32_t id) {
   if (phase == CAP_LOGIN) {
     if (id == MC_PKT_LOGIN_DISCONNECT) return "disconnect";
@@ -109,7 +200,7 @@ static const char *pkt_label(cap_phase phase, int32_t id) {
   return NULL;
 }
 
-static int send_handshake(mc_conn *conn, const char *host, uint16_t port) {
+static int send_handshake(mc_conn *conn, cap_ctx *ctx, const char *host, uint16_t port) {
   mc_buf b;
   memset(&b, 0, sizeof b);
   if (mc_buf_varint(&b, MC_PROTOCOL_VERSION) != LC_OK) return -1;
@@ -117,7 +208,7 @@ static int send_handshake(mc_conn *conn, const char *host, uint16_t port) {
   if (mc_buf_u8(&b, (uint8_t)(port & 0xff)) != LC_OK) return -1;
   if (mc_buf_u8(&b, (uint8_t)(port >> 8)) != LC_OK) return -1;
   if (mc_buf_varint(&b, MC_HS_LOGIN) != LC_OK) return -1;
-  if (mc_conn_send_frame(conn, MC_PKT_HS_SET_PROTOCOL, b.data, b.len) != 0) {
+  if (send_c2s(conn, ctx, CAP_HS, MC_PKT_HS_SET_PROTOCOL, b.data, b.len) != 0) {
     mc_buf_free(&b);
     return -1;
   }
@@ -125,12 +216,12 @@ static int send_handshake(mc_conn *conn, const char *host, uint16_t port) {
   return 0;
 }
 
-static int send_login_start(mc_conn *conn, const char *username, const uint8_t uuid[16]) {
+static int send_login_start(mc_conn *conn, cap_ctx *ctx, const char *username, const uint8_t uuid[16]) {
   mc_buf b;
   memset(&b, 0, sizeof b);
   if (mc_buf_string(&b, username) != LC_OK) return -1;
   if (mc_buf_uuid(&b, uuid) != LC_OK) return -1;
-  int rc = mc_conn_send_frame(conn, MC_PKT_C2S_LOGIN_START, b.data, b.len);
+  int rc = send_c2s(conn, ctx, CAP_LOGIN, MC_PKT_C2S_LOGIN_START, b.data, b.len);
   mc_buf_free(&b);
   return rc;
 }
@@ -160,106 +251,81 @@ static int payload_after_id(const uint8_t *wire, size_t wire_len, const uint8_t 
   return 0;
 }
 
-static int echo_select_known_packs(mc_conn *conn, const uint8_t *wire, size_t wire_len) {
+static int echo_select_known_packs(mc_conn *conn, cap_ctx *ctx, const uint8_t *wire, size_t wire_len) {
   const uint8_t *body = NULL;
   size_t body_len = 0;
   if (payload_after_id(wire, wire_len, &body, &body_len) != 0) return -1;
-  return mc_conn_send_frame(conn, MC_PKT_C2S_CFG_SELECT_KNOWN_PACKS, body, body_len);
+  return send_c2s(conn, ctx, CAP_CFG, MC_PKT_C2S_CFG_SELECT_KNOWN_PACKS, body, body_len);
 }
 
-static int send_teleport_confirm(mc_conn *conn, int32_t teleport_id) {
+static int send_teleport_confirm(mc_conn *conn, cap_ctx *ctx, int32_t teleport_id) {
   mc_buf b;
   memset(&b, 0, sizeof b);
   if (mc_buf_varint(&b, teleport_id) != LC_OK) return -1;
-  int rc = mc_conn_send_frame(conn, MC_PKT_C2S_TELEPORT_CONFIRM, b.data, b.len);
+  int rc = send_c2s(conn, ctx, CAP_PLAY, MC_PKT_C2S_TELEPORT_CONFIRM, b.data, b.len);
   mc_buf_free(&b);
   return rc;
 }
 
-static int send_cfg_pong(mc_conn *conn, int32_t id) {
+static int send_cfg_pong(mc_conn *conn, cap_ctx *ctx, int32_t id) {
   mc_buf b;
   memset(&b, 0, sizeof b);
   if (mc_buf_varint(&b, id) != LC_OK) return -1;
-  int rc = mc_conn_send_frame(conn, MC_PKT_C2S_CFG_PONG, b.data, b.len);
+  int rc = send_c2s(conn, ctx, CAP_CFG, MC_PKT_C2S_CFG_PONG, b.data, b.len);
   mc_buf_free(&b);
   return rc;
 }
 
-static int send_play_pong(mc_conn *conn, int32_t id) {
+static int send_play_pong(mc_conn *conn, cap_ctx *ctx, int32_t id) {
   mc_buf b;
   memset(&b, 0, sizeof b);
   if (mc_buf_i32_be(&b, id) != LC_OK) return -1;
-  int rc = mc_conn_send_frame(conn, MC_PKT_C2S_PONG, b.data, b.len);
+  int rc = send_c2s(conn, ctx, CAP_PLAY, MC_PKT_C2S_PONG, b.data, b.len);
   mc_buf_free(&b);
   return rc;
 }
 
-static int save_packet(FILE *idx, const char *outdir, int seq, cap_phase phase, int32_t pkt_id,
-                       const uint8_t *wire, size_t wire_len) {
-  const char *label = pkt_label(phase, pkt_id);
-  char id_hex[8];
-  snprintf(id_hex, sizeof id_hex, "%02x", (unsigned)(pkt_id & 0xff));
-  char fname[256];
-  if (label)
-    snprintf(fname, sizeof fname, "%s/%04d_%s_%s_%s.wire", outdir, seq, phase_name(phase), id_hex, label);
-  else
-    snprintf(fname, sizeof fname, "%s/%04d_%s_%s_pkt.wire", outdir, seq, phase_name(phase), id_hex);
-
-  FILE *f = fopen(fname, "wb");
-  if (!f) {
-    perror(fname);
-    return -1;
-  }
-  if (fwrite(wire, 1, wire_len, f) != wire_len) {
-    fclose(f);
-    return -1;
-  }
-  fclose(f);
-
-  const char *name = label ? label : "unknown";
-  fprintf(idx, "%04d %s 0x%s %s %zu %s\n", seq, phase_name(phase), id_hex, name, wire_len, fname);
-  return 0;
-}
-
-static int send_keep_alive_reply(mc_conn *conn, int32_t c2s_id, const uint8_t *body, size_t body_len) {
+static int send_keep_alive_reply(mc_conn *conn, cap_ctx *ctx, cap_phase phase, int32_t c2s_id,
+                                 const uint8_t *body, size_t body_len) {
   if (body_len != 8) return 0;
-  return mc_conn_send_frame(conn, c2s_id, body, 8);
+  return send_c2s(conn, ctx, phase, c2s_id, body, 8);
 }
 
-static int send_chunk_batch_received(mc_conn *conn) {
+static int send_chunk_batch_received(mc_conn *conn, cap_ctx *ctx) {
   mc_buf b;
   memset(&b, 0, sizeof b);
   if (mc_buf_f32_be(&b, 6.0f) != LC_OK) return -1;
-  int rc = mc_conn_send_frame(conn, MC_PKT_C2S_CHUNK_BATCH_RECEIVED, b.data, b.len);
+  int rc = send_c2s(conn, ctx, CAP_PLAY, MC_PKT_C2S_CHUNK_BATCH_RECEIVED, b.data, b.len);
   mc_buf_free(&b);
   return rc;
 }
 
-static int handle_position_packet(mc_conn *conn, const uint8_t *wire, size_t wire_len, int *player_loaded_sent) {
+static int handle_position_packet(mc_conn *conn, cap_ctx *ctx, const uint8_t *wire, size_t wire_len,
+                                 int *player_loaded_sent) {
   const uint8_t *body = NULL;
   size_t body_len = 0;
   if (payload_after_id(wire, wire_len, &body, &body_len) != 0) return -1;
   size_t off = 0;
   int32_t tid = 0;
   if (read_varint(body, body_len, &off, &tid) != 0) return -1;
-  if (send_teleport_confirm(conn, tid) != 0) return -1;
+  if (send_teleport_confirm(conn, ctx, tid) != 0) return -1;
   if (!*player_loaded_sent) {
     *player_loaded_sent = 1;
-    if (mc_conn_send_frame(conn, MC_PKT_C2S_PLAYER_LOADED, NULL, 0) != 0) return -1;
+    if (send_c2s(conn, ctx, CAP_PLAY, MC_PKT_C2S_PLAYER_LOADED, NULL, 0) != 0) return -1;
   }
   return 0;
 }
 
-static int handle_play_response(mc_conn *conn, int32_t pkt_id, const uint8_t *wire, size_t wire_len,
-                                int *player_loaded_sent, int *map_chunks_seen) {
+static int handle_play_response(mc_conn *conn, cap_ctx *ctx, int32_t pkt_id, const uint8_t *wire,
+                                size_t wire_len, int *player_loaded_sent, int *map_chunks_seen) {
   if (pkt_id == PLAY_PKT_CHUNK_BATCH_FINISHED) {
-    return send_chunk_batch_received(conn);
+    return send_chunk_batch_received(conn, ctx);
   }
   if (is_play_keep_alive(pkt_id)) {
     const uint8_t *body = NULL;
     size_t body_len = 0;
     if (payload_after_id(wire, wire_len, &body, &body_len) != 0) return -1;
-    return send_keep_alive_reply(conn, MC_PKT_C2S_KEEP_ALIVE, body, body_len);
+    return send_keep_alive_reply(conn, ctx, CAP_PLAY, MC_PKT_C2S_KEEP_ALIVE, body, body_len);
   }
   if (is_play_ping(pkt_id)) {
     const uint8_t *body = NULL;
@@ -267,18 +333,18 @@ static int handle_play_response(mc_conn *conn, int32_t pkt_id, const uint8_t *wi
     if (payload_after_id(wire, wire_len, &body, &body_len) != 0 || body_len < 4) return -1;
     int32_t ping_id = (int32_t)((uint32_t)body[0] << 24 | (uint32_t)body[1] << 16 | (uint32_t)body[2] << 8 |
                                 (uint32_t)body[3]);
-    return send_play_pong(conn, ping_id);
+    return send_play_pong(conn, ctx, ping_id);
   }
   if (is_play_position(pkt_id)) {
-    return handle_position_packet(conn, wire, wire_len, player_loaded_sent);
+    return handle_position_packet(conn, ctx, wire, wire_len, player_loaded_sent);
   }
   if (is_play_map_chunk(pkt_id)) {
     (*map_chunks_seen)++;
     if (!*player_loaded_sent && *map_chunks_seen >= 3) {
       *player_loaded_sent = 1;
-      if (mc_conn_send_frame(conn, MC_PKT_C2S_PLAYER_LOADED, NULL, 0) != 0) return -1;
+      if (send_c2s(conn, ctx, CAP_PLAY, MC_PKT_C2S_PLAYER_LOADED, NULL, 0) != 0) return -1;
     }
-    if (mc_conn_send_frame(conn, MC_PKT_C2S_TICK_END, NULL, 0) != 0) return -1;
+    if (send_c2s(conn, ctx, CAP_PLAY, MC_PKT_C2S_TICK_END, NULL, 0) != 0) return -1;
     return 0;
   }
   return 0;
@@ -376,8 +442,11 @@ int main(int argc, char **argv) {
   uint8_t uuid[16];
   mc_offline_uuid(username, uuid);
 
+  cap_ctx ctx = {.idx = idx, .outdir = outdir, .seq = 0};
+
   uint16_t port = (uint16_t)atoi(port_str);
-  if (send_handshake(&conn, host, port) != 0 || send_login_start(&conn, username, uuid) != 0) {
+  if (send_handshake(&conn, &ctx, host, port) != 0 ||
+      send_login_start(&conn, &ctx, username, uuid) != 0) {
     mc_conn_free(&conn);
     close(fd);
     fclose(idx);
@@ -387,7 +456,6 @@ int main(int argc, char **argv) {
   }
 
   cap_phase phase = CAP_LOGIN;
-  int seq = 0;
   int login_ack_sent = 0;
   int config_finish_sent = 0;
   int player_loaded_sent = 0;
@@ -395,29 +463,28 @@ int main(int argc, char **argv) {
   time_t play_enter = 0;
 
   fprintf(stderr, "connected to %s:%s as %s, saving to %s\n", host, port_str, username, outdir);
+  fprintf(stderr, "  S2C/C2S: chronological .wire files (seq_dir_phase_id_name.wire)\n");
+  fprintf(idx, "# seq dir phase id name bytes file\n");
 
-  while (seq < MAX_PACKETS) {
+  while (ctx.seq < MAX_PACKETS) {
     if (phase == CAP_PLAY && play_enter && time(NULL) - play_enter >= PLAY_TIMEOUT_SEC) break;
 
     uint8_t *wire = NULL;
     size_t wire_len = 0;
     int32_t pkt_id = 0;
     if (mc_conn_read_packet(&conn, &wire, &wire_len, &pkt_id) != 0) {
-      fprintf(stderr, "read error or disconnect after %d packets\n", seq);
+      fprintf(stderr, "read error or disconnect after %d packets\n", ctx.seq);
       free(wire);
       break;
     }
 
     if (phase == CAP_PLAY) detect_play_id_shift(pkt_id);
 
-    if (save_packet(idx, outdir, seq, phase, pkt_id, wire, wire_len) != 0) {
+    const char *label = pkt_label(phase, pkt_id);
+    if (save_wire(&ctx, "s2c", phase, pkt_id, label, wire, wire_len) != 0) {
       free(wire);
       break;
     }
-
-    const char *label = pkt_label(phase, pkt_id);
-    fprintf(stderr, "[%04d] %s 0x%02x %s (%zu B)\n", seq, phase_name(phase), (unsigned)(pkt_id & 0xff),
-            label ? label : "?", wire_len);
     if (phase == CAP_PLAY) try_decode_summary(label, wire, wire_len);
 
     if (phase == CAP_LOGIN) {
@@ -449,7 +516,7 @@ int main(int argc, char **argv) {
       }
       if (pkt_id == MC_PKT_LOGIN_SUCCESS && !login_ack_sent) {
         login_ack_sent = 1;
-        if (mc_conn_send_frame(&conn, MC_PKT_C2S_LOGIN_ACKNOWLEDGED, NULL, 0) != 0) {
+        if (send_c2s(&conn, &ctx, CAP_LOGIN, MC_PKT_C2S_LOGIN_ACKNOWLEDGED, NULL, 0) != 0) {
           free(wire);
           break;
         }
@@ -463,7 +530,7 @@ int main(int argc, char **argv) {
       }
     } else if (phase == CAP_CFG) {
       if (pkt_id == MC_PKT_CFG_SELECT_KNOWN_PACKS) {
-        if (echo_select_known_packs(&conn, wire, wire_len) != 0) {
+        if (echo_select_known_packs(&conn, &ctx, wire, wire_len) != 0) {
           free(wire);
           break;
         }
@@ -471,7 +538,7 @@ int main(int argc, char **argv) {
         const uint8_t *body = NULL;
         size_t body_len = 0;
         if (payload_after_id(wire, wire_len, &body, &body_len) != 0 ||
-            send_keep_alive_reply(&conn, MC_PKT_C2S_CFG_KEEP_ALIVE, body, body_len) != 0) {
+            send_keep_alive_reply(&conn, &ctx, CAP_CFG, MC_PKT_C2S_CFG_KEEP_ALIVE, body, body_len) != 0) {
           free(wire);
           break;
         }
@@ -484,13 +551,13 @@ int main(int argc, char **argv) {
         }
         size_t off = 0;
         int32_t ping_id = 0;
-        if (read_varint(body, body_len, &off, &ping_id) != 0 || send_cfg_pong(&conn, ping_id) != 0) {
+        if (read_varint(body, body_len, &off, &ping_id) != 0 || send_cfg_pong(&conn, &ctx, ping_id) != 0) {
           free(wire);
           break;
         }
       } else if (pkt_id == MC_PKT_CFG_FINISH && !config_finish_sent) {
         config_finish_sent = 1;
-        if (mc_conn_send_frame(&conn, MC_PKT_C2S_CFG_FINISH, NULL, 0) != 0) {
+        if (send_c2s(&conn, &ctx, CAP_CFG, MC_PKT_C2S_CFG_FINISH, NULL, 0) != 0) {
           free(wire);
           break;
         }
@@ -499,7 +566,8 @@ int main(int argc, char **argv) {
         fprintf(stderr, "-> play (capture %ds)\n", PLAY_TIMEOUT_SEC);
       }
     } else if (phase == CAP_PLAY) {
-      if (handle_play_response(&conn, pkt_id, wire, wire_len, &player_loaded_sent, &map_chunks_seen) != 0) {
+      if (handle_play_response(&conn, &ctx, pkt_id, wire, wire_len, &player_loaded_sent, &map_chunks_seen) !=
+          0) {
         fprintf(stderr, "play response failed for 0x%02x\n", (unsigned)(pkt_id & 0xff));
         free(wire);
         break;
@@ -507,7 +575,6 @@ int main(int argc, char **argv) {
     }
 
     free(wire);
-    seq++;
   }
 
   fclose(idx);
@@ -515,6 +582,6 @@ int main(int argc, char **argv) {
   close(fd);
   free(owned_token);
   free(owned_profile);
-  fprintf(stderr, "saved %d packets to %s/index.txt\n", seq, outdir);
+  fprintf(stderr, "saved %d packets to %s/index.txt\n", ctx.seq, outdir);
   return 0;
 }

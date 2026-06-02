@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "packets_write.h"
+
 /** When set before init, first client join loads registries from this server (then cached). */
 typedef struct mc_static_registry_fetch {
   const char *host;
@@ -29,6 +31,12 @@ int mc_static_send_cached_recipe_burst(int fd);
 
 /** Wait for background play join fetch when config is already cached. */
 void mc_static_wait_play_cache(void);
+
+/** Fill play login from upstream cache; entity_id is the downstream client id. */
+int mc_static_fill_join_login(lc_play_login *login, int32_t entity_id);
+
+/** Fill synchronize-player-position from upstream cache; teleport_id is downstream. */
+int mc_static_fill_join_position(lc_position *pos, int32_t teleport_id);
 
 /**
  * After client select_known_packs: load cache for this pack list if needed,

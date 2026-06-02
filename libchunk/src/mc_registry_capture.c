@@ -25,6 +25,8 @@
 
 typedef struct {
   int select_known_packs;
+  int login;
+  int position;
   int update_recipes;
   int recipe_book_settings;
   int recipe_book_add;
@@ -195,6 +197,10 @@ static int handle_play_response(mc_conn *conn, int32_t pkt_id, const uint8_t *bo
 
 static const char *step_label_for_play(int32_t pkt_id) {
   switch (pkt_id) {
+  case MC_PKT_PLAY_LOGIN:
+    return "login";
+  case MC_PKT_PLAY_POSITION:
+    return "position";
   case MC_PKT_PLAY_UPDATE_RECIPES:
     return "update_recipes";
   case MC_PKT_PLAY_RECIPE_BOOK_SETTINGS:
@@ -213,7 +219,9 @@ static const char *step_label_for_play(int32_t pkt_id) {
 static int capture_play_packet(mc_registry_capture_result *out, play_capture_flags *flags, int32_t pkt_id,
                                const char *label, const uint8_t *body, size_t body_len) {
   int *seen = NULL;
-  if (pkt_id == MC_PKT_PLAY_UPDATE_RECIPES) seen = &flags->update_recipes;
+  if (pkt_id == MC_PKT_PLAY_LOGIN) seen = &flags->login;
+  else if (pkt_id == MC_PKT_PLAY_POSITION) seen = &flags->position;
+  else if (pkt_id == MC_PKT_PLAY_UPDATE_RECIPES) seen = &flags->update_recipes;
   else if (pkt_id == MC_PKT_PLAY_RECIPE_BOOK_SETTINGS) seen = &flags->recipe_book_settings;
   else if (pkt_id == MC_PKT_PLAY_RECIPE_BOOK_ADD) seen = &flags->recipe_book_add;
   else if (pkt_id == MC_PKT_PLAY_INITIALIZE_WORLD_BORDER) seen = &flags->world_border;

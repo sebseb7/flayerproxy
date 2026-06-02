@@ -324,6 +324,57 @@ fail:
   mc_buf_free(&b);
   return LC_ERR_OOM;
 }
+
+static lc_status parse_string_array(lc_buf *b, char ***out_names, size_t *out_count) {
+  int32_t n;
+  if (lc_buf_read_varint(b, &n) != LC_OK) return LC_ERR_TRUNCATED;
+  if (n < 0) return LC_ERR_INVALID;
+  char **names = n ? (char **)calloc((size_t)n, sizeof(char *)) : NULL;
+  if (n && !names) return LC_ERR_OOM;
+  for (int32_t i = 0; i < n; i++) {
+    if (lc_buf_read_string(b, &names[i]) != LC_OK) {
+      for (int32_t j = 0; j < i; j++) free(names[j]);
+      free(names);
+      return LC_ERR_TRUNCATED;
+    }
+  }
+  *out_names = names;
+  *out_count = (size_t)n;
+  return LC_OK;
+}
+
+lc_status lc_parse_play_login(const uint8_t *data, size_t len, lc_play_login *out, char ***world_names_out,
+                              size_t *world_name_count_out) {
+  if (!data || !out || !world_names_out || !world_name_count_out) return LC_ERR_INVALID;
+  lc_buf b;
+  lc_buf_init(&b, data, len);
+  memset(out, 0, sizeof *out);
+  *world_names_out = NULL;
+  *world_name_count_out = 0;
+
+  if (lc_buf_read_i32_le(&b, &out->entity_id) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_u8(&b, &out->hardcore) != LC_OK) return LC_ERR_TRUNCATED;
+  if (parse_string_array(&b, world_names_out, world_name_count_out) != LC_OK) return LC_ERR_TRUNCATED;
+  out->world_names = (const char **)*world_names_out;
+  out->world_name_count = *world_name_count_out;
+  if (lc_buf_read_varint(&b, &out->max_players) != LC_OK) goto fail;
+  if (lc_buf_read_varint(&b, &out->view_distance) != LC_OK) goto fail;
+  if (lc_buf_read_varint(&b, &out->simulation_distance) != LC_OK) goto fail;
+  if (lc_buf_read_u8(&b, &out->reduced_debug_info) != LC_OK) goto fail;
+  if (lc_buf_read_u8(&b, &out->enable_respawn_screen) != LC_OK) goto fail;
+  if (lc_buf_read_u8(&b, &out->do_limited_crafting) != LC_OK) goto fail;
+  if (lc_parse_spawn_info(&b, &out->world_state) != LC_OK) goto fail;
+  if (lc_buf_read_u8(&b, &out->enforces_secure_chat) != LC_OK) goto fail;
+  return LC_OK;
+fail:
+  for (size_t i = 0; i < *world_name_count_out; i++) free((*world_names_out)[i]);
+  free(*world_names_out);
+  *world_names_out = NULL;
+  *world_name_count_out = 0;
+  lc_spawn_info_free(&out->world_state);
+  memset(out, 0, sizeof *out);
+  return LC_ERR_TRUNCATED;
+}
 /* Good for: Release heap owned by lc_play login.
  * Callers: libchunk.h (public API, no .c callers in tree).
  */

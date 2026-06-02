@@ -20,6 +20,8 @@ typedef struct lc_play_login {
 } lc_play_login;
 
 /** Serialize packet payload (no leading packet-id varint) into out. Caller owns out->data. */
+lc_status lc_parse_play_login(const uint8_t *data, size_t len, lc_play_login *out, char ***world_names_out,
+                              size_t *world_name_count_out);
 lc_status lc_write_position(const lc_position *p, lc_byte_buf *out);
 lc_status lc_write_play_login(const lc_play_login *p, lc_byte_buf *out);
 lc_status lc_write_spawn_info(const lc_spawn_info *p, lc_byte_buf *out);

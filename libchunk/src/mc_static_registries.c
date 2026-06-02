@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include "mc_log.h"
 #include "mc_static_registries.h"
 
@@ -29,6 +30,22 @@ static int g_send_reset_chat_before_finish;
 
 static uint8_t *g_packs_key;
 static size_t g_packs_key_len;
+
+static int g_cached_login_valid;
+static uint8_t g_login_hardcore;
+static char **g_login_world_names;
+static size_t g_login_world_name_count;
+static int32_t g_login_max_players;
+static int32_t g_login_view_distance;
+static int32_t g_login_simulation_distance;
+static uint8_t g_login_reduced_debug_info;
+static uint8_t g_login_enable_respawn_screen;
+static uint8_t g_login_do_limited_crafting;
+static lc_spawn_info g_login_world_state;
+static uint8_t g_login_enforces_secure_chat;
+
+static int g_cached_position_valid;
+static lc_position g_cached_position;
 
 typedef enum {
   REG_STATE_EMPTY = 0,
@@ -99,6 +116,17 @@ static void clear_loaded_data(void) {
   free(g_packs_key);
   g_packs_key = NULL;
   g_packs_key_len = 0;
+  if (g_login_world_names) {
+    for (size_t i = 0; i < g_login_world_name_count; i++) free(g_login_world_names[i]);
+    free(g_login_world_names);
+    g_login_world_names = NULL;
+  }
+  g_login_world_name_count = 0;
+  g_cached_login_valid = 0;
+  lc_spawn_info_free(&g_login_world_state);
+  memset(&g_login_world_state, 0, sizeof g_login_world_state);
+  g_cached_position_valid = 0;
+  memset(&g_cached_position, 0, sizeof g_cached_position);
 }
 
 static int build_steps_from_embedded(void) {
@@ -136,6 +164,44 @@ static int build_steps_from_embedded(void) {
 }
 
 static int load_from_remote_capture(const mc_registry_capture_result *cap);
+
+static void ingest_join_capture(void) {
+  if (!g_steps) return;
+  for (size_t i = 0; i < g_step_count; i++) {
+    const mc_reg_sync_step *step = &g_steps[i];
+    if (step->kind != MC_REG_SYNC_PLAY) continue;
+    if (step->pkt_id == MC_PKT_PLAY_LOGIN && !g_cached_login_valid) {
+      lc_play_login parsed;
+      char **wnames = NULL;
+      size_t wcount = 0;
+      if (lc_parse_play_login(step->data, step->len, &parsed, &wnames, &wcount) != LC_OK) continue;
+      g_login_hardcore = parsed.hardcore;
+      g_login_world_names = wnames;
+      g_login_world_name_count = wcount;
+      g_login_max_players = parsed.max_players;
+      g_login_view_distance = parsed.view_distance;
+      g_login_simulation_distance = parsed.simulation_distance;
+      g_login_reduced_debug_info = parsed.reduced_debug_info;
+      g_login_enable_respawn_screen = parsed.enable_respawn_screen;
+      g_login_do_limited_crafting = parsed.do_limited_crafting;
+      g_login_enforces_secure_chat = parsed.enforces_secure_chat;
+      g_login_world_state = parsed.world_state;
+      parsed.world_state.name = NULL;
+      parsed.world_state.death_dimension_name = NULL;
+      g_cached_login_valid = 1;
+      MC_LOGI("static_server",
+              "registry fetch: login template (dim=%d name=%s gamemode=%d seaLevel=%d view=%d sim=%d)",
+              g_login_world_state.dimension, g_login_world_state.name ? g_login_world_state.name : "?",
+              g_login_world_state.gamemode, g_login_world_state.sea_level, g_login_view_distance,
+              g_login_simulation_distance);
+    } else if (step->pkt_id == MC_PKT_PLAY_POSITION && !g_cached_position_valid) {
+      if (lc_parse_position(step->data, step->len, &g_cached_position) != LC_OK) continue;
+      g_cached_position_valid = 1;
+      MC_LOGI("static_server", "registry fetch: position template (%.3f, %.3f, %.3f)", g_cached_position.x,
+              g_cached_position.y, g_cached_position.z);
+    }
+  }
+}
 
 typedef struct fetch_thread_arg {
   uint8_t *client_packs;
@@ -186,9 +252,12 @@ static void *registry_fetch_thread(void *arg) {
   pthread_mutex_lock(&g_load_mutex);
   if (a->rc == 0 && g_load_state == REG_STATE_CONFIG_READY) {
     g_step_count = a->result.step_count;
+    ingest_join_capture();
     g_load_state = REG_STATE_READY;
     MC_LOGI("static_server", "registry fetch: play join cached (%zu sync steps total)", g_step_count);
   } else if (g_load_state == REG_STATE_CONFIG_READY) {
+    g_step_count = a->result.step_count;
+    ingest_join_capture();
     MC_LOGW("static_server", "registry fetch: play join failed; config cache kept, play defaults on join");
     g_load_state = REG_STATE_READY;
   } else if (g_load_state == REG_STATE_LOADING) {
@@ -398,6 +467,40 @@ void mc_static_wait_play_cache(void) {
   pthread_mutex_lock(&g_load_mutex);
   while (g_load_state == REG_STATE_CONFIG_READY) pthread_cond_wait(&g_load_cond, &g_load_mutex);
   pthread_mutex_unlock(&g_load_mutex);
+}
+
+int mc_static_fill_join_login(lc_play_login *login, int32_t entity_id) {
+  if (!login || !g_cached_login_valid) return -1;
+  memset(login, 0, sizeof *login);
+  login->entity_id = entity_id;
+  login->hardcore = g_login_hardcore;
+  login->world_names = (const char **)g_login_world_names;
+  login->world_name_count = g_login_world_name_count;
+  login->max_players = g_login_max_players;
+  login->view_distance = g_login_view_distance;
+  login->simulation_distance = g_login_simulation_distance;
+  login->reduced_debug_info = g_login_reduced_debug_info;
+  login->enable_respawn_screen = g_login_enable_respawn_screen;
+  login->do_limited_crafting = g_login_do_limited_crafting;
+  login->enforces_secure_chat = g_login_enforces_secure_chat;
+  login->world_state.dimension = g_login_world_state.dimension;
+  login->world_state.hashed_seed = g_login_world_state.hashed_seed;
+  login->world_state.gamemode = g_login_world_state.gamemode;
+  login->world_state.previous_gamemode = g_login_world_state.previous_gamemode;
+  login->world_state.is_debug = g_login_world_state.is_debug;
+  login->world_state.is_flat = g_login_world_state.is_flat;
+  login->world_state.has_death = 0;
+  login->world_state.portal_cooldown = g_login_world_state.portal_cooldown;
+  login->world_state.sea_level = g_login_world_state.sea_level;
+  login->world_state.name = g_login_world_state.name ? strdup(g_login_world_state.name) : NULL;
+  return login->world_state.name || !g_login_world_state.name ? 0 : -1;
+}
+
+int mc_static_fill_join_position(lc_position *pos, int32_t teleport_id) {
+  if (!pos || !g_cached_position_valid) return -1;
+  *pos = g_cached_position;
+  pos->teleport_id = teleport_id;
+  return 0;
 }
 
 int mc_static_registries_init(void) {

@@ -93,9 +93,9 @@ const PACKET_NAMES = new Set([...DECODED_PACKET_NAMES, ...playPacketNames]);
 
 const ARCHIVE_CATEGORIES = new Set(['player', 'config', 'misc', 'client']);
 
-/** mc_reference_client: 0042_play_2c_map_chunk.wire */
+/** mc_reference_client: 0042_s2c_play_2c_map_chunk.wire (legacy: 0042_play_2c_map_chunk.wire) */
 const RE_REFERENCE_CAPTURE =
-  /^(\d{4})_(login|config|play|hs)_([0-9a-f]{2})_([a-z0-9_]+)\.wire$/i;
+  /^(\d{4})_(?:(s2c|c2s)_)?(login|config|play|hs)_([0-9a-f]{2})_([a-z0-9_]+)\.wire$/i;
 
 /** Packet suffix in filenames (includes c2s_* and numeric wire names). */
 const RE_PKT_SUFFIX = '[a-z0-9_]+';
@@ -112,11 +112,12 @@ const RE_LEGACY = /^\d+-([a-z0-9_]+)(?:-\d+)?$/;
 function parseReferenceCaptureBasename(base) {
   const m = base.match(RE_REFERENCE_CAPTURE);
   if (!m) return null;
-  const label = m[4];
+  const label = m[5];
   return {
     captureSeq: Number(m[1]),
-    capturePhase: m[2],
-    protocolId: parseInt(m[3], 16),
+    captureDir: m[2] || 's2c',
+    capturePhase: m[3],
+    protocolId: parseInt(m[4], 16),
     packet: label === 'pkt' ? null : label,
   };
 }
@@ -230,6 +231,7 @@ function parseWirePath(filePath) {
     packet,
     category: archiveCategoryFromPath(filePath) ?? ref?.capturePhase ?? undefined,
     captureSeq: ref?.captureSeq,
+    captureDir: ref?.captureDir,
     capturePhase: ref?.capturePhase,
     protocolId: ref?.protocolId,
   };
