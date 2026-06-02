@@ -277,6 +277,61 @@ static void *registry_fetch_thread(void *arg) {
   return NULL;
 }
 
+static int start_remote_fetch(const uint8_t *client_packs, size_t client_packs_len);
+
+static int build_default_known_packs(uint8_t **out, size_t *out_len) {
+  if (!out || !out_len) return -1;
+  mc_buf b;
+  memset(&b, 0, sizeof b);
+  if (mc_buf_varint(&b, 1) != LC_OK) return -1;
+  if (mc_buf_string(&b, "minecraft") != LC_OK) goto fail;
+  if (mc_buf_string(&b, "core") != LC_OK) goto fail;
+  if (mc_buf_string(&b, "1.21.10") != LC_OK) goto fail;
+  *out = b.data;
+  *out_len = b.len;
+  return 0;
+fail:
+  mc_buf_free(&b);
+  return -1;
+}
+
+static int start_fetch_if_needed(const uint8_t *packs, size_t packs_len, const char *trigger) {
+  if (!g_fetch_enabled) return 0;
+
+  pthread_mutex_lock(&g_load_mutex);
+  if (g_load_state == REG_STATE_LOADING || g_load_state == REG_STATE_CONFIG_READY ||
+      g_load_state == REG_STATE_READY) {
+    MC_LOGEV("static_server", "registry fetch: already started (trigger=%s)", trigger);
+    pthread_mutex_unlock(&g_load_mutex);
+    return 0;
+  }
+  if (g_load_state == REG_STATE_FAILED) g_load_state = REG_STATE_EMPTY;
+  if (g_load_state != REG_STATE_EMPTY) {
+    pthread_mutex_unlock(&g_load_mutex);
+    return 0;
+  }
+  g_load_state = REG_STATE_LOADING;
+  pthread_mutex_unlock(&g_load_mutex);
+
+  MC_LOGI("static_server", "registry fetch: trigger %s", trigger);
+  if (start_remote_fetch(packs, packs_len) != 0) {
+    pthread_mutex_lock(&g_load_mutex);
+    g_load_state = REG_STATE_FAILED;
+    pthread_cond_broadcast(&g_load_cond);
+    pthread_mutex_unlock(&g_load_mutex);
+    return -1;
+  }
+  return 0;
+}
+
+void mc_static_registries_start_fetch_on_login_acknowledged(void) {
+  uint8_t *packs = NULL;
+  size_t len = 0;
+  if (build_default_known_packs(&packs, &len) != 0) return;
+  (void)start_fetch_if_needed(packs, len, "c2s_login_acknowledged");
+  free(packs);
+}
+
 static int start_remote_fetch(const uint8_t *client_packs, size_t client_packs_len) {
   fetch_thread_arg *arg = (fetch_thread_arg *)calloc(1, sizeof *arg);
   if (!arg) return -1;
@@ -374,14 +429,18 @@ static int ensure_registries_loaded(const uint8_t *client_packs, size_t client_p
   pthread_mutex_lock(&g_load_mutex);
   while (g_load_state == REG_STATE_LOADING) pthread_cond_wait(&g_load_cond, &g_load_mutex);
 
-  if (g_load_state == REG_STATE_READY || g_load_state == REG_STATE_CONFIG_READY) {
-    int ok = !g_fetch_enabled || packs_key_matches(client_packs, client_packs_len);
-    if (ok) {
-      pthread_mutex_unlock(&g_load_mutex);
-      return 0;
+  if (g_fetch_enabled) {
+    int ok = g_load_state == REG_STATE_CONFIG_READY || g_load_state == REG_STATE_READY;
+    pthread_mutex_unlock(&g_load_mutex);
+    if (!ok && client_packs && client_packs_len > 0) {
+      MC_LOGW("static_server", "registry fetch: select_known_packs before login_ack fetch ready");
     }
-    while (g_load_state == REG_STATE_CONFIG_READY) pthread_cond_wait(&g_load_cond, &g_load_mutex);
-    if (g_load_state == REG_STATE_READY && packs_key_matches(client_packs, client_packs_len)) {
+    return ok ? 0 : -1;
+  }
+
+  if (g_load_state == REG_STATE_READY || g_load_state == REG_STATE_CONFIG_READY) {
+    int ok = packs_key_matches(client_packs, client_packs_len);
+    if (ok) {
       pthread_mutex_unlock(&g_load_mutex);
       return 0;
     }
@@ -390,41 +449,21 @@ static int ensure_registries_loaded(const uint8_t *client_packs, size_t client_p
   }
   if (g_load_state == REG_STATE_FAILED) g_load_state = REG_STATE_EMPTY;
 
-  if (!g_fetch_enabled) {
-    clear_loaded_data();
-    g_load_state = REG_STATE_LOADING;
-    pthread_mutex_unlock(&g_load_mutex);
-    if (load_from_embedded() != 0) {
-      pthread_mutex_lock(&g_load_mutex);
-      g_load_state = REG_STATE_FAILED;
-      pthread_cond_broadcast(&g_load_cond);
-      pthread_mutex_unlock(&g_load_mutex);
-      return -1;
-    }
-    pthread_mutex_lock(&g_load_mutex);
-    g_load_state = REG_STATE_READY;
-    pthread_cond_broadcast(&g_load_cond);
-    pthread_mutex_unlock(&g_load_mutex);
-    return 0;
-  }
-
   clear_loaded_data();
   g_load_state = REG_STATE_LOADING;
   pthread_mutex_unlock(&g_load_mutex);
-
-  if (start_remote_fetch(client_packs, client_packs_len) != 0) {
+  if (load_from_embedded() != 0) {
     pthread_mutex_lock(&g_load_mutex);
     g_load_state = REG_STATE_FAILED;
     pthread_cond_broadcast(&g_load_cond);
     pthread_mutex_unlock(&g_load_mutex);
     return -1;
   }
-
   pthread_mutex_lock(&g_load_mutex);
-  while (g_load_state == REG_STATE_LOADING) pthread_cond_wait(&g_load_cond, &g_load_mutex);
-  int rc = (g_load_state == REG_STATE_CONFIG_READY || g_load_state == REG_STATE_READY) ? 0 : -1;
+  g_load_state = REG_STATE_READY;
+  pthread_cond_broadcast(&g_load_cond);
   pthread_mutex_unlock(&g_load_mutex);
-  return rc;
+  return 0;
 }
 
 static const mc_reg_sync_step *find_cached_step(mc_reg_sync_kind kind, int32_t pkt_id) {

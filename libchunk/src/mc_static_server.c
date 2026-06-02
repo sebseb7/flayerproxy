@@ -339,6 +339,9 @@ static void handle_client(int fd) {
         MC_LOGEV("static_server", "login success -> %s", cli.username);
       } else if (pkt_id == MC_PKT_C2S_LOGIN_ACKNOWLEDGED) {
         handled = 1;
+        if (g_opts.registry_from_enabled) {
+          mc_static_registries_start_fetch_on_login_acknowledged();
+        }
         cli.state = MC_CLI_CONFIG;
         MC_LOGEV("static_server", "entering configuration");
         mc_patch_ctx ctx = make_patch_ctx(&cli);

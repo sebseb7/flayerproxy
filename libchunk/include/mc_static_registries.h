@@ -16,6 +16,9 @@ typedef struct mc_static_registry_fetch {
 /** NULL host disables remote fetch (use mc_static_registries_data.c on first join). */
 void mc_static_registries_set_fetch(const mc_static_registry_fetch *fetch);
 
+/** registry-from: connect upstream on C2S login_acknowledged (once per cache cycle). */
+void mc_static_registries_start_fetch_on_login_acknowledged(void);
+
 /** Reset cache state. */
 int mc_static_registries_init(void);
 void mc_static_registries_free(void);
