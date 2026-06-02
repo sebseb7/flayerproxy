@@ -136,7 +136,7 @@ static int parse_chunk_coord_wire_basename(const char *basename) {
   if (end == ystart || end[0] != '_' || end[1] != 'z') return 0;
   (void)wy;
   const char *zstart = end + 2;
-  long wz = strtol(zstart, &end, 10);
+  (void)strtol(zstart, &end, 10);
   if (end == zstart || end != coord_end) return 0;
   return 1;
 }
@@ -755,11 +755,6 @@ static int process_file(const char *path, lc_sign_buf *signs, int *decoded, int 
   free(wire);
   (*decoded)++;
   return 0;
-}
-
-/** Newest capture first (basename is <ms>-map_chunk). */
-static int cmp_str_desc(const void *a, const void *b) {
-  return strcmp(*(const char *const *)b, *(const char *const *)a);
 }
 
 int main(int argc, char **argv) {
