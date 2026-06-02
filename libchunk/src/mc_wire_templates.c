@@ -2,6 +2,9 @@
 
 #include "mc_wire_templates.h"
 
+#include "mc_chunk_stream.h"
+#include "play_stream.h"
+
 #include "internal.h"
 #include "libchunk.h"
 #include "mc_log.h"
@@ -154,18 +157,70 @@ static void free_built_play_login(lc_play_login *login) {
   free(login->world_state.name);
   login->world_state.name = NULL;
 }
+static void log_play_login_send(const lc_play_login *login, const lc_byte_buf *wire, int from_upstream_cache) {
+  const lc_spawn_info *ws = &login->world_state;
+  MC_LOGI("static_server", "S2C login 0x%02x payload %zu B (source=%s)", (unsigned)MC_PKT_PLAY_LOGIN, wire->len,
+          from_upstream_cache ? "upstream cache" : "built-in defaults");
+  MC_LOGI("static_server", "  entity_id=%d hardcore=%u max_players=%d view_distance=%d simulation_distance=%d",
+          login->entity_id, (unsigned)login->hardcore, login->max_players, login->view_distance,
+          login->simulation_distance);
+  MC_LOGI("static_server", "  reduced_debug_info=%u enable_respawn_screen=%u do_limited_crafting=%u "
+                            "enforces_secure_chat=%u",
+          (unsigned)login->reduced_debug_info, (unsigned)login->enable_respawn_screen,
+          (unsigned)login->do_limited_crafting, (unsigned)login->enforces_secure_chat);
+  MC_LOGI("static_server", "  world_names (%zu):", login->world_name_count);
+  for (size_t i = 0; i < login->world_name_count; i++) {
+    MC_LOGI("static_server", "    [%zu] %s", i, login->world_names[i] ? login->world_names[i] : "(null)");
+  }
+  MC_LOGI("static_server",
+          "  world_state dimension=%d name=%s hashed_seed=%lld gamemode=%d previous_gamemode=0x%02x "
+          "is_debug=%u is_flat=%u has_death=%u portal_cooldown=%d sea_level=%d",
+          ws->dimension, ws->name ? ws->name : "(null)", (long long)ws->hashed_seed, (int)ws->gamemode,
+          (unsigned)ws->previous_gamemode, (unsigned)ws->is_debug, (unsigned)ws->is_flat, (unsigned)ws->has_death,
+          ws->portal_cooldown, ws->sea_level);
+  if (ws->has_death) {
+    MC_LOGI("static_server", "  death_dimension=%s pos=(%d,%d,%d)", ws->death_dimension_name ? ws->death_dimension_name : "",
+            ws->death_pos.x, ws->death_pos.y, ws->death_pos.z);
+  }
+
+  char summary[4096];
+  if (lc_decode_play_stream_to_string("login", wire->data, wire->len, summary, sizeof summary) > 0) {
+    MC_LOGI("static_server", "  decode: %s", summary);
+  } else {
+    MC_LOGW("static_server", "  decode: libchunk parse failed");
+  }
+
+  char hex[2048];
+  size_t hex_len = wire->len < 256 ? wire->len : 256;
+  size_t pos = 0;
+  for (size_t i = 0; i < hex_len && pos + 3 < sizeof hex; i++) {
+    pos += (size_t)snprintf(hex + pos, sizeof hex - pos, "%02x", wire->data[i]);
+  }
+  if (wire->len > hex_len) {
+    MC_LOGI("static_server", "  wire_hex (%zu/%zu B): %s...", hex_len, wire->len, hex);
+  } else {
+    MC_LOGI("static_server", "  wire_hex (%zu B): %s", wire->len, hex);
+  }
+}
+
 /* Good for: Send play Login packet during join.
  * Callers: mc_wire_templates.c (same file).
  */
 
 static int send_play_login(int fd, const mc_patch_ctx *ctx, int32_t view_dist, int32_t sim_dist) {
-  lc_play_login login = build_play_login(ctx, view_dist, sim_dist);
+  lc_play_login login;
+  memset(&login, 0, sizeof login);
+  int from_cache = mc_static_fill_join_login(&login, ctx->entity_id) == 0;
+  if (!from_cache) {
+    login = build_play_login(ctx, view_dist, sim_dist);
+  }
   lc_byte_buf wire;
   memset(&wire, 0, sizeof wire);
   if (lc_write_play_login(&login, &wire) != LC_OK) {
     free_built_play_login(&login);
     return -1;
   }
+  log_play_login_send(&login, &wire, from_cache);
   free_built_play_login(&login);
   return send_byte_buf(fd, MC_PKT_PLAY_LOGIN, &wire);
 }
@@ -470,6 +525,9 @@ int mc_template_send_play_join(int fd, const mc_patch_ctx *ctx) {
       sim = preview.simulation_distance;
       free(preview.world_state.name);
     }
+    if (mc_static_chunks_upstream()) {
+      g_store.world.view_radius = mc_static_chunk_radius_from_view(view);
+    }
   }
 
   MC_LOGI("static_server", "play join for %s entity=%d view=%d sim=%d spawn=(%.1f,%.1f,%.1f) view_chunk=(%d,%d)",
@@ -578,4 +636,18 @@ int mc_template_send_grass_world(int fd, const mc_patch_ctx *ctx) {
   if (send_chunk_batch_finished(fd, sent) != 0) return -1;
   (void)ctx;
   return 0;
+}
+
+int mc_template_send_upstream_world(int fd, const mc_patch_ctx *ctx) {
+  const mc_server_world *w = &g_store.world;
+  int32_t cx = w->spawn_chunk_x ? w->spawn_chunk_x : (int32_t)floor(ctx->spawn_x / 16.0);
+  int32_t cz = w->spawn_chunk_z ? w->spawn_chunk_z : (int32_t)floor(ctx->spawn_z / 16.0);
+  int32_t radius = w->view_radius;
+  int32_t cached_r = mc_static_chunks_max_cached_radius(cx, cz);
+  if (cached_r < radius) {
+    MC_LOGI("static_server", "upstream chunk radius %d (cached extent; login implied %d)", cached_r, radius);
+    radius = cached_r;
+    g_store.world.view_radius = cached_r;
+  }
+  return mc_static_chunks_send_grid(fd, cx, cz, radius);
 }

@@ -8,6 +8,7 @@
 #include "internal.h"
 #include "libchunk.h"
 #include "mc_conn.h"
+#include "mc_chunk_stream.h"
 #include "mc_dns.h"
 #include "mc_log.h"
 #include "mc_online.h"
@@ -34,12 +35,25 @@ typedef struct {
   int update_time;
 } play_capture_flags;
 
+typedef struct {
+  int map_chunks_seen;
+  int chunk_batches_finished;
+} chunk_capture_flags;
+
 static int play_capture_complete(const play_capture_flags *flags) {
   return flags->update_recipes && flags->recipe_book_settings && flags->recipe_book_add &&
          flags->world_border && flags->update_time;
 }
 
-static int capture_complete(int registries, int tags_seen, const play_capture_flags *flags) {
+static int chunk_capture_complete(const chunk_capture_flags *flags) {
+  return flags->chunk_batches_finished > 0 && mc_static_chunks_count() > 0;
+}
+
+static int capture_complete(const play_capture_flags *play, const chunk_capture_flags *chunks) {
+  return play_capture_complete(play) && chunk_capture_complete(chunks);
+}
+
+static int config_capture_complete(int registries, int tags_seen, const play_capture_flags *flags) {
   return registries > 0 && tags_seen && flags->select_known_packs && play_capture_complete(flags);
 }
 
@@ -165,14 +179,28 @@ static int send_play_pong(mc_conn *conn, int32_t id) {
   return rc;
 }
 
-static int handle_play_position(mc_conn *conn, const uint8_t *body, size_t body_len) {
+static int send_player_loaded(mc_conn *conn) {
+  return mc_conn_send_frame(conn, MC_PKT_C2S_PLAYER_LOADED, NULL, 0);
+}
+
+static int send_tick_end(mc_conn *conn) {
+  return mc_conn_send_frame(conn, MC_PKT_C2S_TICK_END, NULL, 0);
+}
+
+static int handle_play_position(mc_conn *conn, const uint8_t *body, size_t body_len, int *player_loaded_sent) {
   size_t off = 0;
   int32_t tid = 0;
   if (read_varint(body, body_len, &off, &tid) != 0) return -1;
-  return send_teleport_confirm(conn, tid);
+  if (send_teleport_confirm(conn, tid) != 0) return -1;
+  if (!*player_loaded_sent) {
+    *player_loaded_sent = 1;
+    return send_player_loaded(conn);
+  }
+  return 0;
 }
 
-static int handle_play_response(mc_conn *conn, int32_t pkt_id, const uint8_t *body, size_t body_len) {
+static int handle_play_response(mc_conn *conn, int32_t pkt_id, const uint8_t *body, size_t body_len,
+                               chunk_capture_flags *chunk_flags, int *player_loaded_sent) {
   if (pkt_id == MC_PKT_PLAY_KEEP_ALIVE) {
     if (body_len != 8) return 0;
     return mc_conn_send_frame(conn, MC_PKT_C2S_KEEP_ALIVE, body, 8);
@@ -183,8 +211,21 @@ static int handle_play_response(mc_conn *conn, int32_t pkt_id, const uint8_t *bo
                                 (uint32_t)body[3]);
     return send_play_pong(conn, ping_id);
   }
-  if (pkt_id == MC_PKT_PLAY_POSITION) return handle_play_position(conn, body, body_len);
+  if (pkt_id == MC_PKT_PLAY_POSITION) return handle_play_position(conn, body, body_len, player_loaded_sent);
+  if (pkt_id == MC_PKT_PLAY_MAP_CHUNK) {
+    if (mc_static_chunks_store(body, body_len) == 0) {
+      chunk_flags->map_chunks_seen++;
+      MC_LOGEV("static_server", "registry fetch: map_chunk cached (seen=%d total=%zu)",
+               chunk_flags->map_chunks_seen, mc_static_chunks_count());
+    }
+    if (!*player_loaded_sent && chunk_flags->map_chunks_seen >= 3) {
+      *player_loaded_sent = 1;
+      if (send_player_loaded(conn) != 0) return -1;
+    }
+    return send_tick_end(conn);
+  }
   if (pkt_id == MC_PKT_PLAY_CHUNK_BATCH_FINISHED) {
+    chunk_flags->chunk_batches_finished++;
     mc_buf b;
     memset(&b, 0, sizeof b);
     if (mc_buf_f32_be(&b, 6.0f) != LC_OK) return -1;
@@ -264,7 +305,7 @@ int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_
 
   int fd = mc_tcp_connect(cfg->host, port_str, 15);
   if (fd < 0) {
-    MC_LOGE("static_server", "registry fetch: connect failed");
+    MC_LOGE("static_server", "registry fetch: connect failed to %s:%s", cfg->host, port_str);
     return -1;
   }
 
@@ -311,7 +352,10 @@ int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_
   int tags_seen = 0;
   int registries = 0;
   play_capture_flags play_flags;
+  chunk_capture_flags chunk_flags;
   memset(&play_flags, 0, sizeof play_flags);
+  memset(&chunk_flags, 0, sizeof chunk_flags);
+  int player_loaded_sent = 0;
   int rc = -1;
 
   for (int seq = 0; seq < 1024; seq++) {
@@ -453,7 +497,7 @@ int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_
       free(wire);
       continue;
     } else if (phase_play) {
-      if (handle_play_response(&conn, pkt_id, body, body_len) != 0) {
+      if (handle_play_response(&conn, pkt_id, body, body_len, &chunk_flags, &player_loaded_sent) != 0) {
         free(wire);
         break;
       }
@@ -462,16 +506,18 @@ int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_
         break;
       }
       if (on_config_ready) {
-        if (play_capture_complete(&play_flags)) {
+        if (capture_complete(&play_flags, &chunk_flags)) {
           rc = 0;
-          MC_LOGI("static_server", "registry fetch: play join cached (%zu sync steps)", out->step_count);
+          MC_LOGI("static_server", "registry fetch: play join cached (%zu sync steps, %zu chunks)",
+                  out->step_count, mc_static_chunks_count());
           free(wire);
           break;
         }
-      } else if (capture_complete(registries, tags_seen, &play_flags)) {
+      } else if (config_capture_complete(registries, tags_seen, &play_flags) &&
+                 chunk_capture_complete(&chunk_flags)) {
         rc = 0;
-        MC_LOGI("static_server", "registry fetch: done (%d registries, %zu sync steps, play join cached)",
-                registries, out->step_count);
+        MC_LOGI("static_server", "registry fetch: done (%d registries, %zu sync steps, %zu chunks)",
+                registries, out->step_count, mc_static_chunks_count());
         free(wire);
         break;
       }

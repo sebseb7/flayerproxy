@@ -46,6 +46,7 @@ const mc_server_world *mc_templates_world(void);
 int mc_template_send_config_sequence(int fd, const mc_patch_ctx *ctx);
 int mc_template_send_play_join(int fd, const mc_patch_ctx *ctx);
 int mc_template_send_grass_world(int fd, const mc_patch_ctx *ctx);
+int mc_template_send_upstream_world(int fd, const mc_patch_ctx *ctx);
 int mc_template_send_update_view_position(int fd, int32_t chunk_x, int32_t chunk_z);
 int mc_template_send_map_chunk_at(int fd, int32_t chunk_x, int32_t chunk_z);
 int mc_template_send_unload_chunk_at(int fd, int32_t chunk_x, int32_t chunk_z);

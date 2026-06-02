@@ -4,6 +4,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/** Mirror S2C config packet to a connected downstream client (optional). */
+typedef int (*mc_registry_mirror_config_fn)(void *ctx, int32_t pkt_id, const uint8_t *body, size_t body_len);
+/** Block until downstream client sends C2S select_known_packs (optional). */
+typedef int (*mc_registry_wait_client_packs_fn)(void *ctx, uint8_t **packs, size_t *packs_len);
+typedef void (*mc_registry_release_client_packs_fn)(void *ctx, uint8_t *packs);
+
 /** Upstream Minecraft server to mirror configuration registries from. */
 typedef struct mc_registry_capture_config {
   const char *host;
@@ -12,6 +18,11 @@ typedef struct mc_registry_capture_config {
   /** Client C2S select_known_packs payload to negotiate on upstream (optional). */
   const uint8_t *client_known_packs;
   size_t client_known_packs_len;
+  /** When set, config is streamed to downstream in lockstep with upstream. */
+  void *downstream_ctx;
+  mc_registry_mirror_config_fn mirror_config_s2c;
+  mc_registry_wait_client_packs_fn wait_client_select_known_packs;
+  mc_registry_release_client_packs_fn release_client_packs;
 } mc_registry_capture_config;
 
 typedef enum {

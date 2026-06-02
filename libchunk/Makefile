@@ -56,7 +56,7 @@ build/list_map_surface: examples/list_map_surface.c build/libchunk.a | build
 build/stitch_megatiles: examples/stitch_megatiles.c build/libchunk.a | build
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ examples/stitch_megatiles.c -Lbuild $(CHUNK_LIBS) -pthread
 
-MC_SPECTATOR_SRC = src/mc_log.c src/mc_wire.c src/mc_spectator.c src/mc_server_common.c src/mc_auth_offline.c src/mc_wire_templates.c src/mc_s2c_log.c src/mc_play_s2c_names.c src/mc_static_grass.c src/mc_static_config.c src/mc_static_registries.c src/mc_static_registries_data.c src/mc_registry_capture.c
+MC_SPECTATOR_SRC = src/mc_log.c src/mc_wire.c src/mc_spectator.c src/mc_server_common.c src/mc_auth_offline.c src/mc_wire_templates.c src/mc_s2c_log.c src/mc_play_s2c_names.c src/mc_static_grass.c src/mc_static_config.c src/mc_static_registries.c src/mc_static_registries_data.c src/mc_registry_capture.c src/mc_chunk_stream.c
 MC_STATIC_SRC = src/mc_log.c src/mc_wire.c src/mc_server_common.c src/mc_auth_offline.c src/mc_wire_templates.c src/mc_static_grass.c src/mc_static_config.c src/mc_static_registries.c src/mc_static_registries_data.c src/mc_registry_capture.c src/mc_c2s_log.c src/mc_s2c_log.c src/mc_play_s2c_names.c src/mc_chunk_stream.c src/mc_static_server.c
 
 build/mc_static_server: examples/mc_static_server.c build/libchunk.a $(MC_STATIC_SRC) $(MC_REGISTRY_FETCH_SRC) | build

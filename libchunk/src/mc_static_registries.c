@@ -2,6 +2,8 @@
 #include "mc_log.h"
 #include "mc_static_registries.h"
 
+#include "mc_chunk_stream.h"
+
 #include "internal.h"
 #include "libchunk.h"
 #include "mc_packet_ids.h"
@@ -86,13 +88,16 @@ static int send_reset_chat(int fd) {
 void mc_static_registries_set_fetch(const mc_static_registry_fetch *fetch) {
   g_fetch_enabled = 0;
   memset(&g_fetch, 0, sizeof g_fetch);
+  mc_static_chunks_set_upstream(0);
   if (fetch && fetch->host && fetch->host[0] && fetch->port > 0) {
     g_fetch = *fetch;
     g_fetch_enabled = 1;
+    mc_static_chunks_set_upstream(1);
   }
 }
 
 static void clear_loaded_data(void) {
+  mc_static_chunks_clear();
   if (g_registries) {
     for (size_t i = 0; i < g_registry_count; i++) lc_registry_data_free(&g_registries[i]);
     free(g_registries);
@@ -460,6 +465,20 @@ int mc_static_send_cached_recipe_burst(int fd) {
     if (mc_send_frame(fd, order[i], payload, len) != 0) return -1;
   }
   return 0;
+}
+
+int mc_static_registries_config_cached(void) {
+  pthread_mutex_lock(&g_load_mutex);
+  int ok = g_load_state == REG_STATE_CONFIG_READY || g_load_state == REG_STATE_READY;
+  pthread_mutex_unlock(&g_load_mutex);
+  return ok;
+}
+
+int mc_static_registries_play_ready(void) {
+  pthread_mutex_lock(&g_load_mutex);
+  int ok = g_load_state == REG_STATE_READY;
+  pthread_mutex_unlock(&g_load_mutex);
+  return ok;
 }
 
 void mc_static_wait_play_cache(void) {

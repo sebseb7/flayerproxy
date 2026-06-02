@@ -127,12 +127,22 @@ static mc_patch_ctx make_patch_ctx(const mc_client *cli) {
 static int enter_play(mc_client *cli, mc_chunk_stream *chunks) {
   mc_patch_ctx ctx = make_patch_ctx(cli);
   if (mc_template_send_play_join(cli->fd, &ctx) != 0) return -1;
-  if (mc_template_send_grass_world(cli->fd, &ctx) != 0) return -1;
+  if (mc_static_chunks_upstream()) {
+    if (mc_template_send_upstream_world(cli->fd, &ctx) != 0) {
+      MC_LOGW("static_server", "upstream chunk send failed (wire error); continuing play join");
+    }
+  } else if (mc_template_send_grass_world(cli->fd, &ctx) != 0) {
+    return -1;
+  }
   const mc_server_world *w = mc_templates_world();
   int32_t cx = w->spawn_chunk_x ? w->spawn_chunk_x : (int32_t)floor(ctx.spawn_x / 16.0);
   int32_t cz = w->spawn_chunk_z ? w->spawn_chunk_z : (int32_t)floor(ctx.spawn_z / 16.0);
   mc_chunk_stream_init(chunks, w->view_radius);
-  mc_chunk_stream_mark_grid(chunks, cx, cz);
+  if (mc_static_chunks_upstream()) {
+    mc_chunk_stream_mark_cached_grid(chunks, cx, cz);
+  } else {
+    mc_chunk_stream_mark_grid(chunks, cx, cz);
+  }
   chunks->pos_x = ctx.spawn_x;
   chunks->pos_y = ctx.spawn_y;
   chunks->pos_z = ctx.spawn_z;
@@ -548,6 +558,7 @@ int mc_static_server_start(const mc_static_server_opts *opts) {
     MC_LOGI("static_server", "registry source: remote %s:%d (user=%s, load on first join)",
             opts->registry_from.host, opts->registry_from.port,
             opts->registry_from.username ? opts->registry_from.username : "FlayerBot");
+    MC_LOGI("static_server", "chunk source: upstream map_chunk cache (no local generation)");
   } else {
     MC_LOGI("static_server", "registry source: embedded (load on first join)");
   }
