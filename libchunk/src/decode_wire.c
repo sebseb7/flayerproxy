@@ -37,6 +37,13 @@ int lc_packet_name_supported(const char *name) {
       "respawn",
       "initialize_world_border",
       "registry_data",
+      "custom_payload",
+      "feature_flags",
+      "select_known_packs",
+      "finish_configuration",
+      "bundle_delimiter",
+      "step_tick",
+      "success",
       NULL,
   };
   for (size_t i = 0; names[i]; i++) {
@@ -203,6 +210,49 @@ int lc_decode_wire_to_string(const char *name, const uint8_t *wire, size_t wire_
     if (st == LC_OK) {
       lc_registry_data_to_string(&p, out, out_sz);
       lc_registry_data_free(&p);
+    }
+  } else if (strcmp(name, "custom_payload") == 0) {
+    lc_custom_payload p;
+    memset(&p, 0, sizeof p);
+    st = lc_parse_custom_payload(after_id, after_len, &p);
+    if (st == LC_OK) {
+      lc_custom_payload_to_string(&p, out, out_sz);
+      lc_custom_payload_free(&p);
+    }
+  } else if (strcmp(name, "feature_flags") == 0) {
+    lc_feature_flags p;
+    memset(&p, 0, sizeof p);
+    st = lc_parse_feature_flags(after_id, after_len, &p);
+    if (st == LC_OK) {
+      lc_feature_flags_to_string(&p, out, out_sz);
+      lc_feature_flags_free(&p);
+    }
+  } else if (strcmp(name, "select_known_packs") == 0) {
+    lc_select_known_packs p;
+    memset(&p, 0, sizeof p);
+    st = lc_parse_select_known_packs(after_id, after_len, &p);
+    if (st == LC_OK) {
+      lc_select_known_packs_to_string(&p, out, out_sz);
+      lc_select_known_packs_free(&p);
+    }
+  } else if (strcmp(name, "finish_configuration") == 0) {
+    st = lc_parse_finish_configuration(after_id, after_len);
+    if (st == LC_OK) lc_finish_configuration_to_string(out, out_sz);
+  } else if (strcmp(name, "bundle_delimiter") == 0) {
+    st = lc_parse_bundle_delimiter(after_id, after_len);
+    if (st == LC_OK) lc_bundle_delimiter_to_string(out, out_sz);
+  } else if (strcmp(name, "step_tick") == 0) {
+    lc_step_tick p;
+    memset(&p, 0, sizeof p);
+    st = lc_parse_step_tick(after_id, after_len, &p);
+    if (st == LC_OK) lc_step_tick_to_string(&p, out, out_sz);
+  } else if (strcmp(name, "success") == 0) {
+    lc_login_success p;
+    memset(&p, 0, sizeof p);
+    st = lc_parse_success(after_id, after_len, &p);
+    if (st == LC_OK) {
+      lc_success_to_string(&p, out, out_sz);
+      lc_login_success_free(&p);
     }
   } else if (lc_play_stream_packet_supported(name)) {
     return lc_decode_play_stream_to_string(name, after_id, after_len, out, out_sz);

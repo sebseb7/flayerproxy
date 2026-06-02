@@ -2,6 +2,7 @@
 
 #include "mc_packet_ids.h"
 #include "mc_server_common.h"
+#include "mc_static_registries.h"
 #include "mc_wire.h"
 
 #include <string.h>
@@ -40,6 +41,10 @@ static int send_feature_flags(int fd) {
  */
 
 static int send_select_known_packs(int fd) {
+  size_t len = 0;
+  const uint8_t *cached = mc_static_cached_select_known_packs(&len);
+  if (cached) return mc_send_frame(fd, MC_PKT_CFG_SELECT_KNOWN_PACKS, cached, len);
+
   mc_buf b;
   memset(&b, 0, sizeof b);
   if (mc_buf_varint(&b, 1) != LC_OK) return -1;

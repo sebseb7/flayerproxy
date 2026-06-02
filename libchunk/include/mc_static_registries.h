@@ -18,6 +18,18 @@ void mc_static_registries_set_fetch(const mc_static_registry_fetch *fetch);
 int mc_static_registries_init(void);
 void mc_static_registries_free(void);
 
+/** Cached select_known_packs payload from last successful fetch, or NULL. */
+const uint8_t *mc_static_cached_select_known_packs(size_t *len);
+
+/** Cached play payload by packet id from last successful fetch, or NULL. */
+const uint8_t *mc_static_cached_play_payload(int32_t pkt_id, size_t *len);
+
+/** Replay cached update_recipes / recipe_book_settings / recipe_book_add (skips missing). */
+int mc_static_send_cached_recipe_burst(int fd);
+
+/** Wait for background play join fetch when config is already cached. */
+void mc_static_wait_play_cache(void);
+
 /**
  * After client select_known_packs: load cache for this pack list if needed,
  * then registry_data, update_tags, finish.

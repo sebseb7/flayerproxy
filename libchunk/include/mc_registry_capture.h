@@ -18,11 +18,14 @@ typedef enum {
   MC_REG_SYNC_REGISTRY = 0,
   MC_REG_SYNC_TAGS = 1,
   MC_REG_SYNC_RESET_CHAT = 2,
+  MC_REG_SYNC_SELECT_KNOWN_PACKS = 3,
+  MC_REG_SYNC_PLAY = 4,
 } mc_reg_sync_kind;
 
-/** One server→client configuration packet to replay during registry sync. */
+/** One server→client packet captured from --registry-from for replay. */
 typedef struct mc_reg_sync_step {
   mc_reg_sync_kind kind;
+  int32_t pkt_id;
   char label[64];
   uint8_t *data;
   size_t len;
@@ -33,11 +36,16 @@ typedef struct mc_registry_capture_result {
   size_t step_count;
 } mc_registry_capture_result;
 
+/** Called once config (registry_data + update_tags) is captured; fetch may continue for play join. */
+typedef void (*mc_registry_config_ready_fn)(const mc_registry_capture_result *config, int ok, void *ctx);
+
 /**
- * Connect as a minimal client, complete configuration through registry_data +
- * update_tags, and return payloads in wire send order (no finish_configuration).
+ * Connect as a minimal client, complete configuration (registry_data, update_tags,
+ * select_known_packs), enter play, and capture join payloads (recipes, world border, time).
+ * When on_config_ready is set, it is invoked after config finish (before play capture).
  */
-int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_registry_capture_result *out);
+int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_registry_capture_result *out,
+                                      mc_registry_config_ready_fn on_config_ready, void *ctx);
 
 void mc_registry_capture_result_free(mc_registry_capture_result *out);
 

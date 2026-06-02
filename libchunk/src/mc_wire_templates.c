@@ -203,6 +203,10 @@ fail:
  */
 
 static int send_play_initialize_world_border(int fd) {
+  size_t len = 0;
+  const uint8_t *cached = mc_static_cached_play_payload(MC_PKT_PLAY_INITIALIZE_WORLD_BORDER, &len);
+  if (cached) return send_payload(fd, MC_PKT_PLAY_INITIALIZE_WORLD_BORDER, cached, len);
+
   lc_initialize_world_border wb = {
       .x = 0,
       .z = 0,
@@ -323,6 +327,10 @@ static int send_play_abilities(int fd) {
  */
 
 static int send_play_update_time(int fd) {
+  size_t len = 0;
+  const uint8_t *cached = mc_static_cached_play_payload(MC_PKT_PLAY_UPDATE_TIME, &len);
+  if (cached) return send_payload(fd, MC_PKT_PLAY_UPDATE_TIME, cached, len);
+
   const uint8_t payload[] = {0x00, 0x00, 0x00, 0x01, 0x25, 0xe3, 0x30, 0x2e,
                              0x00, 0x00, 0x00, 0x01, 0x25, 0xea, 0x35, 0xc7, 0x01};
   return send_payload(fd, MC_PKT_PLAY_UPDATE_TIME, payload, sizeof payload);
@@ -445,6 +453,8 @@ int mc_template_send_play_join(int fd, const mc_patch_ctx *ctx) {
           ctx->spawn_z, w->spawn_chunk_x, w->spawn_chunk_z);
 
   if (send_play_login(fd, ctx, view, sim) != 0) return -1;
+  mc_static_wait_play_cache();
+  if (mc_static_send_cached_recipe_burst(fd) != 0) return -1;
   if (send_play_difficulty(fd) != 0) return -1;
   if (send_play_abilities(fd) != 0) return -1;
   if (send_play_position(fd, ctx) != 0) return -1;

@@ -21,7 +21,25 @@
 #include <unistd.h>
 
 #define MAX_REGISTRY_PACKETS 64
-#define MAX_SYNC_STEPS 80
+#define MAX_SYNC_STEPS 96
+
+typedef struct {
+  int select_known_packs;
+  int update_recipes;
+  int recipe_book_settings;
+  int recipe_book_add;
+  int world_border;
+  int update_time;
+} play_capture_flags;
+
+static int play_capture_complete(const play_capture_flags *flags) {
+  return flags->update_recipes && flags->recipe_book_settings && flags->recipe_book_add &&
+         flags->world_border && flags->update_time;
+}
+
+static int capture_complete(int registries, int tags_seen, const play_capture_flags *flags) {
+  return registries > 0 && tags_seen && flags->select_known_packs && play_capture_complete(flags);
+}
 
 static int read_varint(const uint8_t *data, size_t len, size_t *off, int32_t *out) {
   int32_t v = 0;
@@ -106,9 +124,104 @@ static int append_step(mc_registry_capture_result *out, mc_reg_sync_kind kind, c
   if (!owned && len) return -1;
   mc_reg_sync_step *step = &out->steps[out->step_count++];
   step->kind = kind;
+  step->pkt_id = 0;
   step->data = owned;
   step->len = len;
   snprintf(step->label, sizeof step->label, "%s", label ? label : "");
+  return 0;
+}
+
+static int append_play_step(mc_registry_capture_result *out, int32_t pkt_id, const char *label,
+                            const uint8_t *data, size_t len) {
+  if (out->step_count >= MAX_SYNC_STEPS) return -1;
+  uint8_t *owned = dup_bytes(data, len);
+  if (!owned && len) return -1;
+  mc_reg_sync_step *step = &out->steps[out->step_count++];
+  step->kind = MC_REG_SYNC_PLAY;
+  step->pkt_id = pkt_id;
+  step->data = owned;
+  step->len = len;
+  snprintf(step->label, sizeof step->label, "%s", label ? label : "");
+  return 0;
+}
+
+static int send_teleport_confirm(mc_conn *conn, int32_t teleport_id) {
+  mc_buf b;
+  memset(&b, 0, sizeof b);
+  if (mc_buf_varint(&b, teleport_id) != LC_OK) return -1;
+  int rc = mc_conn_send_frame(conn, MC_PKT_C2S_TELEPORT_CONFIRM, b.data, b.len);
+  mc_buf_free(&b);
+  return rc;
+}
+
+static int send_play_pong(mc_conn *conn, int32_t id) {
+  mc_buf b;
+  memset(&b, 0, sizeof b);
+  if (mc_buf_i32_be(&b, id) != LC_OK) return -1;
+  int rc = mc_conn_send_frame(conn, MC_PKT_C2S_PONG, b.data, b.len);
+  mc_buf_free(&b);
+  return rc;
+}
+
+static int handle_play_position(mc_conn *conn, const uint8_t *body, size_t body_len) {
+  size_t off = 0;
+  int32_t tid = 0;
+  if (read_varint(body, body_len, &off, &tid) != 0) return -1;
+  return send_teleport_confirm(conn, tid);
+}
+
+static int handle_play_response(mc_conn *conn, int32_t pkt_id, const uint8_t *body, size_t body_len) {
+  if (pkt_id == MC_PKT_PLAY_KEEP_ALIVE) {
+    if (body_len != 8) return 0;
+    return mc_conn_send_frame(conn, MC_PKT_C2S_KEEP_ALIVE, body, 8);
+  }
+  if (pkt_id == MC_PKT_PLAY_PING) {
+    if (body_len < 4) return -1;
+    int32_t ping_id = (int32_t)((uint32_t)body[0] << 24 | (uint32_t)body[1] << 16 | (uint32_t)body[2] << 8 |
+                                (uint32_t)body[3]);
+    return send_play_pong(conn, ping_id);
+  }
+  if (pkt_id == MC_PKT_PLAY_POSITION) return handle_play_position(conn, body, body_len);
+  if (pkt_id == MC_PKT_PLAY_CHUNK_BATCH_FINISHED) {
+    mc_buf b;
+    memset(&b, 0, sizeof b);
+    if (mc_buf_f32_be(&b, 6.0f) != LC_OK) return -1;
+    int rc = mc_conn_send_frame(conn, MC_PKT_C2S_CHUNK_BATCH_RECEIVED, b.data, b.len);
+    mc_buf_free(&b);
+    return rc;
+  }
+  return 0;
+}
+
+static const char *step_label_for_play(int32_t pkt_id) {
+  switch (pkt_id) {
+  case MC_PKT_PLAY_UPDATE_RECIPES:
+    return "update_recipes";
+  case MC_PKT_PLAY_RECIPE_BOOK_SETTINGS:
+    return "recipe_book_settings";
+  case MC_PKT_PLAY_RECIPE_BOOK_ADD:
+    return "recipe_book_add";
+  case MC_PKT_PLAY_INITIALIZE_WORLD_BORDER:
+    return "initialize_world_border";
+  case MC_PKT_PLAY_UPDATE_TIME:
+    return "update_time";
+  default:
+    return "play";
+  }
+}
+
+static int capture_play_packet(mc_registry_capture_result *out, play_capture_flags *flags, int32_t pkt_id,
+                               const char *label, const uint8_t *body, size_t body_len) {
+  int *seen = NULL;
+  if (pkt_id == MC_PKT_PLAY_UPDATE_RECIPES) seen = &flags->update_recipes;
+  else if (pkt_id == MC_PKT_PLAY_RECIPE_BOOK_SETTINGS) seen = &flags->recipe_book_settings;
+  else if (pkt_id == MC_PKT_PLAY_RECIPE_BOOK_ADD) seen = &flags->recipe_book_add;
+  else if (pkt_id == MC_PKT_PLAY_INITIALIZE_WORLD_BORDER) seen = &flags->world_border;
+  else if (pkt_id == MC_PKT_PLAY_UPDATE_TIME) seen = &flags->update_time;
+  if (!seen || *seen) return 0;
+  if (append_play_step(out, pkt_id, label, body, body_len) != 0) return -1;
+  *seen = 1;
+  MC_LOGEV("static_server", "registry fetch: %s (0x%02x, %zu B)", label, (unsigned)(pkt_id & 0xff), body_len);
   return 0;
 }
 
@@ -132,7 +245,8 @@ void mc_registry_capture_result_free(mc_registry_capture_result *out) {
   memset(out, 0, sizeof *out);
 }
 
-int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_registry_capture_result *out) {
+int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_registry_capture_result *out,
+                                      mc_registry_config_ready_fn on_config_ready, void *ctx) {
   if (!cfg || !cfg->host || cfg->port <= 0 || !out) return -1;
   memset(out, 0, sizeof *out);
 
@@ -184,12 +298,15 @@ int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_
   }
 
   int phase_login = 1;
+  int phase_play = 0;
   int login_ack_sent = 0;
   int tags_seen = 0;
   int registries = 0;
+  play_capture_flags play_flags;
+  memset(&play_flags, 0, sizeof play_flags);
   int rc = -1;
 
-  for (int seq = 0; seq < 512; seq++) {
+  for (int seq = 0; seq < 1024; seq++) {
     uint8_t *wire = NULL;
     size_t wire_len = 0;
     int32_t pkt_id = 0;
@@ -250,6 +367,13 @@ int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_
     }
 
     if (pkt_id == MC_PKT_CFG_SELECT_KNOWN_PACKS) {
+      if (!play_flags.select_known_packs &&
+          append_step(out, MC_REG_SYNC_SELECT_KNOWN_PACKS, "select_known_packs", body, body_len) != 0) {
+        free(wire);
+        break;
+      }
+      play_flags.select_known_packs = 1;
+      MC_LOGEV("static_server", "registry fetch: select_known_packs (%zu B)", body_len);
       int send_rc;
       if (cfg->client_known_packs && cfg->client_known_packs_len > 0) {
         send_rc = mc_conn_send_frame(&conn, MC_PKT_C2S_CFG_SELECT_KNOWN_PACKS, cfg->client_known_packs,
@@ -299,16 +423,50 @@ int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_
         break;
       }
     } else if (pkt_id == MC_PKT_CFG_FINISH) {
-      free(wire);
-      if (registries > 0 && tags_seen) {
-        rc = 0;
-        MC_LOGI("static_server", "registry fetch: done (%d registries, %zu sync steps)", registries,
-                out->step_count);
-      } else {
+      if (registries <= 0 || !tags_seen) {
         MC_LOGE("static_server", "registry fetch: finish without registries/tags (r=%d t=%d)", registries,
                 tags_seen);
+        free(wire);
+        break;
       }
-      break;
+      if (mc_conn_send_frame(&conn, MC_PKT_C2S_CFG_FINISH, NULL, 0) != 0) {
+        free(wire);
+        break;
+      }
+      phase_play = 1;
+      if (on_config_ready) {
+        int config_ok = registries > 0 && tags_seen;
+        on_config_ready(out, config_ok, ctx);
+        MC_LOGEV("static_server", "registry fetch: entering play capture");
+        free(wire);
+        continue;
+      }
+      MC_LOGEV("static_server", "registry fetch: entering play capture");
+      free(wire);
+      continue;
+    } else if (phase_play) {
+      if (handle_play_response(&conn, pkt_id, body, body_len) != 0) {
+        free(wire);
+        break;
+      }
+      if (capture_play_packet(out, &play_flags, pkt_id, step_label_for_play(pkt_id), body, body_len) != 0) {
+        free(wire);
+        break;
+      }
+      if (on_config_ready) {
+        if (play_capture_complete(&play_flags)) {
+          rc = 0;
+          MC_LOGI("static_server", "registry fetch: play join cached (%zu sync steps)", out->step_count);
+          free(wire);
+          break;
+        }
+      } else if (capture_complete(registries, tags_seen, &play_flags)) {
+        rc = 0;
+        MC_LOGI("static_server", "registry fetch: done (%d registries, %zu sync steps, play join cached)",
+                registries, out->step_count);
+        free(wire);
+        break;
+      }
     }
 
     free(wire);

@@ -340,6 +340,44 @@ typedef struct lc_initialize_world_border {
   int32_t warning_time;
 } lc_initialize_world_border;
 
+typedef struct lc_custom_payload {
+  char *channel;
+  lc_byte_buf data;
+} lc_custom_payload;
+
+typedef struct lc_feature_flags {
+  char **flags;
+  size_t count;
+} lc_feature_flags;
+
+typedef struct lc_known_pack {
+  char *pack_namespace;
+  char *id;
+  char *version;
+} lc_known_pack;
+
+typedef struct lc_select_known_packs {
+  lc_known_pack *packs;
+  size_t count;
+} lc_select_known_packs;
+
+typedef struct lc_step_tick {
+  uint8_t skip_tick;
+} lc_step_tick;
+
+typedef struct lc_login_property {
+  char *name;
+  char *value;
+  char *signature;
+} lc_login_property;
+
+typedef struct lc_login_success {
+  lc_uuid uuid;
+  char *username;
+  lc_login_property *properties;
+  size_t property_count;
+} lc_login_success;
+
 typedef struct lc_registry_data {
   char *id;
   lc_registry_entry_arr entries;
@@ -422,6 +460,10 @@ void lc_update_tags_free(lc_update_tags *p);
 void lc_tile_entity_data_free(lc_tile_entity_data *p);
 void lc_entity_update_attributes_free(lc_entity_update_attributes *p);
 void lc_respawn_free(lc_respawn *p);
+void lc_custom_payload_free(lc_custom_payload *p);
+void lc_feature_flags_free(lc_feature_flags *p);
+void lc_select_known_packs_free(lc_select_known_packs *p);
+void lc_login_success_free(lc_login_success *p);
 
 void lc_chunk_init(lc_chunk *c);
 void lc_chunk_free(lc_chunk *c);
@@ -464,6 +506,13 @@ lc_status lc_parse_c2s_flying(const uint8_t *data, size_t len, lc_c2s_flying *ou
 lc_status lc_parse_c2s_teleport_confirm(const uint8_t *data, size_t len, lc_c2s_teleport_confirm *out);
 lc_status lc_parse_respawn(const uint8_t *data, size_t len, lc_respawn *out);
 lc_status lc_parse_initialize_world_border(const uint8_t *data, size_t len, lc_initialize_world_border *out);
+lc_status lc_parse_custom_payload(const uint8_t *data, size_t len, lc_custom_payload *out);
+lc_status lc_parse_feature_flags(const uint8_t *data, size_t len, lc_feature_flags *out);
+lc_status lc_parse_select_known_packs(const uint8_t *data, size_t len, lc_select_known_packs *out);
+lc_status lc_parse_finish_configuration(const uint8_t *data, size_t len);
+lc_status lc_parse_bundle_delimiter(const uint8_t *data, size_t len);
+lc_status lc_parse_step_tick(const uint8_t *data, size_t len, lc_step_tick *out);
+lc_status lc_parse_success(const uint8_t *data, size_t len, lc_login_success *out);
 lc_status lc_parse_registry_data(const uint8_t *data, size_t len, lc_registry_data *out);
 lc_status lc_parse_update_tags(const uint8_t *data, size_t len, lc_update_tags *out);
 
@@ -545,6 +594,13 @@ int lc_c2s_flying_to_string(const lc_c2s_flying *p, char *buf, size_t buflen);
 int lc_c2s_teleport_confirm_to_string(const lc_c2s_teleport_confirm *p, char *buf, size_t buflen);
 int lc_respawn_to_string(const lc_respawn *p, char *buf, size_t buflen);
 int lc_initialize_world_border_to_string(const lc_initialize_world_border *p, char *buf, size_t buflen);
+int lc_custom_payload_to_string(const lc_custom_payload *p, char *buf, size_t buflen);
+int lc_feature_flags_to_string(const lc_feature_flags *p, char *buf, size_t buflen);
+int lc_select_known_packs_to_string(const lc_select_known_packs *p, char *buf, size_t buflen);
+int lc_finish_configuration_to_string(char *buf, size_t buflen);
+int lc_bundle_delimiter_to_string(char *buf, size_t buflen);
+int lc_step_tick_to_string(const lc_step_tick *p, char *buf, size_t buflen);
+int lc_success_to_string(const lc_login_success *p, char *buf, size_t buflen);
 int lc_registry_data_to_string(const lc_registry_data *p, char *buf, size_t buflen);
 /** Full multi-line dump of all registry entries (+ NBT tree per entry). */
 int lc_registry_data_fprint(FILE *f, const lc_registry_data *p);

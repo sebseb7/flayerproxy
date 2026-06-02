@@ -89,6 +89,14 @@ const requiredDecoders = [
   'system_chat',
   'set_ticking_state',
   'update_recipes',
+  'custom_payload',
+  'feature_flags',
+  'select_known_packs',
+  'finish_configuration',
+  'bundle_delimiter',
+  'step_tick',
+  'success',
+  'advancements',
 ];
 for (const packet of requiredDecoders) {
   if (!native.isPacketSupported(packet)) {

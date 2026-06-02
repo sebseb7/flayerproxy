@@ -78,6 +78,7 @@ int lc_decode_declare_commands(const uint8_t *payload, size_t payload_len, char 
 int lc_decode_update_recipes(const uint8_t *payload, size_t payload_len, char *out, size_t out_sz);
 int lc_decode_system_chat(const uint8_t *payload, size_t payload_len, char *out, size_t out_sz);
 int lc_decode_set_ticking_state(const uint8_t *payload, size_t payload_len, char *out, size_t out_sz);
+int lc_decode_advancements(const uint8_t *payload, size_t payload_len, char *out, size_t out_sz);
 lc_status lc_read_top_bit_array(lc_buf *b, lc_equipment_arr *out);
 const char *lc_slot_component_type_name(int32_t id);
 int lc_slot_fprint_equipment_entry(FILE *f, const lc_equipment *eq, const char *indent);

@@ -373,6 +373,8 @@ int lc_decode_play_stream_to_string(const char *name, const uint8_t *payload, si
   if (strcmp(name, "player_info") == 0)
     return decode_player_info(payload, payload_len, out, out_sz);
   if (strcmp(name, "tags") == 0) return decode_tags(payload, payload_len, out, out_sz);
+  if (strcmp(name, "advancements") == 0)
+    return lc_decode_advancements(payload, payload_len, out, out_sz);
 
   if (strcmp(name, "update_health") == 0) {
     lc_buf b;

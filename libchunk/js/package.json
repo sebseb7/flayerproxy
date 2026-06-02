@@ -7,7 +7,7 @@
   "scripts": {
     "install": "node ../scripts/npm-prebuild.js && node-gyp rebuild",
     "build": "node ../scripts/npm-prebuild.js && node-gyp rebuild",
-    "test": "node test/decode.test.js"
+    "test": "node test/wirePath.test.js && node test/configPackets.test.js && node test/loginAdvancements.test.js && node test/decode.test.js"
   },
   "dependencies": {
     "node-addon-api": "^8.3.0"

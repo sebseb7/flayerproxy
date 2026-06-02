@@ -33,6 +33,7 @@ static size_t g_packs_key_len;
 typedef enum {
   REG_STATE_EMPTY = 0,
   REG_STATE_LOADING,
+  REG_STATE_CONFIG_READY,
   REG_STATE_READY,
   REG_STATE_FAILED,
 } reg_load_state;
@@ -134,12 +135,41 @@ static int build_steps_from_embedded(void) {
   return 0;
 }
 
+static int load_from_remote_capture(const mc_registry_capture_result *cap);
+
 typedef struct fetch_thread_arg {
   uint8_t *client_packs;
   size_t client_packs_len;
   mc_registry_capture_result result;
   int rc;
 } fetch_thread_arg;
+
+static void on_config_ready(const mc_registry_capture_result *cap, int ok, void *v) {
+  fetch_thread_arg *a = (fetch_thread_arg *)v;
+  if (!ok) return;
+
+  pthread_mutex_lock(&g_load_mutex);
+  if (load_from_remote_capture(cap) != 0) {
+    g_load_state = REG_STATE_FAILED;
+    pthread_cond_broadcast(&g_load_cond);
+    pthread_mutex_unlock(&g_load_mutex);
+    return;
+  }
+  g_packs_key = dup_bytes(a->client_packs, a->client_packs_len);
+  if (!g_packs_key && a->client_packs_len > 0) {
+    clear_loaded_data();
+    g_load_state = REG_STATE_FAILED;
+    pthread_cond_broadcast(&g_load_cond);
+    pthread_mutex_unlock(&g_load_mutex);
+    return;
+  }
+  g_packs_key_len = a->client_packs_len;
+  g_load_state = REG_STATE_CONFIG_READY;
+  MC_LOGI("static_server", "registry fetch: config cached (%zu registries + tags), continuing play capture",
+          g_registry_count);
+  pthread_cond_broadcast(&g_load_cond);
+  pthread_mutex_unlock(&g_load_mutex);
+}
 
 static void *registry_fetch_thread(void *arg) {
   fetch_thread_arg *a = (fetch_thread_arg *)arg;
@@ -151,8 +181,54 @@ static void *registry_fetch_thread(void *arg) {
       .client_known_packs_len = a->client_packs_len,
   };
   memset(&a->result, 0, sizeof a->result);
-  a->rc = mc_registry_capture_configuration(&cfg, &a->result);
+  a->rc = mc_registry_capture_configuration(&cfg, &a->result, on_config_ready, a);
+
+  pthread_mutex_lock(&g_load_mutex);
+  if (a->rc == 0 && g_load_state == REG_STATE_CONFIG_READY) {
+    g_step_count = a->result.step_count;
+    g_load_state = REG_STATE_READY;
+    MC_LOGI("static_server", "registry fetch: play join cached (%zu sync steps total)", g_step_count);
+  } else if (g_load_state == REG_STATE_CONFIG_READY) {
+    MC_LOGW("static_server", "registry fetch: play join failed; config cache kept, play defaults on join");
+    g_load_state = REG_STATE_READY;
+  } else if (g_load_state == REG_STATE_LOADING) {
+    mc_registry_capture_result_free(&a->result);
+    g_load_state = REG_STATE_FAILED;
+  }
+  pthread_cond_broadcast(&g_load_cond);
+  pthread_mutex_unlock(&g_load_mutex);
+
+  free(a->client_packs);
+  free(a);
   return NULL;
+}
+
+static int start_remote_fetch(const uint8_t *client_packs, size_t client_packs_len) {
+  fetch_thread_arg *arg = (fetch_thread_arg *)calloc(1, sizeof *arg);
+  if (!arg) return -1;
+  arg->client_packs = dup_bytes(client_packs, client_packs_len);
+  if (!arg->client_packs && client_packs_len > 0) {
+    free(arg);
+    return -1;
+  }
+  arg->client_packs_len = client_packs_len;
+
+  MC_LOGI("static_server", "registry fetch: connecting to %s:%d as %s (client packs %zu B)", g_fetch.host,
+          g_fetch.port, g_fetch.username ? g_fetch.username : "FlayerBot", client_packs_len);
+
+  pthread_t tid;
+  pthread_attr_t attr;
+  pthread_attr_init(&attr);
+  pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+  int rc = pthread_create(&tid, &attr, registry_fetch_thread, arg);
+  pthread_attr_destroy(&attr);
+  if (rc != 0) {
+    MC_LOGE("static_server", "registry fetch thread failed");
+    free(arg->client_packs);
+    free(arg);
+    return -1;
+  }
+  return 0;
 }
 
 static int load_from_remote_capture(const mc_registry_capture_result *cap) {
@@ -196,44 +272,6 @@ static int load_from_remote_capture(const mc_registry_capture_result *cap) {
   return 0;
 }
 
-static int load_from_remote(const uint8_t *client_packs, size_t client_packs_len) {
-  fetch_thread_arg arg;
-  memset(&arg, 0, sizeof arg);
-  arg.client_packs = dup_bytes(client_packs, client_packs_len);
-  if (!arg.client_packs && client_packs_len > 0) return -1;
-  arg.client_packs_len = client_packs_len;
-
-  pthread_t tid;
-  MC_LOGI("static_server", "registry fetch: connecting to %s:%d as %s (client packs %zu B)", g_fetch.host,
-          g_fetch.port, g_fetch.username ? g_fetch.username : "FlayerBot", client_packs_len);
-  if (pthread_create(&tid, NULL, registry_fetch_thread, &arg) != 0) {
-    MC_LOGE("static_server", "registry fetch thread failed");
-    free(arg.client_packs);
-    return -1;
-  }
-  pthread_join(tid, NULL);
-  free(arg.client_packs);
-
-  if (arg.rc != 0) {
-    mc_registry_capture_result_free(&arg.result);
-    return -1;
-  }
-  if (load_from_remote_capture(&arg.result) != 0) {
-    mc_registry_capture_result_free(&arg.result);
-    return -1;
-  }
-  arg.result.steps = NULL;
-  arg.result.step_count = 0;
-  mc_registry_capture_result_free(&arg.result);
-
-  g_packs_key = dup_bytes(client_packs, client_packs_len);
-  if (!g_packs_key && client_packs_len > 0) return -1;
-  g_packs_key_len = client_packs_len;
-
-  MC_LOGI("static_server", "registry fetch: cached (%zu registries + tags)", g_registry_count);
-  return 0;
-}
-
 static int load_from_embedded(void) {
   if (build_steps_from_embedded() != 0) return -1;
 
@@ -258,21 +296,18 @@ static int load_from_embedded(void) {
   return 0;
 }
 
-static int load_registries_once(const uint8_t *client_packs, size_t client_packs_len) {
-  clear_loaded_data();
-  if (g_fetch_enabled) return load_from_remote(client_packs, client_packs_len);
-  (void)client_packs;
-  (void)client_packs_len;
-  return load_from_embedded();
-}
-
 static int ensure_registries_loaded(const uint8_t *client_packs, size_t client_packs_len) {
   pthread_mutex_lock(&g_load_mutex);
   while (g_load_state == REG_STATE_LOADING) pthread_cond_wait(&g_load_cond, &g_load_mutex);
 
-  if (g_load_state == REG_STATE_READY) {
+  if (g_load_state == REG_STATE_READY || g_load_state == REG_STATE_CONFIG_READY) {
     int ok = !g_fetch_enabled || packs_key_matches(client_packs, client_packs_len);
     if (ok) {
+      pthread_mutex_unlock(&g_load_mutex);
+      return 0;
+    }
+    while (g_load_state == REG_STATE_CONFIG_READY) pthread_cond_wait(&g_load_cond, &g_load_mutex);
+    if (g_load_state == REG_STATE_READY && packs_key_matches(client_packs, client_packs_len)) {
       pthread_mutex_unlock(&g_load_mutex);
       return 0;
     }
@@ -281,16 +316,88 @@ static int ensure_registries_loaded(const uint8_t *client_packs, size_t client_p
   }
   if (g_load_state == REG_STATE_FAILED) g_load_state = REG_STATE_EMPTY;
 
+  if (!g_fetch_enabled) {
+    clear_loaded_data();
+    g_load_state = REG_STATE_LOADING;
+    pthread_mutex_unlock(&g_load_mutex);
+    if (load_from_embedded() != 0) {
+      pthread_mutex_lock(&g_load_mutex);
+      g_load_state = REG_STATE_FAILED;
+      pthread_cond_broadcast(&g_load_cond);
+      pthread_mutex_unlock(&g_load_mutex);
+      return -1;
+    }
+    pthread_mutex_lock(&g_load_mutex);
+    g_load_state = REG_STATE_READY;
+    pthread_cond_broadcast(&g_load_cond);
+    pthread_mutex_unlock(&g_load_mutex);
+    return 0;
+  }
+
+  clear_loaded_data();
   g_load_state = REG_STATE_LOADING;
   pthread_mutex_unlock(&g_load_mutex);
 
-  int rc = load_registries_once(client_packs, client_packs_len);
+  if (start_remote_fetch(client_packs, client_packs_len) != 0) {
+    pthread_mutex_lock(&g_load_mutex);
+    g_load_state = REG_STATE_FAILED;
+    pthread_cond_broadcast(&g_load_cond);
+    pthread_mutex_unlock(&g_load_mutex);
+    return -1;
+  }
 
   pthread_mutex_lock(&g_load_mutex);
-  g_load_state = (rc == 0) ? REG_STATE_READY : REG_STATE_FAILED;
-  pthread_cond_broadcast(&g_load_cond);
+  while (g_load_state == REG_STATE_LOADING) pthread_cond_wait(&g_load_cond, &g_load_mutex);
+  int rc = (g_load_state == REG_STATE_CONFIG_READY || g_load_state == REG_STATE_READY) ? 0 : -1;
   pthread_mutex_unlock(&g_load_mutex);
   return rc;
+}
+
+static const mc_reg_sync_step *find_cached_step(mc_reg_sync_kind kind, int32_t pkt_id) {
+  if ((g_load_state != REG_STATE_READY && g_load_state != REG_STATE_CONFIG_READY) || !g_steps) return NULL;
+  for (size_t i = 0; i < g_step_count; i++) {
+    const mc_reg_sync_step *step = &g_steps[i];
+    if (step->kind != kind) continue;
+    if (kind == MC_REG_SYNC_PLAY && step->pkt_id != pkt_id) continue;
+    return step;
+  }
+  return NULL;
+}
+
+const uint8_t *mc_static_cached_select_known_packs(size_t *len) {
+  const mc_reg_sync_step *step = find_cached_step(MC_REG_SYNC_SELECT_KNOWN_PACKS, 0);
+  if (!step) return NULL;
+  if (len) *len = step->len;
+  return step->data;
+}
+
+const uint8_t *mc_static_cached_play_payload(int32_t pkt_id, size_t *len) {
+  const mc_reg_sync_step *step = find_cached_step(MC_REG_SYNC_PLAY, pkt_id);
+  if (!step) return NULL;
+  if (len) *len = step->len;
+  return step->data;
+}
+
+int mc_static_send_cached_recipe_burst(int fd) {
+  static const int32_t order[] = {
+      MC_PKT_PLAY_UPDATE_RECIPES,
+      MC_PKT_PLAY_RECIPE_BOOK_SETTINGS,
+      MC_PKT_PLAY_RECIPE_BOOK_ADD,
+  };
+  for (size_t i = 0; i < sizeof order / sizeof order[0]; i++) {
+    size_t len = 0;
+    const uint8_t *payload = mc_static_cached_play_payload(order[i], &len);
+    if (!payload) continue;
+    if (mc_send_frame(fd, order[i], payload, len) != 0) return -1;
+  }
+  return 0;
+}
+
+void mc_static_wait_play_cache(void) {
+  if (!g_fetch_enabled) return;
+  pthread_mutex_lock(&g_load_mutex);
+  while (g_load_state == REG_STATE_CONFIG_READY) pthread_cond_wait(&g_load_cond, &g_load_mutex);
+  pthread_mutex_unlock(&g_load_mutex);
 }
 
 int mc_static_registries_init(void) {
@@ -339,7 +446,7 @@ int mc_static_send_registry_sync(int fd, const uint8_t *client_known_packs, size
 
 size_t mc_static_registry_count(void) {
   pthread_mutex_lock(&g_load_mutex);
-  int ready = g_load_state == REG_STATE_READY;
+  int ready = g_load_state == REG_STATE_READY || g_load_state == REG_STATE_CONFIG_READY;
   size_t n = ready ? g_registry_count : 0;
   pthread_mutex_unlock(&g_load_mutex);
   return n;
