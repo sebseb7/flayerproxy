@@ -1,7 +1,8 @@
-'use strict';
+import { createRequire } from 'node:module';
+import { LOGIN, CFG, PLAY } from './constants.js';
 
-const playS2cById = require('../libchunk/js/playS2cById');
-const { LOGIN, CFG, PLAY } = require('./constants');
+const require = createRequire(import.meta.url);
+const playS2cById = require('../libchunk/js/playS2cById.js');
 
 const S2C_NAMES = {
   [LOGIN.DISCONNECT]: 'login_disconnect',
@@ -20,7 +21,7 @@ const S2C_NAMES = {
   [PLAY.PING]: 'ping',
 };
 
-function s2cPacketName(ph, id) {
+export function s2cPacketName(ph, id) {
   if (ph === 'play' || ph === 'play_join') {
     const n = playS2cById[id];
     if (n) return n;
@@ -28,7 +29,7 @@ function s2cPacketName(ph, id) {
   return S2C_NAMES[id] || null;
 }
 
-function c2sPacketName(ph, id) {
+export function c2sPacketName(ph, id) {
   if (ph === 'connect' && id === 0x00) return 'handshake';
   if (ph === 'login') {
     if (id === LOGIN.C2S_START) return 'login_start';
@@ -53,12 +54,10 @@ function c2sPacketName(ph, id) {
   return null;
 }
 
-function c2sDecodeName(ph, id) {
+export function c2sDecodeName(ph, id) {
   if (ph === 'config' && id === CFG.C2S_SELECT_KNOWN_PACKS) return 'select_known_packs';
   if ((ph === 'play' || ph === 'play_join') && id === PLAY.C2S_TELEPORT_CONFIRM) {
     return 'c2s_teleport_confirm';
   }
   return null;
 }
-
-module.exports = { s2cPacketName, c2sPacketName, c2sDecodeName };

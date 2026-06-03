@@ -1,8 +1,6 @@
-'use strict';
-
-const chalk = require('chalk');
-const { PROTOCOL, HS_LOGIN, LOGIN, CFG, PLAY } = require('./constants');
-const {
+import chalk from 'chalk';
+import { PROTOCOL, HS_LOGIN, LOGIN, CFG, PLAY } from './constants.js';
+import {
   writeVarInt,
   writeString,
   writePacket,
@@ -11,10 +9,10 @@ const {
   readString,
   readI64BE,
   parsePosition,
-} = require('./protocol');
-const { createLogger } = require('./logger');
+} from './protocol.js';
+import { createLogger } from './logger.js';
 
-function createSession(config) {
+export function createSession(config) {
   const { host, port, username, debug, logLevel } = config;
 
   let phase = 'connect';
@@ -203,5 +201,3 @@ function createSession(config) {
 
   return { logger, attach, onConnect, stop };
 }
-
-module.exports = { createSession };

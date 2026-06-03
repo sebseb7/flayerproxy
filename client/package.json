@@ -1,0 +1,6 @@
+{
+  "name": "@flayerproxy/mc-client",
+  "private": true,
+  "type": "module",
+  "description": "Minimal protocol 773 test client for flayerproxy"
+}

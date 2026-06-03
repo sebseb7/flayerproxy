@@ -1,12 +1,9 @@
-'use strict';
+import { LOG_LEVELS } from './constants.js';
 
-const { LOG_LEVELS } = require('./constants');
-
-function loadConfig(argv = process.argv, env = process.env) {
+export function loadConfig(argv = process.argv, env = process.env) {
   const debug = env.MC_CLIENT_DEBUG === '1';
   const logLevelName = env.MC_CLIENT_LOG_LEVEL;
-  const logLevel =
-    LOG_LEVELS[logLevelName] ?? (debug ? LOG_LEVELS.debug : LOG_LEVELS.info);
+  const logLevel = LOG_LEVELS[logLevelName] ?? (debug ? LOG_LEVELS.debug : LOG_LEVELS.info);
 
   return {
     host: argv[2] || '127.0.0.1',
@@ -16,5 +13,3 @@ function loadConfig(argv = process.argv, env = process.env) {
     logLevel,
   };
 }
-
-module.exports = { loadConfig };

@@ -1,28 +1,29 @@
-'use strict';
+import { createRequire } from 'node:module';
+import chalk from 'chalk';
+import { DECODE_MAX } from './constants.js';
 
-const chalk = require('chalk');
-const { DECODE_MAX } = require('./constants');
+const require = createRequire(import.meta.url);
 
 let libchunk;
 let libchunkLoadError;
 try {
-  libchunk = require('../libchunk/js');
+  libchunk = require('../libchunk/js/index.js');
 } catch (e) {
   libchunk = null;
   libchunkLoadError = e;
 }
 
-function isLibchunkLoaded() {
+export function isLibchunkLoaded() {
   return libchunk !== null;
 }
 
-function warnLibchunkLoadError() {
+export function warnLibchunkLoadError() {
   if (libchunk) return;
   console.error('[mc-client]', chalk.yellow('libchunk not loaded:'), libchunkLoadError?.message);
   console.error('[mc-client]', chalk.dim('build: cd libchunk && make && cd js && npm run build'));
 }
 
-function decodePayload(packetName, payload) {
+export function decodePayload(packetName, payload) {
   if (!libchunk || !packetName || payload.length === 0) return null;
   if (!libchunk.isPacketSupported(packetName)) return null;
   const r = libchunk.decodePayload(packetName, payload);
@@ -34,9 +35,3 @@ function decodePayload(packetName, payload) {
   if (!oneLine) return null;
   return oneLine.length > DECODE_MAX ? `${oneLine.slice(0, DECODE_MAX)}…` : oneLine;
 }
-
-module.exports = {
-  isLibchunkLoaded,
-  warnLibchunkLoadError,
-  decodePayload,
-};
