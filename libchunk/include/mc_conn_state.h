@@ -34,6 +34,8 @@ void mc_conn_state_transition(mc_conn_link link, mc_conn_state_tracker *tracker,
 
 void mc_conn_state_upstream_reset(void);
 void mc_conn_state_upstream(mc_conn_state state, const char *detail);
+/** Current UP link state; DISCONNECTED if never set. */
+mc_conn_state mc_conn_state_upstream_get(void);
 
 const char *mc_conn_link_name(mc_conn_link link);
 const char *mc_conn_state_name(mc_conn_state state);

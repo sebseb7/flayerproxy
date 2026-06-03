@@ -338,7 +338,7 @@ void mc_log_c2s_play(const char *username, int32_t pkt_id, const uint8_t *payloa
 
   switch (pkt_id) {
     case MC_PKT_C2S_PLAYER_LOADED:
-      MC_LOGD("c2s", "%s C2S 0x%02x %s (empty)", who, pkt_id, name);
+      MC_LOGI("c2s", "%s C2S 0x%02x %s (empty)", who, pkt_id, name);
       return;
 
     case MC_PKT_C2S_TELEPORT_CONFIRM: {

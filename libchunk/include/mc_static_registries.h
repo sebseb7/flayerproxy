@@ -29,6 +29,18 @@ int mc_static_registries_config_cached(void);
 /** 1 when play join + chunk cache from upstream is complete. */
 int mc_static_registries_play_ready(void);
 
+/** 1 when upstream play join fields are cached (registry-from). */
+int mc_static_registries_play_join_ready(void);
+
+/** 1 when spawn view grid has enough cached map_chunk(s) (or wait gave up). */
+int mc_static_upstream_spawn_grid_ready(void);
+
+/** Wait up to timeout_ms; return 1 if play join fields are ready. */
+int mc_static_wait_play_cache_ms(int timeout_ms);
+
+/** Wait up to timeout_ms; return 1 if spawn chunk grid is ready (or fetch ended). */
+int mc_static_wait_upstream_chunks_ms(int timeout_ms);
+
 /** Cached select_known_packs payload from last successful fetch, or NULL. */
 const uint8_t *mc_static_cached_select_known_packs(size_t *len);
 

@@ -231,7 +231,7 @@ int mc_client_send_keep_alive(mc_client *cli) {
   cli->keep_alive_challenge = mc_now_ms();
   cli->keep_alive_sent_ms = cli->keep_alive_challenge;
   cli->keep_alive_pending = 1;
-  MC_LOGD("static_server", "keep_alive -> id=%lld (%s)", (long long)cli->keep_alive_challenge,
+  MC_LOGI("static_server", "keep_alive -> id=%lld (%s)", (long long)cli->keep_alive_challenge,
           cli->state == MC_CLI_CONFIG ? "config" : "play");
   return mc_send_keep_alive(cli->fd, pkt_id, cli->keep_alive_challenge);
 }
@@ -245,9 +245,19 @@ int mc_client_handle_keep_alive(mc_client *cli, const uint8_t *payload, size_t p
   lc_buf_init(&b, payload, payload_len);
   int64_t id;
   if (lc_buf_read_i64_be(&b, &id) != LC_OK) return -1;
-  if (cli->keep_alive_pending && id == cli->keep_alive_challenge) {
+  if (!cli->keep_alive_pending) return 0;
+  if (id == cli->keep_alive_challenge) {
     cli->keep_alive_pending = 0;
+    return 0;
   }
+  if (cli->state == MC_CLI_PLAY) {
+    MC_LOGW("static_server", "keep_alive id mismatch (got %lld want %lld), accepting", (long long)id,
+            (long long)cli->keep_alive_challenge);
+    cli->keep_alive_pending = 0;
+    return 0;
+  }
+  MC_LOGW("static_server", "keep_alive id mismatch (got %lld want %lld)", (long long)id,
+          (long long)cli->keep_alive_challenge);
   return 0;
 }
 /* Good for: Send keepalive when due in play loop.
@@ -262,7 +272,13 @@ int mc_client_tick_keep_alive(mc_client *cli) {
   int64_t now = mc_now_ms();
   if (now - cli->keep_alive_sent_ms < MC_KEEP_ALIVE_INTERVAL_MS) return 0;
 
-  if (cli->keep_alive_pending) return -1;
+  if (cli->keep_alive_pending) {
+    if (cli->state == MC_CLI_PLAY) {
+      MC_LOGW("static_server", "keep_alive no reply in %dms, resending", MC_KEEP_ALIVE_INTERVAL_MS);
+      return mc_client_send_keep_alive(cli);
+    }
+    return -1;
+  }
 
   return mc_client_send_keep_alive(cli);
 }

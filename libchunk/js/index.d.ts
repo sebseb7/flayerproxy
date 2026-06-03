@@ -25,6 +25,7 @@ export interface WireMeta {
 
 export function supportedPackets(): string[];
 export function isPacketSupported(name: string): boolean;
+export function decodePayload(packetName: string, buffer: Buffer): DecodeResult;
 export function decodeWire(packetName: string, buffer: Buffer): DecodeResult;
 export function decodeMapChunkJson(basename: string, buffer: Buffer): DecodeResult;
 export function decodeWireFile(filePath: string, buffer?: Buffer): DecodeResult & { packet?: string; meta?: WireMeta };

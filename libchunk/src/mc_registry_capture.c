@@ -14,6 +14,7 @@
 #include "mc_dns.h"
 #include "mc_conn_state.h"
 #include "mc_log.h"
+#include "mc_upstream_bridge.h"
 #include "mc_online.h"
 #include "mc_s2c_log.h"
 #include "mc_packet_ids.h"
@@ -21,6 +22,7 @@
 #include "mc_wire.h"
 
 #include <errno.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -267,6 +269,31 @@ static int handle_play_response(mc_conn *conn, int32_t pkt_id, const uint8_t *bo
   return 0;
 }
 
+static void capture_try_bridge_enable(mc_conn *conn, const mc_registry_capture_result *out, int play_join_ready_sent,
+                                    int *bridge_relay, int *rc, play_capture_flags *play_flags) {
+  if (!play_join_ready_sent || *bridge_relay) return;
+
+  int32_t radius =
+      out->join.login_valid ? mc_static_chunk_radius_from_view(out->join.login_view_distance) : 1;
+  if (radius <= 0) radius = 1;
+  int32_t cx = 0;
+  int32_t cz = 0;
+  if (out->join.position_valid) {
+    cx = (int32_t)floor(out->join.position.x / 16.0);
+    cz = (int32_t)floor(out->join.position.z / 16.0);
+  }
+  int expect = mc_static_chunks_expected_grid_count(radius);
+  int filled = mc_static_chunks_count_in_grid(cx, cz, radius);
+  if (filled < expect) return;
+
+  mc_upstream_bridge_enable(conn);
+  *bridge_relay = 1;
+  if (play_capture_complete(play_flags)) *rc = 0;
+  MC_LOGI("static_server",
+          "registry fetch: C2S relay enabled (%d/%d chunks at %d,%d; same thread keeps reading upstream)",
+          filled, expect, cx, cz);
+}
+
 static const char *recipe_step_label(int32_t pkt_id) {
   switch (pkt_id) {
   case MC_PKT_PLAY_UPDATE_RECIPES:
@@ -485,15 +512,25 @@ int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_
   memset(&chunk_flags, 0, sizeof chunk_flags);
   int player_loaded_sent = 0;
   int play_join_ready_sent = 0;
+  int bridge_relay = 0;
   int rc = -1;
   int32_t last_pkt_id = -1;
   int packets_read = 0;
+  const int packet_limit = on_config_ready ? 0 : 1024;
 
-  for (int seq = 0; seq < 1024; seq++) {
+  for (int seq = 0; packet_limit == 0 || seq < packet_limit; seq++) {
     uint8_t *wire = NULL;
     size_t wire_len = 0;
     int32_t pkt_id = 0;
-    if (mc_conn_read_packet(&conn, &wire, &wire_len, &pkt_id) != 0) {
+
+    if (bridge_relay) {
+      mc_upstream_bridge_lock();
+      mc_upstream_bridge_flush(&conn);
+    }
+    int read_rc = mc_conn_read_packet(&conn, &wire, &wire_len, &pkt_id);
+    if (bridge_relay) mc_upstream_bridge_unlock();
+
+    if (read_rc != 0) {
       MC_LOGE("static_server", "registry fetch: read failed after %d packets: %s", packets_read, strerror(errno));
       free(wire);
       break;
@@ -680,6 +717,7 @@ int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_
                   packets_read);
           on_play_join_ready(out, ctx);
         }
+        capture_try_bridge_enable(&conn, out, play_join_ready_sent, &bridge_relay, &rc, &play_flags);
       } else if (config_capture_complete(registries, tags_seen, &play_flags) &&
                  chunk_capture_complete(&chunk_flags)) {
         rc = 0;
@@ -702,12 +740,13 @@ int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_
             cfg->port, packets_read, rc);
   }
 
+  if (bridge_relay) mc_upstream_bridge_disable();
   mc_conn_free(&conn);
   close(fd);
+  if (on_config_ready) mc_conn_state_upstream(MC_CONN_STATE_DISCONNECTED, upstream_label);
+
   free(owned_token);
   free(owned_profile);
-
-  if (on_config_ready) mc_conn_state_upstream(MC_CONN_STATE_DISCONNECTED, upstream_label);
 
   if (rc == 0) {
     MC_LOGI("static_server", "registry fetch: play join cached (%zu sync steps, %zu chunks)", out->step_count,

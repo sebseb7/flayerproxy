@@ -515,7 +515,6 @@ int mc_template_send_config_sequence(int fd, const mc_patch_ctx *ctx) {
 
 int mc_template_send_play_join(int fd, const mc_patch_ctx *ctx) {
   const mc_server_world *w = &g_store.world;
-  mc_static_wait_play_cache();
 
   lc_position spawn_pos;
   if (mc_static_fill_join_position(&spawn_pos, 1) == 0) {
@@ -650,7 +649,6 @@ int mc_template_send_grass_world(int fd, const mc_patch_ctx *ctx) {
 }
 
 int mc_template_send_upstream_world(int fd, const mc_patch_ctx *ctx) {
-  mc_static_wait_upstream_chunks();
   const mc_server_world *w = &g_store.world;
   int32_t cx = w->spawn_chunk_x ? w->spawn_chunk_x : (int32_t)floor(ctx->spawn_x / 16.0);
   int32_t cz = w->spawn_chunk_z ? w->spawn_chunk_z : (int32_t)floor(ctx->spawn_z / 16.0);

@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const wirePath = require('./wirePath');
+const playS2cById = require('./playS2cById');
 
 function loadNative() {
   const candidates = [
@@ -26,7 +27,18 @@ function loadNative() {
 const native = loadNative();
 
 /**
- * Decode wire bytes to libchunk toString summary.
+ * Decode packet payload (no leading packet-id varint) to libchunk toString summary.
+ * @param {string} packetName
+ * @param {Buffer} buffer
+ * @returns {{ ok: boolean, text?: string, error?: string, unsupported?: boolean }}
+ */
+function decodePayload(packetName, buffer) {
+  if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+  return native.decodePayload(packetName, buffer);
+}
+
+/**
+ * Decode sniffer .wire bytes (packet-id varint + payload).
  * @param {string} packetName
  * @param {Buffer} buffer
  * @returns {{ ok: boolean, text?: string, error?: string, unsupported?: boolean }}
@@ -80,8 +92,10 @@ function hexDump(buffer) {
 
 module.exports = {
   ...wirePath,
+  playS2cById,
   supportedPackets: () => native.supportedPackets(),
   isPacketSupported: (name) => native.isPacketSupported(name),
+  decodePayload,
   decodeWire,
   decodeMapChunkJson,
   decodeWireFile,

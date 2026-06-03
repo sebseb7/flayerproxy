@@ -1,0 +1,48 @@
+'use strict';
+
+const PROTOCOL = 773;
+const HS_LOGIN = 2;
+
+const LOGIN = { DISCONNECT: 0x00, SUCCESS: 0x02, C2S_START: 0x00, C2S_ACK: 0x03 };
+
+const CFG = {
+  CUSTOM_PAYLOAD: 0x01,
+  FINISH: 0x03,
+  KEEP_ALIVE: 0x04,
+  PING: 0x05,
+  REGISTRY_DATA: 0x07,
+  FEATURE_FLAGS: 0x0c,
+  UPDATE_TAGS: 0x0d,
+  SELECT_KNOWN_PACKS: 0x0e,
+  C2S_FINISH: 0x03,
+  C2S_KEEP_ALIVE: 0x04,
+  C2S_PONG: 0x05,
+  C2S_SELECT_KNOWN_PACKS: 0x07,
+};
+
+const PLAY = {
+  CHUNK_BATCH_FINISHED: 0x0b,
+  KEEP_ALIVE: 0x2b,
+  POSITION: 0x46,
+  PING: 0x3b,
+  C2S_TELEPORT_CONFIRM: 0x00,
+  C2S_CHUNK_BATCH_RECEIVED: 0x0a,
+  C2S_TICK_END: 0x0c,
+  C2S_KEEP_ALIVE: 0x1b,
+  C2S_PLAYER_LOADED: 0x2b,
+  C2S_PONG: 0x2c,
+};
+
+const LOG_LEVELS = { error: 0, warn: 1, info: 2, debug: 3 };
+
+const DECODE_MAX = Number(process.env.MC_CLIENT_DECODE_MAX) || 160;
+
+module.exports = {
+  PROTOCOL,
+  HS_LOGIN,
+  LOGIN,
+  CFG,
+  PLAY,
+  LOG_LEVELS,
+  DECODE_MAX,
+};

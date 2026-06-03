@@ -93,10 +93,13 @@ Napi::Object MakeResult(Napi::Env env, int rc, const std::string &text, const ch
   return o;
 }
 
-int DecodeToString(const char *name, const uint8_t *wire, size_t wire_len, std::string *out) {
+using DecodeStringFn = int (*)(const char *, const uint8_t *, size_t, char *, size_t);
+
+static int DecodeToStringGrow(DecodeStringFn decode, const char *name, const uint8_t *buf, size_t len,
+                              std::string *out) {
   out->assign(kInitialBuf, '\0');
   for (;;) {
-    int rc = lc_decode_wire_to_string(name, wire, wire_len, out->data(), out->size());
+    int rc = decode(name, buf, len, out->data(), out->size());
     if (rc == 1) {
       out->resize(strlen(out->c_str()));
       return 1;
@@ -152,17 +155,24 @@ static int DecodeMapChunkJsonGrow(const char *basename, const uint8_t *wire, siz
   }
 }
 
-Napi::Value DecodeWire(const Napi::CallbackInfo &info) {
-  Napi::Env env = info.Env();
+static Napi::Value DecodeWith(Napi::Env env, DecodeStringFn decode, const Napi::CallbackInfo &info) {
   if (info.Length() < 2 || !info[0].IsString() || !info[1].IsBuffer()) {
-    Napi::TypeError::New(env, "decodeWire(packetName, buffer)").ThrowAsJavaScriptException();
+    Napi::TypeError::New(env, "decode*(packetName, buffer)").ThrowAsJavaScriptException();
     return env.Null();
   }
   std::string name = info[0].As<Napi::String>().Utf8Value();
   Napi::Buffer<uint8_t> buf = info[1].As<Napi::Buffer<uint8_t>>();
   std::string text;
-  int rc = DecodeToString(name.c_str(), buf.Data(), buf.Length(), &text);
+  int rc = DecodeToStringGrow(decode, name.c_str(), buf.Data(), buf.Length(), &text);
   return MakeResult(env, rc, text);
+}
+
+Napi::Value DecodePayload(const Napi::CallbackInfo &info) {
+  return DecodeWith(info.Env(), lc_decode_payload_to_string, info);
+}
+
+Napi::Value DecodeWire(const Napi::CallbackInfo &info) {
+  return DecodeWith(info.Env(), lc_decode_wire_to_string, info);
 }
 
 Napi::Value DecodeMapChunkJson(const Napi::CallbackInfo &info) {
@@ -207,6 +217,7 @@ Napi::Value HexDump(const Napi::CallbackInfo &info) {
 
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("supportedPackets", Napi::Function::New(env, SupportedPackets));
+  exports.Set("decodePayload", Napi::Function::New(env, DecodePayload));
   exports.Set("decodeWire", Napi::Function::New(env, DecodeWire));
   exports.Set("decodeMapChunkJson", Napi::Function::New(env, DecodeMapChunkJson));
   exports.Set("hexDump", Napi::Function::New(env, HexDump));

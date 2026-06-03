@@ -47,6 +47,10 @@ void mc_conn_state_upstream(mc_conn_state state, const char *detail) {
   mc_conn_state_transition(MC_CONN_LINK_UP, &g_upstream_tracker, state, detail);
 }
 
+mc_conn_state mc_conn_state_upstream_get(void) {
+  return g_upstream_tracker.has_state ? g_upstream_tracker.state : MC_CONN_STATE_DISCONNECTED;
+}
+
 static const char *link_badge_color(mc_conn_link link) {
   return link == MC_CONN_LINK_UP ? "\033[1;95m" : "\033[1;94m";
 }

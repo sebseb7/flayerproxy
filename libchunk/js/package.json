@@ -21,6 +21,7 @@
     "index.d.ts",
     "wirePath.js",
     "playPacketNames.js",
+    "playS2cById.js",
     "binding.gyp",
     "src/binding.cc"
   ],

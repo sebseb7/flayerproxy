@@ -3,6 +3,7 @@
 #include "mc_chunk_stream.h"
 #include "mc_conn_state.h"
 #include "mc_log.h"
+#include "mc_upstream_bridge.h"
 #include "mc_static_server.h"
 
 #include "internal.h"
@@ -121,14 +122,34 @@ static mc_patch_ctx make_patch_ctx(const mc_client *cli) {
   ctx.chunk_z = w ? w->spawn_chunk_z : 0;
   return ctx;
 }
+
+static int handle_player_move(mc_client *cli, mc_chunk_stream *chunks, double x, double y, double z);
+
+static void log_unhandled_c2s(const mc_client *cli, int32_t pkt_id, size_t payload_len);
+
+static int play_packet_noop(int32_t pkt_id);
+
+static int process_play_c2s(mc_client *cli, mc_chunk_stream *chunks, int32_t pkt_id, const uint8_t *payload,
+                            size_t payload_len);
+
+static int poll_play_c2s(int fd, mc_client *cli, mc_chunk_stream *chunks);
+
 /* Good for: Send play join templates and mark initial chunk grid.
- * Callers: mc_spectator.c, mc_static_server.c (same file).
+ * Callers: mc_static_server.c (same file).
  */
 
-static int enter_play(mc_client *cli, mc_chunk_stream *chunks) {
+static int enter_play(mc_client *cli, int fd, mc_chunk_stream *chunks) {
   mc_patch_ctx ctx = make_patch_ctx(cli);
   if (mc_template_send_play_join(cli->fd, &ctx) != 0) return -1;
   if (mc_static_chunks_upstream()) {
+    if (g_opts.registry_from_enabled) {
+      int left_ms = 180000;
+      while (left_ms > 0 && !mc_static_upstream_spawn_grid_ready()) {
+        if (poll_play_c2s(fd, cli, chunks) < 0) return -1;
+        if (mc_static_wait_upstream_chunks_ms(left_ms > 100 ? 100 : left_ms)) break;
+        left_ms -= 100;
+      }
+    }
     if (mc_template_send_upstream_world(cli->fd, &ctx) != 0) return -1;
   } else if (mc_template_send_grass_world(cli->fd, &ctx) != 0) {
     return -1;
@@ -148,9 +169,6 @@ static int enter_play(mc_client *cli, mc_chunk_stream *chunks) {
   chunks->has_pos = 1;
   return 0;
 }
-/* Good for: Apply C2S move and refresh chunk stream.
- * Callers: mc_static_server.c (same file).
- */
 
 static int handle_player_move(mc_client *cli, mc_chunk_stream *chunks, double x, double y, double z) {
   return mc_chunk_stream_on_move(chunks, cli->fd, x, y, z);
@@ -207,6 +225,78 @@ static int play_packet_noop(int32_t pkt_id) {
       return 0;
   }
 }
+
+static int process_play_c2s(mc_client *cli, mc_chunk_stream *chunks, int32_t pkt_id, const uint8_t *payload,
+                            size_t payload_len) {
+  mc_log_c2s_play(cli->username, pkt_id, payload, payload_len);
+
+  if (mc_upstream_bridge_active() && mc_conn_state_upstream_get() == MC_CONN_STATE_PLAYING) {
+    mc_upstream_bridge_forward_c2s(pkt_id, payload, payload_len);
+  }
+
+  if (pkt_id == MC_PKT_C2S_KEEP_ALIVE) {
+    mc_client_handle_keep_alive(cli, payload, payload_len);
+    return 0;
+  }
+  if (pkt_id == MC_PKT_C2S_PLAYER_LOADED) {
+    MC_LOGI("static_server", "%s player_loaded (world ready)", cli->username);
+    if (cli->keep_alive_sent_ms == 0 && mc_client_send_keep_alive(cli) != 0) return -1;
+    return 0;
+  }
+  if (pkt_id == MC_PKT_C2S_TELEPORT_CONFIRM) {
+    lc_c2s_teleport_confirm tc;
+    if (lc_parse_c2s_teleport_confirm(payload, payload_len, &tc) == LC_OK) {
+      cli->teleport_id = tc.teleport_id;
+    }
+    return 0;
+  }
+  if (pkt_id == MC_PKT_C2S_POSITION) {
+    lc_c2s_position pos;
+    if (lc_parse_c2s_position(payload, payload_len, &pos) == LC_OK) {
+      return handle_player_move(cli, chunks, pos.x, pos.y, pos.z);
+    }
+    return 0;
+  }
+  if (pkt_id == MC_PKT_C2S_POSITION_LOOK) {
+    lc_c2s_position_look pos;
+    if (lc_parse_c2s_position_look(payload, payload_len, &pos) == LC_OK) {
+      return handle_player_move(cli, chunks, pos.x, pos.y, pos.z);
+    }
+    return 0;
+  }
+  if (play_packet_noop(pkt_id)) return 0;
+  log_unhandled_c2s(cli, pkt_id, payload_len);
+  return 0;
+}
+
+static int poll_play_c2s(int fd, mc_client *cli, mc_chunk_stream *chunks) {
+  if (cli->state != MC_CLI_PLAY) return 0;
+
+  struct pollfd pfd = {.fd = fd, .events = POLLIN};
+  if (poll(&pfd, 1, 0) <= 0) return 0;
+  if (!(pfd.revents & POLLIN)) return 0;
+
+  uint8_t *packet = NULL;
+  size_t packet_len = 0;
+  int32_t pkt_id = -1;
+  if (mc_read_packet(fd, &packet, &packet_len, &pkt_id) != 0) return -1;
+
+  lc_buf b;
+  lc_buf_init(&b, packet, packet_len);
+  int32_t id_check;
+  if (lc_buf_read_varint(&b, &id_check) != LC_OK) {
+    free(packet);
+    return -1;
+  }
+  pkt_id = id_check;
+  const uint8_t *payload = packet + b.off;
+  size_t payload_len = packet_len - b.off;
+
+  int rc = process_play_c2s(cli, chunks, pkt_id, payload, payload_len);
+  free(packet);
+  return rc;
+}
+
 /* Good for: poll() timeout for static server accept loop.
  * Callers: mc_static_server.c (same file).
  */
@@ -382,17 +472,27 @@ static void handle_client(int fd, const char *peer_label) {
         handled = 1;
         mc_conn_state_transition(MC_CONN_LINK_DOWN, &conn_tr, MC_CONN_STATE_CONFIGURED, peer_label);
         cli.state = MC_CLI_PLAY;
-        if (enter_play(&cli, &chunks) != 0) {
+        cli.keep_alive_pending = 0;
+        cli.keep_alive_sent_ms = 0;
+        if (g_opts.registry_from_enabled) {
+          int left_ms = 120000;
+          while (left_ms > 0 && !mc_static_registries_play_join_ready()) {
+            if (poll_play_c2s(fd, &cli, &chunks) < 0) {
+              free(packet);
+              break;
+            }
+            if (mc_static_wait_play_cache_ms(left_ms > 100 ? 100 : left_ms)) break;
+            left_ms -= 100;
+          }
+        }
+        if (enter_play(&cli, fd, &chunks) != 0) {
           free(packet);
           break;
         }
         cli.play_ready = 1;
         mc_conn_state_transition(MC_CONN_LINK_DOWN, &conn_tr, MC_CONN_STATE_PLAYING, peer_label);
-        if (mc_client_send_keep_alive(&cli) != 0) {
-          free(packet);
-          break;
-        }
-        MC_LOGI("static_server", "play ready for %s (entity=%d)", cli.username, cli.entity_id);
+        MC_LOGI("static_server", "play ready for %s (entity=%d); keep_alive after player_loaded",
+                cli.username, cli.entity_id);
       }
       log_unhandled_if(handled, &cli, pkt_id, payload_len);
       free(packet);
@@ -400,43 +500,10 @@ static void handle_client(int fd, const char *peer_label) {
     }
 
     if (cli.state == MC_CLI_PLAY) {
-      mc_log_c2s_play(cli.username, pkt_id, payload, payload_len);
-
-      int handled = 0;
-      if (pkt_id == MC_PKT_C2S_KEEP_ALIVE) {
-        handled = 1;
-        mc_client_handle_keep_alive(&cli, payload, payload_len);
-      } else if (pkt_id == MC_PKT_C2S_PLAYER_LOADED) {
-        handled = 1;
-        MC_LOGI("static_server", "%s player_loaded (world ready)", cli.username);
-      } else if (pkt_id == MC_PKT_C2S_TELEPORT_CONFIRM) {
-        handled = 1;
-        lc_c2s_teleport_confirm tc;
-        if (lc_parse_c2s_teleport_confirm(payload, payload_len, &tc) == LC_OK) {
-          cli.teleport_id = tc.teleport_id;
-        }
-      } else if (pkt_id == MC_PKT_C2S_POSITION) {
-        handled = 1;
-        lc_c2s_position pos;
-        if (lc_parse_c2s_position(payload, payload_len, &pos) == LC_OK) {
-          if (handle_player_move(&cli, &chunks, pos.x, pos.y, pos.z) != 0) {
-            free(packet);
-            break;
-          }
-        }
-      } else if (pkt_id == MC_PKT_C2S_POSITION_LOOK) {
-        handled = 1;
-        lc_c2s_position_look pos;
-        if (lc_parse_c2s_position_look(payload, payload_len, &pos) == LC_OK) {
-          if (handle_player_move(&cli, &chunks, pos.x, pos.y, pos.z) != 0) {
-            free(packet);
-            break;
-          }
-        }
-      } else if (play_packet_noop(pkt_id)) {
-        handled = 1;
+      if (process_play_c2s(&cli, &chunks, pkt_id, payload, payload_len) != 0) {
+        free(packet);
+        break;
       }
-      log_unhandled_if(handled, &cli, pkt_id, payload_len);
       free(packet);
       continue;
     }

@@ -6,6 +6,7 @@
 #include "mc_registry_join_template.h"
 
 #include "mc_chunk_stream.h"
+#include "mc_upstream_bridge.h"
 
 #include "internal.h"
 #include "libchunk.h"
@@ -16,7 +17,9 @@
 #include "mc_wire.h"
 #include "packets_write.h"
 
+#include <errno.h>
 #include <math.h>
+#include <time.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
@@ -605,40 +608,103 @@ int mc_static_registries_play_ready(void) {
   return ok;
 }
 
-void mc_static_wait_play_cache(void) {
-  if (!g_fetch_enabled) return;
+int mc_static_registries_play_join_ready(void) {
+  if (!g_fetch_enabled) return 1;
   pthread_mutex_lock(&g_load_mutex);
-  while (g_load_state == REG_STATE_CONFIG_READY && !g_play_join_ready)
-    pthread_cond_wait(&g_load_cond, &g_load_mutex);
+  int ok = g_play_join_ready;
   pthread_mutex_unlock(&g_load_mutex);
+  return ok;
+}
+
+static int spawn_grid_counts(int32_t *cx, int32_t *cz, int32_t *radius, int *expect, int *filled) {
+  *radius = g_cached_login_valid ? mc_static_chunk_radius_from_view(g_login_view_distance) : 1;
+  if (*radius <= 0) *radius = 1;
+  *cx = 0;
+  *cz = 0;
+  if (g_cached_position_valid) {
+    *cx = (int32_t)floor(g_cached_position.x / 16.0);
+    *cz = (int32_t)floor(g_cached_position.z / 16.0);
+  }
+  *expect = mc_static_chunks_expected_grid_count(*radius);
+  *filled = mc_static_chunks_count_in_grid(*cx, *cz, *radius);
+  return *filled >= *expect;
+}
+
+int mc_static_upstream_spawn_grid_ready(void) {
+  if (!g_fetch_enabled) return 1;
+  pthread_mutex_lock(&g_load_mutex);
+  int32_t cx, cz, radius;
+  int expect, filled;
+  int ok = spawn_grid_counts(&cx, &cz, &radius, &expect, &filled);
+  if (!ok && g_load_state != REG_STATE_CONFIG_READY && !mc_upstream_bridge_active()) ok = 1;
+  pthread_mutex_unlock(&g_load_mutex);
+  return ok;
+}
+
+static int cond_wait_ms_locked(int timeout_ms) {
+  if (timeout_ms <= 0) return ETIMEDOUT;
+  struct timespec ts;
+  if (clock_gettime(CLOCK_REALTIME, &ts) != 0) return -1;
+  ts.tv_sec += timeout_ms / 1000;
+  ts.tv_nsec += (long)(timeout_ms % 1000) * 1000000L;
+  if (ts.tv_nsec >= 1000000000L) {
+    ts.tv_sec++;
+    ts.tv_nsec -= 1000000000L;
+  }
+  return pthread_cond_timedwait(&g_load_cond, &g_load_mutex, &ts);
+}
+
+void mc_static_wait_play_cache(void) {
+  (void)mc_static_wait_play_cache_ms(-1);
+}
+
+int mc_static_wait_play_cache_ms(int timeout_ms) {
+  if (!g_fetch_enabled) return 1;
+  pthread_mutex_lock(&g_load_mutex);
+  while (g_load_state == REG_STATE_CONFIG_READY && !g_play_join_ready) {
+    if (timeout_ms < 0) {
+      pthread_cond_wait(&g_load_cond, &g_load_mutex);
+      continue;
+    }
+    if (cond_wait_ms_locked(timeout_ms) == ETIMEDOUT) break;
+  }
+  int ok = g_play_join_ready || g_load_state != REG_STATE_CONFIG_READY;
+  pthread_mutex_unlock(&g_load_mutex);
+  return ok;
 }
 
 void mc_static_wait_upstream_chunks(void) {
-  if (!g_fetch_enabled) return;
+  (void)mc_static_wait_upstream_chunks_ms(-1);
+}
+
+int mc_static_wait_upstream_chunks_ms(int timeout_ms) {
+  if (!g_fetch_enabled) return 1;
   pthread_mutex_lock(&g_load_mutex);
   for (;;) {
-    int32_t radius = g_cached_login_valid ? mc_static_chunk_radius_from_view(g_login_view_distance) : 1;
-    if (radius <= 0) radius = 1;
-    int32_t cx = 0;
-    int32_t cz = 0;
-    if (g_cached_position_valid) {
-      cx = (int32_t)floor(g_cached_position.x / 16.0);
-      cz = (int32_t)floor(g_cached_position.z / 16.0);
+    int32_t cx, cz, radius;
+    int expect, filled;
+    if (spawn_grid_counts(&cx, &cz, &radius, &expect, &filled)) {
+      pthread_mutex_unlock(&g_load_mutex);
+      return 1;
     }
-    int expect = mc_static_chunks_expected_grid_count(radius);
-    int filled = mc_static_chunks_count_in_grid(cx, cz, radius);
-    if (filled >= expect) break;
-    if (g_load_state != REG_STATE_CONFIG_READY) {
+    if (g_load_state != REG_STATE_CONFIG_READY && !mc_upstream_bridge_active()) {
       if (filled > 0) {
         MC_LOGW("static_server",
                 "registry fetch: play capture ended with %d/%d chunks for view grid (%d,%d) r=%d", filled,
                 expect, cx, cz, radius);
       }
-      break;
+      pthread_mutex_unlock(&g_load_mutex);
+      return 1;
     }
-    pthread_cond_wait(&g_load_cond, &g_load_mutex);
+    if (timeout_ms < 0) {
+      pthread_cond_wait(&g_load_cond, &g_load_mutex);
+      continue;
+    }
+    if (cond_wait_ms_locked(timeout_ms) == ETIMEDOUT) {
+      pthread_mutex_unlock(&g_load_mutex);
+      return 0;
+    }
   }
-  pthread_mutex_unlock(&g_load_mutex);
 }
 
 int mc_static_fill_join_login(lc_play_login *login, int32_t entity_id) {
