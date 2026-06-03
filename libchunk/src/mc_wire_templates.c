@@ -657,15 +657,10 @@ int mc_template_send_upstream_world(int fd, const mc_patch_ctx *ctx) {
   int32_t radius = w->view_radius;
   int filled = mc_static_chunks_count_in_grid(cx, cz, radius);
   int expect = mc_static_chunks_expected_grid_count(radius);
-  int32_t cached_r = mc_static_chunks_max_cached_radius(cx, cz);
-  if (cached_r < radius) {
-    MC_LOGI("static_server", "upstream chunk radius %d (cached extent; login implied %d; grid %d/%d)", cached_r,
-            radius, filled, expect);
-    radius = cached_r;
-    g_store.world.view_radius = cached_r;
-  } else if (filled < expect) {
-    MC_LOGW("static_server", "upstream chunk grid incomplete: %d/%d at (%d,%d) radius=%d", filled, expect, cx,
-            cz, radius);
+  if (filled < expect) {
+    MC_LOGW("static_server", "upstream spawn grid incomplete: %d/%d at (%d,%d) radius=%d (sending full cache anyway)",
+            filled, expect, cx, cz, radius);
   }
-  return mc_static_chunks_send_grid(fd, cx, cz, radius);
+  (void)ctx;
+  return mc_static_chunks_send_all(fd);
 }

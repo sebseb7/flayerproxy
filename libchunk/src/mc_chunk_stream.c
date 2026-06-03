@@ -199,6 +199,42 @@ int mc_static_chunks_send_grid(int fd, int32_t cx, int32_t cz, int32_t radius) {
   MC_LOGI("static_server", "upstream chunks done: %d chunk(s), %zuKiB", sent, (wire_total + 512) / 1024);
   return 0;
 }
+
+int mc_static_chunks_send_all(int fd) {
+  int planned = g_upstream_entry_count;
+  size_t wire_total = 0;
+
+  MC_LOGI("static_server", "upstream chunks: sending all %d cached map_chunk(s)", planned);
+
+  if (planned == 0) {
+    MC_LOGW("static_server", "upstream chunks: cache empty, skipping send");
+    return 0;
+  }
+
+  int sent = 0;
+  if (upstream_send_chunk_batch_start(fd) != 0) return -1;
+
+  for (int i = 0; i < g_upstream_entry_count; i++) {
+    int32_t x = g_upstream_entries[i].x;
+    int32_t z = g_upstream_entries[i].z;
+    char ctx[80];
+    snprintf(ctx, sizeof ctx, "upstream map_chunk (%d,%d) [%d/%d]", x, z, sent + 1, planned);
+    if (mc_send_frame_logged(fd, MC_PKT_PLAY_MAP_CHUNK, g_upstream_entries[i].data, g_upstream_entries[i].len,
+                             ctx) != 0) {
+      MC_LOGE("static_server", "upstream chunks: aborted after %d/%d map_chunk(s), %zuKiB sent", sent, planned,
+              (wire_total + 512) / 1024);
+      return -1;
+    }
+    wire_total += g_upstream_entries[i].len;
+    sent++;
+  }
+
+  MC_LOGI("static_server", "upstream chunks: all %d map_chunk(s) sent, payload=%zuKiB; sending batch_finished", sent,
+          (wire_total + 512) / 1024);
+  if (upstream_send_chunk_batch_finished(fd, sent) != 0) return -1;
+  MC_LOGI("static_server", "upstream chunks done: %d chunk(s), %zuKiB", sent, (wire_total + 512) / 1024);
+  return 0;
+}
 /* Good for: Test whether chunk (x,z) is in the loaded set.
  * Callers: mc_chunk_stream.c (same file).
  */
@@ -275,6 +311,15 @@ void mc_chunk_stream_mark_cached_grid(mc_chunk_stream *cs, int32_t center_cx, in
       int32_t z = center_cz + dz;
       if (mc_static_chunks_lookup(x, z, NULL, NULL) == 0) (void)chunk_mark_loaded(cs, x, z);
     }
+  }
+}
+
+void mc_chunk_stream_mark_all_cached(mc_chunk_stream *cs, int32_t center_cx, int32_t center_cz) {
+  cs->view_cx = center_cx;
+  cs->view_cz = center_cz;
+  cs->loaded_count = 0;
+  for (int i = 0; i < g_upstream_entry_count; i++) {
+    (void)chunk_mark_loaded(cs, g_upstream_entries[i].x, g_upstream_entries[i].z);
   }
 }
 /* Good for: Send map_chunk / unload for chunks entering or leaving view radius.

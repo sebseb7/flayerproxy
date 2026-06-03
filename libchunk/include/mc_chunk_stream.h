@@ -27,6 +27,8 @@ void mc_chunk_stream_init(mc_chunk_stream *cs, int32_t radius);
 void mc_chunk_stream_mark_grid(mc_chunk_stream *cs, int32_t center_cx, int32_t center_cz);
 /** Mark only upstream-cached chunks in the view grid (registry-from mode). */
 void mc_chunk_stream_mark_cached_grid(mc_chunk_stream *cs, int32_t center_cx, int32_t center_cz);
+/** Mark every upstream-cached chunk as already sent to this client. */
+void mc_chunk_stream_mark_all_cached(mc_chunk_stream *cs, int32_t center_cx, int32_t center_cz);
 
 /** Update player position; syncs chunks when the view chunk changes. Returns -1 on wire error. */
 int mc_chunk_stream_on_move(mc_chunk_stream *cs, int fd, double x, double y, double z);
@@ -49,5 +51,7 @@ int mc_static_chunks_count_in_grid(int32_t cx, int32_t cz, int32_t radius);
 /** (2*radius+1)^2 slots for a square view grid. */
 int mc_static_chunks_expected_grid_count(int32_t radius);
 int mc_static_chunks_send_grid(int fd, int32_t cx, int32_t cz, int32_t radius);
+/** Send every chunk in the upstream cache (join burst). */
+int mc_static_chunks_send_all(int fd);
 
 #endif

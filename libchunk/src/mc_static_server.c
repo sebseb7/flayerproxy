@@ -138,7 +138,7 @@ static int enter_play(mc_client *cli, mc_chunk_stream *chunks) {
   int32_t cz = w->spawn_chunk_z ? w->spawn_chunk_z : (int32_t)floor(ctx.spawn_z / 16.0);
   mc_chunk_stream_init(chunks, w->view_radius);
   if (mc_static_chunks_upstream()) {
-    mc_chunk_stream_mark_cached_grid(chunks, cx, cz);
+    mc_chunk_stream_mark_all_cached(chunks, cx, cz);
   } else {
     mc_chunk_stream_mark_grid(chunks, cx, cz);
   }
