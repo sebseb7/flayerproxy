@@ -137,4 +137,8 @@ module.exports = {
   writeString: (s) => native.writeString(s),
   readVarIntAt: (buf, off) => native.readVarIntAt(buf, off),
   readStringAt: (buf, off) => native.readStringAt(buf, off),
+  peekMapChunkCoords: (buffer) => {
+    if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+    return native.peekMapChunkCoords(buffer);
+  },
 };

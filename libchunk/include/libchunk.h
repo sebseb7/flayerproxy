@@ -481,6 +481,8 @@ lc_status lc_chunk_deserialize(const uint8_t *data, size_t len, lc_chunk *out);
 /* --- parsers (payload only) --- */
 
 lc_status lc_parse_map_chunk(const uint8_t *data, size_t len, lc_map_chunk *out);
+/** Read chunk column x/z only (first 8 bytes of map_chunk payload). */
+lc_status lc_peek_map_chunk_coords(const uint8_t *data, size_t len, int32_t *x, int32_t *z);
 lc_status lc_parse_update_light(const uint8_t *data, size_t len, lc_update_light *out);
 lc_status lc_parse_block_change(const uint8_t *data, size_t len, lc_block_change *out);
 lc_status lc_parse_unload_chunk(const uint8_t *data, size_t len, lc_unload_chunk *out);

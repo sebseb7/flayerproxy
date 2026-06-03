@@ -124,6 +124,15 @@ void lc_block_entity_arr_free(lc_block_entity_arr *a) {
  * Callers: chunk_stream_receiver.c, decode_raw_dir.c, decode_wire.c, list_map_surface.c, mc_s2c_log.c, summarize_raw_dir.c.
  */
 
+lc_status lc_peek_map_chunk_coords(const uint8_t *data, size_t len, int32_t *x, int32_t *z) {
+  if (!data || !x || !z) return LC_ERR_INVALID;
+  lc_buf b;
+  lc_buf_init(&b, data, len);
+  if (lc_buf_read_i32_be(&b, x) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_i32_be(&b, z) != LC_OK) return LC_ERR_TRUNCATED;
+  return LC_OK;
+}
+
 lc_status lc_parse_map_chunk(const uint8_t *data, size_t len, lc_map_chunk *out) {
   memset(out, 0, sizeof(*out));
   lc_buf b;

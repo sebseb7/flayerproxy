@@ -415,6 +415,27 @@ Napi::Value ReadVarIntAt(const Napi::CallbackInfo &info) {
   return o;
 }
 
+Napi::Value PeekMapChunkCoords(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1 || !info[0].IsBuffer()) {
+    Napi::TypeError::New(env, "peekMapChunkCoords(buffer)").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  int32_t x = 0;
+  int32_t z = 0;
+  lc_status st = lc_peek_map_chunk_coords(buf.Data(), buf.Length(), &x, &z);
+  Napi::Object o = Napi::Object::New(env);
+  if (st != LC_OK) {
+    o.Set("ok", Napi::Boolean::New(env, false));
+    return o;
+  }
+  o.Set("ok", Napi::Boolean::New(env, true));
+  o.Set("x", Napi::Number::New(env, x));
+  o.Set("z", Napi::Number::New(env, z));
+  return o;
+}
+
 Napi::Value HexDump(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
   if (info.Length() < 1 || !info[0].IsBuffer()) {
@@ -450,6 +471,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("writeString", Napi::Function::New(env, WriteString));
   exports.Set("readStringAt", Napi::Function::New(env, ReadStringAt));
   exports.Set("readVarIntAt", Napi::Function::New(env, ReadVarIntAt));
+  exports.Set("peekMapChunkCoords", Napi::Function::New(env, PeekMapChunkCoords));
   exports.Set("isPacketSupported", Napi::Function::New(env, [](const Napi::CallbackInfo &info) {
     Napi::Env env = info.Env();
     if (!info[0].IsString()) return Napi::Boolean::New(env, false);

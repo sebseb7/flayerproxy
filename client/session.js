@@ -23,6 +23,7 @@ import {
   parseSetTickingState,
 } from './protocol.js';
 import { createLogger } from './logger.js';
+import { getLocationFromChunkPayload, saveMapChunkWire } from './chunk.js';
 
 export function createSession(config) {
   const { host, port, username, debug, logLevel } = config;
@@ -175,7 +176,20 @@ export function createSession(config) {
 
       if (id === PLAY.MAP_CHUNK) {
         mapChunksSeen++;
-        tryFinishPlayJoin(sock, 'map_chunk received');
+        const loc = getLocationFromChunkPayload(payload);
+        tryFinishPlayJoin(
+          sock,
+          loc ? `map_chunk @ ${loc.chunkX},${loc.chunkZ}` : 'map_chunk received',
+        );
+        if (loc) {
+          const saved = saveMapChunkWire(loc, payload);
+          logger.debug(
+            'map_chunk',
+            chalk.dim(
+              `chunk(${loc.chunkX},${loc.chunkZ}) block(${loc.blockX},${loc.blockZ}) → ${saved}`,
+            ),
+          );
+        }
         return;
       }
 

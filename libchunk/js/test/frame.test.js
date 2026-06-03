@@ -17,4 +17,12 @@ assert.strictEqual(frames.length, 2);
 assert.ok(frames[0].pl.equals(payload));
 assert.strictEqual(frames[1].id, 0x03);
 
+const coords = Buffer.alloc(8);
+coords.writeInt32BE(3, 0);
+coords.writeInt32BE(-7, 4);
+const peek = lc.peekMapChunkCoords(coords);
+assert.strictEqual(peek.ok, true);
+assert.strictEqual(peek.x, 3);
+assert.strictEqual(peek.z, -7);
+
 console.log('frame.test.js ok');
