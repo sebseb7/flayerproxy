@@ -14,6 +14,7 @@
 #include "mc_dns.h"
 #include "mc_log.h"
 #include "mc_online.h"
+#include "mc_s2c_log.h"
 #include "mc_packet_ids.h"
 #include "mc_server_common.h"
 #include "mc_wire.h"
@@ -46,6 +47,13 @@ typedef struct {
 static int play_capture_complete(const play_capture_flags *flags) {
   return flags->update_recipes && flags->recipe_book_settings && flags->recipe_book_add &&
          flags->world_border && flags->update_time;
+}
+
+/* Enough to replay play join (see capture/1: login → recipes → position → border → time → spawn). */
+static int play_join_minimum_ready(const play_capture_flags *flags, const mc_registry_join_template *join) {
+  return flags->login && flags->position && play_capture_complete(flags) && join->login_valid &&
+         join->position_valid && join->world_border_valid && join->update_time_valid &&
+         join->spawn_position_valid;
 }
 
 static int chunk_capture_complete(const chunk_capture_flags *flags) {
@@ -234,7 +242,8 @@ static int handle_play_response(mc_conn *conn, int32_t pkt_id, const uint8_t *bo
   }
   if (pkt_id == MC_PKT_PLAY_POSITION) return handle_play_position(conn, body, body_len, player_loaded_sent);
   if (pkt_id == MC_PKT_PLAY_MAP_CHUNK) {
-    if (mc_static_chunks_store(body, body_len) == 0) {
+    int stored = mc_static_chunks_store(body, body_len) == 0;
+    if (stored) {
       chunk_flags->map_chunks_seen++;
       MC_LOGEV("static_server", "registry fetch: map_chunk cached (seen=%d total=%zu)",
                chunk_flags->map_chunks_seen, mc_static_chunks_count());
@@ -405,7 +414,9 @@ void mc_registry_capture_result_free(mc_registry_capture_result *out) {
 }
 
 int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_registry_capture_result *out,
-                                      mc_registry_config_ready_fn on_config_ready, void *ctx) {
+                                      mc_registry_config_ready_fn on_config_ready,
+                                      mc_registry_play_join_ready_fn on_play_join_ready,
+                                      mc_registry_capture_wake_fn on_capture_wake, void *ctx) {
   if (!cfg || !cfg->host || cfg->port <= 0 || !out) return -1;
   memset(out, 0, sizeof *out);
 
@@ -466,6 +477,7 @@ int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_
   memset(&play_flags, 0, sizeof play_flags);
   memset(&chunk_flags, 0, sizeof chunk_flags);
   int player_loaded_sent = 0;
+  int play_join_ready_sent = 0;
   int rc = -1;
   int32_t last_pkt_id = -1;
   int packets_read = 0;
@@ -483,6 +495,12 @@ int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_
     packets_read++;
 
     if (phase_login) {
+      const uint8_t *login_body = NULL;
+      size_t login_body_len = 0;
+      if (payload_after_id(wire, wire_len, &login_body, &login_body_len) == 0) {
+        mc_log_upstream_s2c(MC_UPSTREAM_S2C_LOGIN, pkt_id, login_body, login_body_len, NULL);
+      }
+
       if (pkt_id == MC_PKT_LOGIN_ENCRYPTION_BEGIN) {
         const uint8_t *body = NULL;
         size_t body_len = 0;
@@ -530,6 +548,25 @@ int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_
     if (payload_after_id(wire, wire_len, &body, &body_len) != 0) {
       free(wire);
       break;
+    }
+
+    {
+      mc_upstream_s2c_phase log_phase = phase_play ? MC_UPSTREAM_S2C_PLAY : MC_UPSTREAM_S2C_CONFIG;
+      const char *log_detail = NULL;
+      char log_detail_buf[96];
+      if (pkt_id == MC_PKT_CFG_REGISTRY_DATA) {
+        registry_label_from_payload(body, body_len, log_detail_buf, sizeof log_detail_buf);
+        log_detail = log_detail_buf;
+      } else if (phase_play && pkt_id == MC_PKT_PLAY_MAP_CHUNK) {
+        lc_map_chunk mc;
+        memset(&mc, 0, sizeof mc);
+        if (lc_parse_map_chunk(body, body_len, &mc) == LC_OK) {
+          snprintf(log_detail_buf, sizeof log_detail_buf, "chunk=(%d,%d)", mc.x, mc.z);
+          log_detail = log_detail_buf;
+          lc_map_chunk_free(&mc);
+        }
+      }
+      mc_log_upstream_s2c(log_phase, pkt_id, body, body_len, log_detail);
     }
 
     if (pkt_id == MC_PKT_CFG_SELECT_KNOWN_PACKS) {
@@ -611,6 +648,9 @@ int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_
       free(wire);
       continue;
     } else if (phase_play) {
+      size_t chunks_before = 0;
+      if (on_capture_wake && pkt_id == MC_PKT_PLAY_MAP_CHUNK) chunks_before = mc_static_chunks_count();
+
       if (handle_play_response(&conn, pkt_id, body, body_len, &chunk_flags, &player_loaded_sent) != 0) {
         free(wire);
         break;
@@ -619,8 +659,18 @@ int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_
         free(wire);
         break;
       }
+      if (on_capture_wake && pkt_id == MC_PKT_PLAY_MAP_CHUNK && mc_static_chunks_count() > chunks_before) {
+        on_capture_wake(ctx);
+      }
       if (on_config_ready) {
         if (play_capture_complete(&play_flags)) rc = 0;
+        if (on_play_join_ready && !play_join_ready_sent && play_join_minimum_ready(&play_flags, &out->join)) {
+          play_join_ready_sent = 1;
+          MC_LOGI("static_server",
+                  "registry fetch: play join fields captured after %d packets (continuing for map_chunk)",
+                  packets_read);
+          on_play_join_ready(out, ctx);
+        }
       } else if (config_capture_complete(registries, tags_seen, &play_flags) &&
                  chunk_capture_complete(&chunk_flags)) {
         rc = 0;
@@ -632,6 +682,15 @@ int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_
     }
 
     free(wire);
+  }
+
+  if (last_pkt_id >= 0) {
+    MC_LOGI("static_server",
+            "registry fetch: upstream %s:%d closed (%d packets read, rc=%d, last_pkt=0x%02x)", cfg->host,
+            cfg->port, packets_read, rc, (unsigned)(last_pkt_id & 0xff));
+  } else {
+    MC_LOGI("static_server", "registry fetch: upstream %s:%d closed (%d packets read, rc=%d)", cfg->host,
+            cfg->port, packets_read, rc);
   }
 
   mc_conn_free(&conn);

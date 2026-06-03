@@ -15,6 +15,7 @@
 #include "mc_wire.h"
 #include "packets_write.h"
 
+#include <math.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
@@ -76,6 +77,7 @@ typedef enum {
 static pthread_mutex_t g_load_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t g_load_cond = PTHREAD_COND_INITIALIZER;
 static reg_load_state g_load_state = REG_STATE_EMPTY;
+static int g_play_join_ready;
 
 static uint8_t *dup_bytes(const uint8_t *src, size_t len) {
   if (len == 0) return (uint8_t *)calloc(1, 1);
@@ -113,6 +115,7 @@ void mc_static_registries_set_fetch(const mc_static_registry_fetch *fetch) {
 }
 
 static void clear_loaded_data(void) {
+  g_play_join_ready = 0;
   mc_static_chunks_clear();
   if (g_registries) {
     for (size_t i = 0; i < g_registry_count; i++) lc_registry_data_free(&g_registries[i]);
@@ -288,6 +291,25 @@ static void on_config_ready(const mc_registry_capture_result *cap, int ok, void 
   pthread_mutex_unlock(&g_load_mutex);
 }
 
+static void on_capture_wake(void *v) {
+  (void)v;
+  pthread_mutex_lock(&g_load_mutex);
+  pthread_cond_broadcast(&g_load_cond);
+  pthread_mutex_unlock(&g_load_mutex);
+}
+
+static void on_play_join_ready(const mc_registry_capture_result *cap, void *v) {
+  fetch_thread_arg *a = (fetch_thread_arg *)v;
+  (void)a;
+  pthread_mutex_lock(&g_load_mutex);
+  apply_join_template((mc_registry_join_template *)&cap->join);
+  g_step_count = cap->step_count;
+  g_play_join_ready = 1;
+  MC_LOGI("static_server", "registry fetch: play join ready for client (%zu sync steps)", g_step_count);
+  pthread_cond_broadcast(&g_load_cond);
+  pthread_mutex_unlock(&g_load_mutex);
+}
+
 static void *registry_fetch_thread(void *arg) {
   fetch_thread_arg *a = (fetch_thread_arg *)arg;
   mc_registry_capture_config cfg = {
@@ -298,7 +320,8 @@ static void *registry_fetch_thread(void *arg) {
       .client_known_packs_len = a->client_packs_len,
   };
   memset(&a->result, 0, sizeof a->result);
-  a->rc = mc_registry_capture_configuration(&cfg, &a->result, on_config_ready, a);
+  a->rc = mc_registry_capture_configuration(&cfg, &a->result, on_config_ready, on_play_join_ready,
+                                            on_capture_wake, a);
 
   pthread_mutex_lock(&g_load_mutex);
   if (a->rc == 0 && g_load_state == REG_STATE_CONFIG_READY) {
@@ -359,6 +382,7 @@ static int start_fetch_if_needed(const uint8_t *packs, size_t packs_len, const c
     pthread_mutex_unlock(&g_load_mutex);
     return 0;
   }
+  g_play_join_ready = 0;
   g_load_state = REG_STATE_LOADING;
   pthread_mutex_unlock(&g_load_mutex);
 
@@ -578,7 +602,36 @@ int mc_static_registries_play_ready(void) {
 void mc_static_wait_play_cache(void) {
   if (!g_fetch_enabled) return;
   pthread_mutex_lock(&g_load_mutex);
-  while (g_load_state == REG_STATE_CONFIG_READY) pthread_cond_wait(&g_load_cond, &g_load_mutex);
+  while (g_load_state == REG_STATE_CONFIG_READY && !g_play_join_ready)
+    pthread_cond_wait(&g_load_cond, &g_load_mutex);
+  pthread_mutex_unlock(&g_load_mutex);
+}
+
+void mc_static_wait_upstream_chunks(void) {
+  if (!g_fetch_enabled) return;
+  pthread_mutex_lock(&g_load_mutex);
+  for (;;) {
+    int32_t radius = g_cached_login_valid ? mc_static_chunk_radius_from_view(g_login_view_distance) : 1;
+    if (radius <= 0) radius = 1;
+    int32_t cx = 0;
+    int32_t cz = 0;
+    if (g_cached_position_valid) {
+      cx = (int32_t)floor(g_cached_position.x / 16.0);
+      cz = (int32_t)floor(g_cached_position.z / 16.0);
+    }
+    int expect = mc_static_chunks_expected_grid_count(radius);
+    int filled = mc_static_chunks_count_in_grid(cx, cz, radius);
+    if (filled >= expect) break;
+    if (g_load_state != REG_STATE_CONFIG_READY) {
+      if (filled > 0) {
+        MC_LOGW("static_server",
+                "registry fetch: play capture ended with %d/%d chunks for view grid (%d,%d) r=%d", filled,
+                expect, cx, cz, radius);
+      }
+      break;
+    }
+    pthread_cond_wait(&g_load_cond, &g_load_mutex);
+  }
   pthread_mutex_unlock(&g_load_mutex);
 }
 

@@ -650,15 +650,22 @@ int mc_template_send_grass_world(int fd, const mc_patch_ctx *ctx) {
 }
 
 int mc_template_send_upstream_world(int fd, const mc_patch_ctx *ctx) {
+  mc_static_wait_upstream_chunks();
   const mc_server_world *w = &g_store.world;
   int32_t cx = w->spawn_chunk_x ? w->spawn_chunk_x : (int32_t)floor(ctx->spawn_x / 16.0);
   int32_t cz = w->spawn_chunk_z ? w->spawn_chunk_z : (int32_t)floor(ctx->spawn_z / 16.0);
   int32_t radius = w->view_radius;
+  int filled = mc_static_chunks_count_in_grid(cx, cz, radius);
+  int expect = mc_static_chunks_expected_grid_count(radius);
   int32_t cached_r = mc_static_chunks_max_cached_radius(cx, cz);
   if (cached_r < radius) {
-    MC_LOGI("static_server", "upstream chunk radius %d (cached extent; login implied %d)", cached_r, radius);
+    MC_LOGI("static_server", "upstream chunk radius %d (cached extent; login implied %d; grid %d/%d)", cached_r,
+            radius, filled, expect);
     radius = cached_r;
     g_store.world.view_radius = cached_r;
+  } else if (filled < expect) {
+    MC_LOGW("static_server", "upstream chunk grid incomplete: %d/%d at (%d,%d) radius=%d", filled, expect, cx,
+            cz, radius);
   }
   return mc_static_chunks_send_grid(fd, cx, cz, radius);
 }

@@ -53,13 +53,22 @@ typedef struct mc_registry_capture_result {
 /** Called once config (registry_data + update_tags) is captured; fetch may continue for play join. */
 typedef void (*mc_registry_config_ready_fn)(const mc_registry_capture_result *config, int ok, void *ctx);
 
+/** Play join fields captured; fetch continues for map_chunk cache. */
+typedef void (*mc_registry_play_join_ready_fn)(const mc_registry_capture_result *cap, void *ctx);
+
+/** Progress during play capture (e.g. map_chunk stored); wake threads waiting on cache. */
+typedef void (*mc_registry_capture_wake_fn)(void *ctx);
+
 /**
  * Connect as a minimal client, complete configuration (registry_data, update_tags,
  * select_known_packs), enter play, and capture join payloads (recipes, world border, time).
  * When on_config_ready is set, it is invoked after config finish (before play capture).
+ * on_play_join_ready / on_capture_wake are optional and only used with on_config_ready.
  */
 int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_registry_capture_result *out,
-                                      mc_registry_config_ready_fn on_config_ready, void *ctx);
+                                      mc_registry_config_ready_fn on_config_ready,
+                                      mc_registry_play_join_ready_fn on_play_join_ready,
+                                      mc_registry_capture_wake_fn on_capture_wake, void *ctx);
 
 void mc_registry_capture_result_free(mc_registry_capture_result *out);
 

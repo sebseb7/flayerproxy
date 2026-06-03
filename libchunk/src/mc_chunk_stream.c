@@ -61,6 +61,23 @@ int32_t mc_static_chunks_max_cached_radius(int32_t cx, int32_t cz) {
   return max_r;
 }
 
+int mc_static_chunks_count_in_grid(int32_t cx, int32_t cz, int32_t radius) {
+  if (radius < 0) return 0;
+  int n = 0;
+  for (int32_t x = cx - radius; x <= cx + radius; x++) {
+    for (int32_t z = cz - radius; z <= cz + radius; z++) {
+      if (mc_static_chunks_lookup(x, z, NULL, NULL) == 0) n++;
+    }
+  }
+  return n;
+}
+
+int mc_static_chunks_expected_grid_count(int32_t radius) {
+  if (radius < 0) return 0;
+  int side = 2 * radius + 1;
+  return side * side;
+}
+
 int mc_static_chunks_store(const uint8_t *payload, size_t len) {
   if (!payload || len == 0) return -1;
   lc_map_chunk mc;

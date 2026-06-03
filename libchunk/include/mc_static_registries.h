@@ -42,8 +42,11 @@ int mc_static_fill_join_spawn_position(char **dimension, lc_block_pos *pos, floa
 /** Replay cached update_recipes / recipe_book_settings / recipe_book_add (skips missing). */
 int mc_static_send_cached_recipe_burst(int fd);
 
-/** Block until upstream play join + chunks are cached (registry-from only). */
+/** Block until upstream play join fields are cached (registry-from only). */
 void mc_static_wait_play_cache(void);
+
+/** Block until enough upstream map_chunk(s) cover spawn for view distance. */
+void mc_static_wait_upstream_chunks(void);
 
 /** Fill play login from upstream cache; entity_id is the downstream client id. */
 int mc_static_fill_join_login(lc_play_login *login, int32_t entity_id);

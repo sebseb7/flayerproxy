@@ -44,6 +44,10 @@ int mc_static_chunks_lookup(int32_t x, int32_t z, const uint8_t **payload, size_
 int mc_static_chunks_send_at(int fd, int32_t x, int32_t z);
 int32_t mc_static_chunk_radius_from_view(int32_t view_distance);
 int32_t mc_static_chunks_max_cached_radius(int32_t cx, int32_t cz);
+/** Chunks in cache within Chebyshev radius of (cx,cz). */
+int mc_static_chunks_count_in_grid(int32_t cx, int32_t cz, int32_t radius);
+/** (2*radius+1)^2 slots for a square view grid. */
+int mc_static_chunks_expected_grid_count(int32_t radius);
 int mc_static_chunks_send_grid(int fd, int32_t cx, int32_t cz, int32_t radius);
 
 #endif
