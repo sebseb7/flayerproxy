@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { readVarInt } from './wire.js';
+import { readVarInt, readString } from './wire.js';
 
 export { readVarInt } from './wire.js';
 
@@ -46,6 +46,45 @@ export function parseSetTickingState(payload) {
     tickRate: payload.readFloatBE(0),
     isFrozen: payload[4] !== 0,
   };
+}
+
+/** ClientboundLoginPacket: viewDistance is the 2nd varint after maxPlayers. */
+export function parseLoginViewDistance(payload) {
+  let o = 0;
+  if (o + 5 > payload.length) return null;
+  o += 4; // entityId i32 BE
+  o += 1; // hardcore bool
+  const dimCount = readVarInt(payload, o);
+  if (!dimCount) return null;
+  o = dimCount.next;
+  for (let i = 0; i < dimCount.value; i++) {
+    const s = readString(payload, o);
+    if (!s) return null;
+    o = s.next;
+  }
+  const maxPlayers = readVarInt(payload, o);
+  if (!maxPlayers) return null;
+  const viewDistance = readVarInt(payload, maxPlayers.next);
+  if (!viewDistance) return null;
+  return viewDistance.value;
+}
+
+/** ClientboundSetChunkCacheCenter: chunkX i32 BE, chunkZ i32 BE. */
+export function parseUpdateViewPosition(payload) {
+  if (payload.length < 8) return null;
+  return { chunkX: payload.readInt32BE(0), chunkZ: payload.readInt32BE(4) };
+}
+
+/** Matches libchunk mc_static_chunk_radius_from_view. */
+export function chunkRadiusFromView(viewDistance) {
+  if (viewDistance <= 0) return 0;
+  return viewDistance - 1;
+}
+
+export function expectedChunkGridCount(viewDistance) {
+  const r = chunkRadiusFromView(viewDistance);
+  const side = 2 * r + 1;
+  return side * side;
 }
 
 export function parsePosition(payload) {

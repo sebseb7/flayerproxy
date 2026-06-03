@@ -7,6 +7,8 @@ import {
   parseUpdateTime,
   parseGameEvent,
   parseSetTickingState,
+  parseLoginViewDistance,
+  parseUpdateViewPosition,
 } from './protocol.js';
 import { getLocationFromChunkPayload, mapChunkWirePath } from './chunk.js';
 
@@ -18,9 +20,9 @@ export function createOnPacket(ctx) {
     send,
     setPhase,
     tryFinishPlayJoin,
+    finishPlayJoin,
     notePlayJoinPacket,
     writeMapChunk,
-    enterPlay,
     state,
   } = ctx;
 
@@ -106,9 +108,25 @@ export function createOnPacket(ctx) {
         return;
       }
 
+      if (id === PLAY.LOGIN) {
+        const vd = parseLoginViewDistance(payload);
+        if (vd != null) state.viewDistance = vd;
+        return;
+      }
+
+      if (id === PLAY.UPDATE_VIEW_POSITION) {
+        const vp = parseUpdateViewPosition(payload);
+        if (vp) {
+          state.chunkCenterX = vp.chunkX;
+          state.chunkCenterZ = vp.chunkZ;
+        }
+        return;
+      }
+
       if (id === PLAY.MAP_CHUNK) {
         state.mapChunksSeen++;
         const loc = getLocationFromChunkPayload(payload);
+        if (loc) state.chunkCoords.add(`${loc.chunkX},${loc.chunkZ}`);
         tryFinishPlayJoin(
           sock,
           loc ? `map_chunk @ ${loc.chunkX},${loc.chunkZ}` : 'map_chunk received',
@@ -133,12 +151,6 @@ export function createOnPacket(ctx) {
             `tp=${pos.teleportId} (${pos.x.toFixed(2)},${pos.y.toFixed(2)},${pos.z.toFixed(2)})`,
           );
           send(sock, PLAY.C2S_TELEPORT_CONFIRM, writeVarInt(pos.teleportId), posDetail);
-          if (!state.playerLoadedSent) {
-            send(sock, PLAY.C2S_PLAYER_LOADED, Buffer.alloc(0));
-            state.playerLoadedSent = true;
-            logger.event('player_loaded', posDetail);
-            tryFinishPlayJoin(sock, 'player_loaded');
-          }
         }
         return;
       }
@@ -161,7 +173,7 @@ export function createOnPacket(ctx) {
         const batch = Buffer.alloc(4);
         batch.writeFloatBE(6.0);
         send(sock, PLAY.C2S_CHUNK_BATCH_RECEIVED, batch, chalk.dim('perSec=6'));
-        enterPlay(sock, 'chunk_batch_finished');
+        tryFinishPlayJoin(sock, 'chunk_batch_finished');
         return;
       }
     }

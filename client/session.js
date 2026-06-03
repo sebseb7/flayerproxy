@@ -3,9 +3,15 @@ import path from 'node:path';
 import chalk from 'chalk';
 import { PROTOCOL, HS_LOGIN, LOGIN, PLAY } from './constants.js';
 import { createFrameProcessor, buildFrame, writeVarInt, writeString } from './wire.js';
-import { offlineUUID } from './protocol.js';
+import { offlineUUID, expectedChunkGridCount } from './protocol.js';
 import { createLogger } from './logger.js';
 import { createOnPacket } from './onPacket.js';
+import {
+  recordConfigS2c,
+  recordPlayJoinS2c,
+  markCaptureReady,
+  getCapture,
+} from './captureStore.js';
 
 export function createSession(config) {
   const { host, port, username, debug, logLevel } = config;
@@ -19,6 +25,10 @@ export function createSession(config) {
     playerLoadedSent: false,
     chunksLoadStarted: false,
     mapChunksSeen: 0,
+    chunkCoords: new Set(),
+    viewDistance: 3,
+    chunkCenterX: 0,
+    chunkCenterZ: 0,
     daylightTicking: false,
     tickingRunsNormally: false,
   };
@@ -43,24 +53,50 @@ export function createSession(config) {
 
   function enterPlay(sock, reason) {
     if (phase !== 'play_join') return;
+    markCaptureReady();
+    const snap = getCapture();
+    logger.info(
+      'capture stored for server',
+      chalk.dim(`config=${snap.config.length} play_join=${snap.playJoin.length}`),
+    );
     setPhase('play');
     logger.event('play ready', chalk.dim(reason));
     startPlayTimers(sock);
   }
 
-  /**
-   * Vanilla (1.21.10): play join ends when LevelLoadTracker is ready → player_loaded.
-   * We approximate: chunks load started + at least one chunk + daylight ticking enabled
-   * (update_time.tickDayTime mirrors GameRules.RULE_DAYLIGHT, not a phase id).
-   * tick_end is sent from Minecraft.tick() each frame while TickRateManager.runsNormally(),
-   * not per map_chunk.
-   */
+  function chunksInViewGrid() {
+    const r = Math.max(0, state.viewDistance - 1);
+    let n = 0;
+    for (const key of state.chunkCoords) {
+      const [xs, zs] = key.split(',');
+      const cx = Number(xs);
+      const cz = Number(zs);
+      if (Math.abs(cx - state.chunkCenterX) <= r && Math.abs(cz - state.chunkCenterZ) <= r) n++;
+    }
+    return n;
+  }
+
+  function playJoinChunksReady() {
+    return chunksInViewGrid() >= expectedChunkGridCount(state.viewDistance);
+  }
+
+  /** Vanilla: player_loaded after LevelLoadTracker; capture seals after view-distance chunk grid. */
+  function finishPlayJoin(sock, reason) {
+    if (phase !== 'play_join') return;
+    if (!state.playerLoadedSent) {
+      send(sock, PLAY.C2S_PLAYER_LOADED, Buffer.alloc(0));
+      state.playerLoadedSent = true;
+      logger.event('player_loaded', chalk.dim(reason));
+    }
+    enterPlay(sock, reason);
+  }
+
   function tryFinishPlayJoin(sock, reason) {
-    if (phase !== 'play_join' || !state.playerLoadedSent) return;
-    if (!state.chunksLoadStarted || state.mapChunksSeen === 0) return;
+    if (phase !== 'play_join') return;
+    if (!state.chunksLoadStarted || !playJoinChunksReady()) return;
     if (!state.daylightTicking) return;
     if (!state.tickingRunsNormally) return;
-    enterPlay(sock, reason);
+    finishPlayJoin(sock, reason);
   }
 
   function notePlayJoinPacket() {
@@ -87,6 +123,7 @@ export function createSession(config) {
     setPhase,
     enterPlay,
     tryFinishPlayJoin,
+    finishPlayJoin,
     notePlayJoinPacket,
     writeMapChunk,
     state,
@@ -126,7 +163,11 @@ export function createSession(config) {
   }
 
   function attach(sock) {
-    const feedFrames = createFrameProcessor((id, payload) => onPacket(sock, id, payload));
+    const feedFrames = createFrameProcessor((id, payload) => {
+      if (phase === 'config') recordConfigS2c(id, payload);
+      else if (phase === 'play_join') recordPlayJoinS2c(id, payload);
+      onPacket(sock, id, payload);
+    });
     sock.on('data', (chunk) => {
       try {
         feedFrames(chunk);

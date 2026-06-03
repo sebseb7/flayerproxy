@@ -38,6 +38,8 @@ export function c2sPacketName(ph, id) {
     return null;
   }
   if (ph === 'config') {
+    if (id === CFG.C2S_SETTINGS) return 'client_information';
+    if (id === CFG.C2S_CUSTOM_PAYLOAD) return 'custom_payload';
     if (id === CFG.C2S_FINISH) return 'finish_configuration';
     if (id === CFG.C2S_KEEP_ALIVE) return 'keep_alive';
     if (id === CFG.C2S_PONG) return 'pong';
@@ -51,6 +53,11 @@ export function c2sPacketName(ph, id) {
     if (id === PLAY.C2S_KEEP_ALIVE) return 'keep_alive';
     if (id === PLAY.C2S_PLAYER_LOADED) return 'player_loaded';
     if (id === PLAY.C2S_PONG) return 'pong';
+    if (id === PLAY.C2S_CUSTOM_PAYLOAD) return 'custom_payload';
+    if (id === PLAY.C2S_POSITION) return 'position';
+    if (id === PLAY.C2S_POSITION_LOOK) return 'position_look';
+    if (id === PLAY.C2S_MOVE_ROT) return 'move_rot';
+    if (id === PLAY.C2S_MOVE_STATUS) return 'move_status';
   }
   return null;
 }

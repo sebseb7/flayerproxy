@@ -13,6 +13,8 @@ export const CFG = {
   FEATURE_FLAGS: 0x0c,
   UPDATE_TAGS: 0x0d,
   SELECT_KNOWN_PACKS: 0x0e,
+  C2S_SETTINGS: 0x00,
+  C2S_CUSTOM_PAYLOAD: 0x02,
   C2S_FINISH: 0x03,
   C2S_KEEP_ALIVE: 0x04,
   C2S_PONG: 0x05,
@@ -23,9 +25,12 @@ export const CFG = {
 export const GAME_EVENT_LEVEL_CHUNKS_LOAD_START = 13;
 
 export const PLAY = {
+  LOGIN: 0x30,
   CHUNK_BATCH_FINISHED: 0x0b,
+  LIGHT_UPDATE: 0x2f,
   GAME_EVENT: 0x26,
   MAP_CHUNK: 0x2c,
+  UPDATE_VIEW_POSITION: 0x5c,
   UPDATE_TIME: 0x6f,
   SET_TICKING_STATE: 0x7d,
   STEP_TICK: 0x7e,
@@ -38,6 +43,11 @@ export const PLAY = {
   C2S_KEEP_ALIVE: 0x1b,
   C2S_PLAYER_LOADED: 0x2b,
   C2S_PONG: 0x2c,
+  C2S_CUSTOM_PAYLOAD: 0x15,
+  C2S_POSITION: 0x1d,
+  C2S_MOVE_ROT: 0x1f,
+  C2S_POSITION_LOOK: 0x1e,
+  C2S_MOVE_STATUS: 0x20,
 };
 
 export const LOG_LEVELS = { error: 0, warn: 1, info: 2, debug: 3 };

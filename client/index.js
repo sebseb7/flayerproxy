@@ -1,32 +1,46 @@
 #!/usr/bin/env node
 
 /**
- * Minimal Minecraft Java 1.21.10 (protocol 773) client for testing flayerproxy / mc_static_server.
+ * flayerproxy capture app (protocol 773): upstream client records config + play_join;
+ * replay server starts listening only after play_join → play (capture complete).
  *
- * Usage: node client/index.js [host] [port] [username]
- *   MC_CLIENT_DEBUG=1          log every S2C/C2S packet
- *   MC_CLIENT_LOG_LEVEL=...    debug|info|warn|error
- *   MC_CLIENT_DECODE_MAX=160   truncate libchunk decode summaries
+ * Usage: node client/index.js [upstreamHost] [upstreamPort] [username]
+ *   MC_SERVER_PORT=25569
+ *   MC_CLIENT_DEBUG=1        also enables mc-server packet logs
  */
 
 import net from 'node:net';
 import chalk from 'chalk';
+import { resetCapture, onCaptureReady } from './captureStore.js';
+import { startCaptureServer } from '../server/index.js';
 import { loadConfig } from './config.js';
 import { createSession } from './session.js';
 import { isLibchunkLoaded, warnLibchunkLoadError } from './decode.js';
 import { LOG_LEVELS } from './constants.js';
 
+const serverPort = Number(process.env.MC_SERVER_PORT || 25569);
 const config = loadConfig();
-const session = createSession(config);
 
+resetCapture();
 warnLibchunkLoadError();
 
+onCaptureReady(async () => {
+  try {
+    await startCaptureServer({ port: serverPort });
+  } catch (e) {
+    console.error(chalk.red('mc-server'), e.message || e);
+    process.exit(1);
+  }
+});
+
+const session = createSession(config);
 session.logger.info(
   'started',
   chalk.dim(`logLevel=${Object.keys(LOG_LEVELS).find((k) => LOG_LEVELS[k] === config.logLevel)}`) +
     (config.debug ? chalk.yellow(' MC_CLIENT_DEBUG=1') : '') +
     (isLibchunkLoaded() ? chalk.green(' libchunk=ok') : chalk.yellow(' libchunk=off')),
 );
+session.logger.info('upstream', chalk.white(`${config.host}:${config.port}`));
 
 const sock = net.createConnection(
   { host: config.host, port: config.port },
@@ -39,4 +53,5 @@ process.on('SIGINT', () => {
   session.logger.warn('interrupt');
   session.stop();
   sock.destroy();
+  process.exit(0);
 });
