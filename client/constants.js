@@ -50,6 +50,9 @@ export const PLAY = {
   C2S_MOVE_STATUS: 0x20,
 };
 
+/** Vanilla client tick period (20 TPS). */
+export const CLIENT_TICK_MS = 50;
+
 export const LOG_LEVELS = { error: 0, warn: 1, info: 2, debug: 3 };
 
 export const DECODE_MAX = Number(process.env.MC_CLIENT_DECODE_MAX) || 160;

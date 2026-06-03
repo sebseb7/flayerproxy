@@ -2,6 +2,7 @@ import chalk from 'chalk';
 import { PLAY, CFG, LOG_LEVELS } from '../client/constants.js';
 import { s2cPacketName, c2sPacketName, c2sDecodeName } from '../client/packetNames.js';
 import { decodePayload } from '../client/decode.js';
+import { writeLogLine } from '../client/logSink.js';
 
 const PHASE_STYLE = {
   handshake: chalk.gray,
@@ -23,7 +24,7 @@ export function createServerLogger({ getPhase, logLevel = LOG_LEVELS.info, debug
   const showLevelTags = logLevel >= LOG_LEVELS.debug;
 
   function emit(level, parts) {
-    console.error(
+    writeLogLine(
       [
         chalk.dim(new Date().toISOString().slice(11, 23)),
         chalk.bgGreen.black.bold(' mc-server '),

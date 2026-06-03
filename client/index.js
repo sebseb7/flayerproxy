@@ -6,7 +6,8 @@
  *
  * Usage: node client/index.js [upstreamHost] [upstreamPort] [username]
  *   MC_SERVER_PORT=25569
- *   MC_CLIENT_DEBUG=1        also enables mc-server packet logs
+ *   MC_CLIENT_DEBUG=1        debug log level; log file defaults to logout (plain text)
+ *   MC_CLIENT_LOG_FILE=path  log file path (plain, no ANSI); empty disables file logging
  */
 
 import net from 'node:net';
@@ -17,10 +18,12 @@ import { loadConfig } from './config.js';
 import { createSession } from './session.js';
 import { isLibchunkLoaded, warnLibchunkLoadError } from './decode.js';
 import { LOG_LEVELS } from './constants.js';
+import { initLogSink, writeLogLine } from './logSink.js';
 
 const serverPort = Number(process.env.MC_SERVER_PORT || 25569);
 const config = loadConfig();
 
+initLogSink(config.logFile);
 resetCapture();
 warnLibchunkLoadError();
 
@@ -28,7 +31,7 @@ onCaptureReady(async () => {
   try {
     await startCaptureServer({ port: serverPort });
   } catch (e) {
-    console.error(chalk.red('mc-server'), e.message || e);
+    writeLogLine(`${chalk.red('mc-server')} ${e.message || e}`);
     process.exit(1);
   }
 });
@@ -38,6 +41,7 @@ session.logger.info(
   'started',
   chalk.dim(`logLevel=${Object.keys(LOG_LEVELS).find((k) => LOG_LEVELS[k] === config.logLevel)}`) +
     (config.debug ? chalk.yellow(' MC_CLIENT_DEBUG=1') : '') +
+    (config.logFile ? chalk.dim(` logFile=${config.logFile}`) : '') +
     (isLibchunkLoaded() ? chalk.green(' libchunk=ok') : chalk.yellow(' libchunk=off')),
 );
 session.logger.info('upstream', chalk.white(`${config.host}:${config.port}`));

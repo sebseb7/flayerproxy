@@ -1,3 +1,6 @@
+import chalk from 'chalk';
+import { writeLogLine } from './logSink.js';
+
 /** In-memory S2C capture from upstream (config + play_join). Shared by client and server. */
 
 /** @typedef {{ id: number, payload: Buffer }} CapturedPacket */
@@ -38,7 +41,9 @@ export function markCaptureReady() {
     try {
       fn(snap);
     } catch (e) {
-      console.error('captureStore listener:', e);
+      writeLogLine(
+        `${chalk.bgBlue.black.bold(' mc-client ')} ${chalk.red('captureStore listener:')} ${e?.message || e}`,
+      );
     }
   }
   listeners.clear();

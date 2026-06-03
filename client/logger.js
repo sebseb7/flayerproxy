@@ -2,6 +2,7 @@ import chalk from 'chalk';
 import { PLAY, CFG, LOG_LEVELS } from './constants.js';
 import { s2cPacketName, c2sPacketName, c2sDecodeName } from './packetNames.js';
 import { decodePayload } from './decode.js';
+import { writeLogLine, closeLogSink } from './logSink.js';
 
 const PHASE_STYLE = {
   connect: chalk.gray,
@@ -29,7 +30,7 @@ export function createLogger({ getPhase, logLevel, debug }) {
 
   return {
     _line(parts) {
-      console.error(parts.filter(Boolean).join(' '));
+      writeLogLine(parts.filter(Boolean).join(' '));
     },
 
     _emit(level, parts) {
@@ -134,6 +135,10 @@ export function createLogger({ getPhase, logLevel, debug }) {
         chalk.cyan(label),
         detail || '',
       ]);
+    },
+
+    close() {
+      closeLogSink();
     },
   };
 }

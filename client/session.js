@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import chalk from 'chalk';
-import { PROTOCOL, HS_LOGIN, LOGIN, PLAY } from './constants.js';
+import { PROTOCOL, HS_LOGIN, LOGIN, PLAY, CLIENT_TICK_MS } from './constants.js';
 import { createFrameProcessor, buildFrame, writeVarInt, writeString } from './wire.js';
 import { offlineUUID, expectedChunkGridCount } from './protocol.js';
 import { createLogger } from './logger.js';
@@ -18,6 +18,8 @@ export function createSession(config) {
 
   let phase = 'connect';
   let tickTimer = null;
+  /** @type {import('node:net').Socket | null} */
+  let conn = null;
   let joinBurstLogged = false;
   const chunkDirsReady = new Set();
 
@@ -44,6 +46,7 @@ export function createSession(config) {
     const prev = phase;
     phase = next;
     logger.phaseChange(prev, next);
+    if (next === 'play_join' && conn) startPlayTimers(conn);
   }
 
   function send(sock, id, payload, detail) {
@@ -61,7 +64,6 @@ export function createSession(config) {
     );
     setPhase('play');
     logger.event('play ready', chalk.dim(reason));
-    startPlayTimers(sock);
   }
 
   function chunksInViewGrid() {
@@ -131,11 +133,11 @@ export function createSession(config) {
 
   function startPlayTimers(sock) {
     if (tickTimer) return;
-    logger.debug('tick_end timer', chalk.dim('every 1s while in play'));
+    logger.debug('tick_end timer', chalk.dim(`${1000 / CLIENT_TICK_MS}/s during play_join+play`));
     tickTimer = setInterval(() => {
-      if (phase !== 'play') return;
+      if (phase !== 'play_join' && phase !== 'play') return;
       send(sock, PLAY.C2S_TICK_END, Buffer.alloc(0));
-    }, 1000);
+    }, CLIENT_TICK_MS);
   }
 
   function handshake(sock) {
@@ -163,6 +165,7 @@ export function createSession(config) {
   }
 
   function attach(sock) {
+    conn = sock;
     const feedFrames = createFrameProcessor((id, payload) => {
       if (phase === 'config') recordConfigS2c(id, payload);
       else if (phase === 'play_join') recordPlayJoinS2c(id, payload);
@@ -191,6 +194,7 @@ export function createSession(config) {
   function stop() {
     if (tickTimer) clearInterval(tickTimer);
     tickTimer = null;
+    logger.close();
   }
 
   return { logger, attach, onConnect, stop };

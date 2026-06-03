@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import chalk from 'chalk';
 import { DECODE_MAX } from './constants.js';
+import { writeLogLine, isLogSinkOpen } from './logSink.js';
 
 const require = createRequire(import.meta.url);
 
@@ -19,8 +20,15 @@ export function isLibchunkLoaded() {
 
 export function warnLibchunkLoadError() {
   if (libchunk) return;
-  console.error('[mc-client]', chalk.yellow('libchunk not loaded:'), libchunkLoadError?.message);
-  console.error('[mc-client]', chalk.dim('build: cd libchunk && make && cd js && npm run build'));
+  const line = (parts) =>
+    isLogSinkOpen()
+      ? writeLogLine(parts.filter(Boolean).join(' '))
+      : console.error(...parts);
+  line([chalk.bgBlue.black.bold(' mc-client '), chalk.yellow('libchunk not loaded:'), libchunkLoadError?.message]);
+  line([
+    chalk.bgBlue.black.bold(' mc-client '),
+    chalk.dim('build: cd libchunk && make && cd js && npm run build'),
+  ]);
 }
 
 export function decodePayload(packetName, payload) {

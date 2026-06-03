@@ -110,11 +110,6 @@ export function handleClient(sock, opts = {}) {
     configAwait = 'c2s_finish';
   }
 
-  function readI64BE(buf, off) {
-    if (off + 8 > buf.length) return null;
-    return { value: buf.readBigInt64BE(off), next: off + 8 };
-  }
-
   function handleConfigC2s(sock, id, payload) {
     logger.c2s(id, payload);
 
@@ -123,15 +118,8 @@ export function handleClient(sock, opts = {}) {
       continueConfigAfterPacks(sock);
       return true;
     }
-    if (id === CFG.C2S_KEEP_ALIVE) {
-      const k = readI64BE(payload, 0);
-      if (k) {
-        const out = Buffer.alloc(8);
-        out.writeBigInt64BE(k.value);
-        send(sock, CFG.KEEP_ALIVE, out);
-      }
-      return true;
-    }
+    // C2S keep_alive is the client's reply to our S2C challenge — do not echo S2C back.
+    if (id === CFG.C2S_KEEP_ALIVE) return true;
     if (id === CFG.C2S_PONG) return true;
     if (id === CFG.C2S_FINISH && configAwait === 'c2s_finish') {
       setPhase('play_join');
@@ -157,15 +145,8 @@ export function handleClient(sock, opts = {}) {
     if (isPlayMovementOrPlugin(id)) return true;
     if (id === PLAY.C2S_TELEPORT_CONFIRM) return true;
     if (id === PLAY.C2S_CHUNK_BATCH_RECEIVED) return true;
-    if (id === PLAY.C2S_KEEP_ALIVE) {
-      const k = readI64BE(payload, 0);
-      if (k) {
-        const out = Buffer.alloc(8);
-        out.writeBigInt64BE(k.value);
-        send(sock, PLAY.KEEP_ALIVE, out);
-      }
-      return true;
-    }
+    // C2S keep_alive is the client's reply to our S2C challenge — do not echo S2C back.
+    if (id === PLAY.C2S_KEEP_ALIVE) return true;
     if (id === PLAY.C2S_PONG) return true;
     return false;
   }
