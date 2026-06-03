@@ -84,7 +84,6 @@ export function createOnPacket(ctx) {
         const ev = parseGameEvent(payload);
         if (ev?.event === GAME_EVENT_LEVEL_CHUNKS_LOAD_START) {
           state.chunksLoadStarted = true;
-          logger.debug('LEVEL_CHUNKS_LOAD_START', chalk.dim('LevelLoadTracker'));
         }
         return;
       }
