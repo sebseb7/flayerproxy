@@ -12,3 +12,7 @@ extensions/minecraft-wire-viewer/node_modules/
 extensions/minecraft-wire-viewer/out/
 extensions/minecraft-wire-viewer/*.vsix
 extensions/minecraft-wire-viewer/vendor/libchunk/build/
+capture/
+chunks/
+player-map/
+scripts/

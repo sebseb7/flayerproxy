@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
@@ -46,11 +45,10 @@ export function getLocationFromChunkPayload(payload) {
 }
 
 /**
- * Save raw map_chunk payload under
+ * Path for raw map_chunk payload:
  * chunks/{l1x}/{l2x}/{l1z}/{l2z}/{chunkX}_{chunkZ}_map_chunk.wire
- * @returns {string} absolute path written
  */
-export function saveMapChunkWire(loc, payload) {
+export function mapChunkWirePath(loc) {
   const dir = path.join(
     CHUNKS_DIR,
     String(loc.l1x),
@@ -58,8 +56,5 @@ export function saveMapChunkWire(loc, payload) {
     String(loc.l1z),
     String(loc.l2z),
   );
-  const file = path.join(dir, `${loc.chunkX}_${loc.chunkZ}_map_chunk.wire`);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(file, payload);
-  return file;
+  return path.join(dir, `${loc.chunkX}_${loc.chunkZ}_map.chunk`);
 }
