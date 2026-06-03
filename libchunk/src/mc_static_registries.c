@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#include "mc_conn_state.h"
 #include "mc_log.h"
 #include "mc_static_registries.h"
 
@@ -285,6 +286,11 @@ static void on_config_ready(const mc_registry_capture_result *cap, int ok, void 
   }
   g_packs_key_len = a->client_packs_len;
   g_load_state = REG_STATE_CONFIG_READY;
+  {
+    char label[280];
+    snprintf(label, sizeof label, "%s:%d", g_fetch.host ? g_fetch.host : "?", g_fetch.port);
+    mc_conn_state_upstream(MC_CONN_STATE_CONFIGURED, label);
+  }
   MC_LOGI("static_server", "registry fetch: config cached (%zu registries + tags), continuing play capture",
           g_registry_count);
   pthread_cond_broadcast(&g_load_cond);

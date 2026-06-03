@@ -12,6 +12,7 @@
 #include "mc_conn.h"
 #include "mc_chunk_stream.h"
 #include "mc_dns.h"
+#include "mc_conn_state.h"
 #include "mc_log.h"
 #include "mc_online.h"
 #include "mc_s2c_log.h"
@@ -423,12 +424,18 @@ int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_
   const char *username = cfg->username ? cfg->username : "FlayerBot";
   char port_str[16];
   snprintf(port_str, sizeof port_str, "%d", cfg->port);
+  char upstream_label[280];
+  snprintf(upstream_label, sizeof upstream_label, "%s:%s", cfg->host, port_str);
+
+  if (on_config_ready) mc_conn_state_upstream_reset();
 
   int fd = mc_tcp_connect(cfg->host, port_str, 15);
   if (fd < 0) {
     MC_LOGE("static_server", "registry fetch: connect failed to %s:%s", cfg->host, port_str);
     return -1;
   }
+
+  if (on_config_ready) mc_conn_state_upstream(MC_CONN_STATE_INITIATED, upstream_label);
 
   mc_conn conn;
   mc_conn_init(&conn, fd);
@@ -535,6 +542,7 @@ int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_
       }
       if (pkt_id == MC_PKT_LOGIN_DISCONNECT) {
         MC_LOGE("static_server", "registry fetch: login disconnect");
+        if (on_config_ready) mc_conn_state_upstream(MC_CONN_STATE_DISCONNECTED, upstream_label);
         free(wire);
         break;
       }
@@ -640,6 +648,7 @@ int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_
       if (on_config_ready) {
         int config_ok = registries > 0 && tags_seen;
         on_config_ready(out, config_ok, ctx);
+        mc_conn_state_upstream(MC_CONN_STATE_PLAYING, upstream_label);
         MC_LOGEV("static_server", "registry fetch: entering play capture");
         free(wire);
         continue;
@@ -697,6 +706,8 @@ int mc_registry_capture_configuration(const mc_registry_capture_config *cfg, mc_
   close(fd);
   free(owned_token);
   free(owned_profile);
+
+  if (on_config_ready) mc_conn_state_upstream(MC_CONN_STATE_DISCONNECTED, upstream_label);
 
   if (rc == 0) {
     MC_LOGI("static_server", "registry fetch: play join cached (%zu sync steps, %zu chunks)", out->step_count,

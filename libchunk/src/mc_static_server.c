@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "mc_chunk_stream.h"
+#include "mc_conn_state.h"
 #include "mc_log.h"
 #include "mc_static_server.h"
 
@@ -217,7 +218,11 @@ static int poll_timeout_ms(const mc_client *cli) {
  * Callers: mc_spectator.c, mc_static_server.c (same file).
  */
 
-static void handle_client(int fd) {
+static void handle_client(int fd, const char *peer_label) {
+  mc_conn_state_tracker conn_tr;
+  mc_conn_state_tracker_init(&conn_tr);
+  mc_conn_state_transition(MC_CONN_LINK_DOWN, &conn_tr, MC_CONN_STATE_INITIATED, peer_label);
+
   mc_client cli;
   memset(&cli, 0, sizeof cli);
   cli.fd = fd;
@@ -341,7 +346,6 @@ static void handle_client(int fd) {
           mc_static_registries_start_fetch_on_login_acknowledged();
         }
         cli.state = MC_CLI_CONFIG;
-        MC_LOGEV("static_server", "entering configuration");
         mc_patch_ctx ctx = make_patch_ctx(&cli);
         if (mc_template_send_config_sequence(cli.fd, &ctx) != 0) {
           free(packet);
@@ -376,13 +380,14 @@ static void handle_client(int fd) {
         MC_LOGEV("static_server", "registry sync sent (%zu registries + tags)", mc_static_registry_count());
       } else if (pkt_id == MC_PKT_C2S_CFG_FINISH) {
         handled = 1;
+        mc_conn_state_transition(MC_CONN_LINK_DOWN, &conn_tr, MC_CONN_STATE_CONFIGURED, peer_label);
         cli.state = MC_CLI_PLAY;
-        MC_LOGEV("static_server", "entering play");
         if (enter_play(&cli, &chunks) != 0) {
           free(packet);
           break;
         }
         cli.play_ready = 1;
+        mc_conn_state_transition(MC_CONN_LINK_DOWN, &conn_tr, MC_CONN_STATE_PLAYING, peer_label);
         if (mc_client_send_keep_alive(&cli) != 0) {
           free(packet);
           break;
@@ -438,15 +443,16 @@ static void handle_client(int fd) {
 
     free(packet);
   }
+  mc_conn_state_transition(MC_CONN_LINK_DOWN, &conn_tr, MC_CONN_STATE_DISCONNECTED, peer_label);
   close(fd);
 }
 
 static void *client_thread(void *arg) {
   mc_client_thread_ctx *ctx = (mc_client_thread_ctx *)arg;
   int fd = ctx->fd;
-  MC_LOGCN("static_server", "incoming connection from %s:%u", ctx->peer_addr, (unsigned)ctx->peer_port);
-  handle_client(fd);
-  MC_LOGCN("static_server", "connection closed from %s:%u", ctx->peer_addr, (unsigned)ctx->peer_port);
+  char peer_label[80];
+  snprintf(peer_label, sizeof peer_label, "%s:%u", ctx->peer_addr, (unsigned)ctx->peer_port);
+  handle_client(fd, peer_label);
   free(ctx);
   return NULL;
 }
