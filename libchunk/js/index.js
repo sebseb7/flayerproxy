@@ -90,9 +90,35 @@ function hexDump(buffer) {
   return native.hexDump(buffer);
 }
 
+function tryReadFrame(buf) {
+  if (!Buffer.isBuffer(buf)) buf = Buffer.from(buf);
+  const r = native.tryReadFrame(buf);
+  if (!r.complete) return null;
+  return {
+    id: r.id,
+    payload: r.payload,
+    rest: buf.subarray(r.consumed),
+  };
+}
+
+/**
+ * @param {(id: number, payload: Buffer) => void} onFrame
+ * @returns {(chunk: Buffer) => void} feed — pass to sock.on('data', feed)
+ */
+function createFrameProcessor(onFrame) {
+  const proc = new native.FrameProcessor(onFrame);
+  function feed(chunk) {
+    if (!Buffer.isBuffer(chunk)) chunk = Buffer.from(chunk);
+    return proc.feed(chunk);
+  }
+  feed.reset = () => proc.reset();
+  return feed;
+}
+
 module.exports = {
   ...wirePath,
   playS2cById,
+  FrameProcessor: native.FrameProcessor,
   supportedPackets: () => native.supportedPackets(),
   isPacketSupported: (name) => native.isPacketSupported(name),
   decodePayload,
@@ -100,4 +126,15 @@ module.exports = {
   decodeMapChunkJson,
   decodeWireFile,
   hexDump,
+  tryReadFrame,
+  createFrameProcessor,
+  buildFrame: (id, payload) => {
+    if (payload === undefined) payload = Buffer.alloc(0);
+    if (!Buffer.isBuffer(payload)) payload = Buffer.from(payload);
+    return native.buildFrame(id, payload);
+  },
+  writeVarInt: (n) => native.writeVarInt(n),
+  writeString: (s) => native.writeString(s),
+  readVarIntAt: (buf, off) => native.readVarIntAt(buf, off),
+  readStringAt: (buf, off) => native.readStringAt(buf, off),
 };

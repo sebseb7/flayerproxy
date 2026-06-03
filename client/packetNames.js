@@ -6,7 +6,6 @@ const playS2cById = require('../libchunk/js/playS2cById.js');
 
 const S2C_NAMES = {
   [LOGIN.DISCONNECT]: 'login_disconnect',
-  [LOGIN.SUCCESS]: 'success',
   [CFG.CUSTOM_PAYLOAD]: 'custom_payload',
   [CFG.FINISH]: 'finish_configuration',
   [CFG.KEEP_ALIVE]: 'keep_alive',
@@ -22,6 +21,8 @@ const S2C_NAMES = {
 };
 
 export function s2cPacketName(ph, id) {
+  if (ph === 'login' && id === LOGIN.SUCCESS) return 'success';
+  if (ph === 'config' && id === CFG.DISCONNECT) return 'configuration_disconnect';
   if (ph === 'play' || ph === 'play_join') {
     const n = playS2cById[id];
     if (n) return n;

@@ -8,6 +8,7 @@
 extern "C" {
 #include "decode_wire.h"
 #include "libchunk.h"
+#include "mc_wire.h"
 }
 
 namespace {
@@ -194,6 +195,226 @@ Napi::Value DecodeMapChunkJson(const Napi::CallbackInfo &info) {
   return MakeResult(env, rc, "", rc == 0 ? "not map_chunk" : "map_chunk json error");
 }
 
+static Napi::Buffer<uint8_t> ByteBufToBuffer(Napi::Env env, lc_byte_buf *bb) {
+  if (!bb || !bb->data || bb->len == 0) {
+    if (bb) lc_byte_buf_free(bb);
+    return Napi::Buffer<uint8_t>::New(env, 0);
+  }
+  Napi::Buffer<uint8_t> buf = Napi::Buffer<uint8_t>::Copy(env, bb->data, bb->len);
+  lc_byte_buf_free(bb);
+  return buf;
+}
+
+class FrameProcessor : public Napi::ObjectWrap<FrameProcessor> {
+ public:
+  static Napi::Object Init(Napi::Env env, Napi::Object exports);
+  static Napi::Object NewInstance(const Napi::CallbackInfo &info);
+  FrameProcessor(const Napi::CallbackInfo &info);
+  ~FrameProcessor();
+
+  static Napi::FunctionReference constructor;
+
+ private:
+  lc_frame_reader reader_;
+  Napi::FunctionReference on_frame_;
+
+  Napi::Value Feed(const Napi::CallbackInfo &info);
+  Napi::Value Reset(const Napi::CallbackInfo &info);
+
+  static void FrameCallback(void *ctx, int32_t packet_id, const uint8_t *payload, size_t payload_len);
+};
+
+Napi::FunctionReference FrameProcessor::constructor;
+
+Napi::Object FrameProcessor::Init(Napi::Env env, Napi::Object exports) {
+  Napi::Function func =
+      DefineClass(env, "FrameProcessor",
+                  {
+                      InstanceMethod("feed", &FrameProcessor::Feed),
+                      InstanceMethod("reset", &FrameProcessor::Reset),
+                  });
+  constructor = Napi::Persistent(func);
+  constructor.SuppressDestruct();
+  exports.Set("FrameProcessor", func);
+  return exports;
+}
+
+FrameProcessor::FrameProcessor(const Napi::CallbackInfo &info) : Napi::ObjectWrap<FrameProcessor>(info) {
+  lc_frame_reader_init(&reader_);
+  if (info.Length() < 1 || !info[0].IsFunction()) {
+    Napi::TypeError::New(Env(), "FrameProcessor(onFrame)").ThrowAsJavaScriptException();
+    return;
+  }
+  on_frame_ = Napi::Persistent(info[0].As<Napi::Function>());
+}
+
+FrameProcessor::~FrameProcessor() { lc_frame_reader_free(&reader_); }
+
+void FrameProcessor::FrameCallback(void *ctx, int32_t packet_id, const uint8_t *payload,
+                                   size_t payload_len) {
+  auto *self = static_cast<FrameProcessor *>(ctx);
+  Napi::Env env = self->Env();
+  Napi::HandleScope scope(env);
+  self->on_frame_.Call(
+      {Napi::Number::New(env, packet_id), Napi::Buffer<uint8_t>::Copy(env, payload, payload_len)});
+}
+
+Napi::Value FrameProcessor::Feed(const Napi::CallbackInfo &info) {
+  Napi::Env env = Env();
+  if (info.Length() < 1 || !info[0].IsBuffer()) {
+    Napi::TypeError::New(env, "feed(buffer)").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  Napi::Buffer<uint8_t> chunk = info[0].As<Napi::Buffer<uint8_t>>();
+  lc_status st =
+      lc_frame_reader_feed(&reader_, chunk.Data(), chunk.Length(), FrameCallback, this);
+  if (st == LC_ERR_INVALID) {
+    Napi::Error::New(env, "invalid or oversize frame").ThrowAsJavaScriptException();
+  } else if (st == LC_ERR_OOM) {
+    Napi::Error::New(env, "out of memory").ThrowAsJavaScriptException();
+  }
+  return env.Undefined();
+}
+
+Napi::Value FrameProcessor::Reset(const Napi::CallbackInfo &info) {
+  (void)info;
+  lc_frame_reader_reset(&reader_);
+  return Env().Undefined();
+}
+
+Napi::Object FrameProcessor::NewInstance(const Napi::CallbackInfo &info) {
+  return constructor.New({info[0]});
+}
+
+Napi::Value CreateFrameProcessor(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1 || !info[0].IsFunction()) {
+    Napi::TypeError::New(env, "createFrameProcessor(onFrame)").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  return FrameProcessor::NewInstance(info);
+}
+
+Napi::Value TryReadFrame(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1 || !info[0].IsBuffer()) {
+    Napi::TypeError::New(env, "tryReadFrame(buffer)").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  lc_frame_view fv;
+  lc_status st = lc_try_read_frame(buf.Data(), buf.Length(), &fv);
+  Napi::Object o = Napi::Object::New(env);
+  if (st == LC_ERR_TRUNCATED) {
+    o.Set("complete", Napi::Boolean::New(env, false));
+    return o;
+  }
+  if (st != LC_OK) {
+    o.Set("complete", Napi::Boolean::New(env, false));
+    o.Set("error", Napi::String::New(env, "invalid frame"));
+    return o;
+  }
+  o.Set("complete", Napi::Boolean::New(env, true));
+  o.Set("id", Napi::Number::New(env, fv.packet_id));
+  o.Set("payload", Napi::Buffer<uint8_t>::Copy(env, fv.payload, fv.payload_len));
+  o.Set("consumed", Napi::Number::New(env, (double)fv.frame_bytes));
+  return o;
+}
+
+Napi::Value BuildFrame(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1 || !info[0].IsNumber()) {
+    Napi::TypeError::New(env, "buildFrame(id, payload?)").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  int32_t pkt_id = info[0].As<Napi::Number>().Int32Value();
+  const uint8_t *payload = nullptr;
+  size_t payload_len = 0;
+  Napi::Buffer<uint8_t> payload_buf;
+  if (info.Length() >= 2 && info[1].IsBuffer()) {
+    payload_buf = info[1].As<Napi::Buffer<uint8_t>>();
+    payload = payload_buf.Data();
+    payload_len = payload_buf.Length();
+  }
+  lc_byte_buf out;
+  memset(&out, 0, sizeof out);
+  lc_status st = lc_build_frame(pkt_id, payload, payload_len, &out);
+  if (st != LC_OK) {
+    Napi::Error::New(env, "buildFrame failed").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  return ByteBufToBuffer(env, &out);
+}
+
+Napi::Value WriteVarInt(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1 || !info[0].IsNumber()) {
+    Napi::TypeError::New(env, "writeVarInt(value)").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  int32_t value = info[0].As<Napi::Number>().Int32Value();
+  lc_byte_buf out;
+  memset(&out, 0, sizeof out);
+  if (lc_write_varint(value, &out) != LC_OK) {
+    Napi::Error::New(env, "writeVarInt failed").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  return ByteBufToBuffer(env, &out);
+}
+
+Napi::Value WriteString(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1 || !info[0].IsString()) {
+    Napi::TypeError::New(env, "writeString(value)").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  std::string s = info[0].As<Napi::String>().Utf8Value();
+  lc_byte_buf out;
+  memset(&out, 0, sizeof out);
+  if (lc_write_string(s.c_str(), &out) != LC_OK) {
+    Napi::Error::New(env, "writeString failed").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  return ByteBufToBuffer(env, &out);
+}
+
+Napi::Value ReadStringAt(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 2 || !info[0].IsBuffer() || !info[1].IsNumber()) {
+    Napi::TypeError::New(env, "readStringAt(buffer, offset)").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  size_t offset = (size_t)info[1].As<Napi::Number>().Uint32Value();
+  char *s = nullptr;
+  size_t next = 0;
+  lc_status st = lc_read_string_at(buf.Data(), buf.Length(), offset, &s, &next);
+  if (st != LC_OK) return env.Null();
+  std::string str(s);
+  free(s);
+  Napi::Object o = Napi::Object::New(env);
+  o.Set("value", Napi::String::New(env, str));
+  o.Set("next", Napi::Number::New(env, (double)next));
+  return o;
+}
+
+Napi::Value ReadVarIntAt(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 2 || !info[0].IsBuffer() || !info[1].IsNumber()) {
+    Napi::TypeError::New(env, "readVarIntAt(buffer, offset)").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  size_t offset = (size_t)info[1].As<Napi::Number>().Uint32Value();
+  int32_t value = 0;
+  lc_status st = lc_read_varint_at(buf.Data(), buf.Length(), &offset, &value);
+  if (st != LC_OK) return env.Null();
+  Napi::Object o = Napi::Object::New(env);
+  o.Set("value", Napi::Number::New(env, value));
+  o.Set("next", Napi::Number::New(env, (double)offset));
+  return o;
+}
+
 Napi::Value HexDump(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
   if (info.Length() < 1 || !info[0].IsBuffer()) {
@@ -216,11 +437,19 @@ Napi::Value HexDump(const Napi::CallbackInfo &info) {
 }
 
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
+  FrameProcessor::Init(env, exports);
   exports.Set("supportedPackets", Napi::Function::New(env, SupportedPackets));
   exports.Set("decodePayload", Napi::Function::New(env, DecodePayload));
   exports.Set("decodeWire", Napi::Function::New(env, DecodeWire));
   exports.Set("decodeMapChunkJson", Napi::Function::New(env, DecodeMapChunkJson));
   exports.Set("hexDump", Napi::Function::New(env, HexDump));
+  exports.Set("createFrameProcessor", Napi::Function::New(env, CreateFrameProcessor));
+  exports.Set("tryReadFrame", Napi::Function::New(env, TryReadFrame));
+  exports.Set("buildFrame", Napi::Function::New(env, BuildFrame));
+  exports.Set("writeVarInt", Napi::Function::New(env, WriteVarInt));
+  exports.Set("writeString", Napi::Function::New(env, WriteString));
+  exports.Set("readStringAt", Napi::Function::New(env, ReadStringAt));
+  exports.Set("readVarIntAt", Napi::Function::New(env, ReadVarIntAt));
   exports.Set("isPacketSupported", Napi::Function::New(env, [](const Napi::CallbackInfo &info) {
     Napi::Env env = info.Env();
     if (!info[0].IsString()) return Napi::Boolean::New(env, false);

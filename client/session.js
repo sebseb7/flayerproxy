@@ -1,14 +1,26 @@
 import chalk from 'chalk';
-import { PROTOCOL, HS_LOGIN, LOGIN, CFG, PLAY } from './constants.js';
 import {
+  PROTOCOL,
+  HS_LOGIN,
+  LOGIN,
+  CFG,
+  PLAY,
+  GAME_EVENT_LEVEL_CHUNKS_LOAD_START,
+} from './constants.js';
+import {
+  createFrameProcessor,
+  buildFrame,
   writeVarInt,
   writeString,
-  writePacket,
-  tryReadFrame,
-  offlineUUID,
   readString,
+} from './wire.js';
+import {
+  offlineUUID,
   readI64BE,
   parsePosition,
+  parseUpdateTime,
+  parseGameEvent,
+  parseSetTickingState,
 } from './protocol.js';
 import { createLogger } from './logger.js';
 
@@ -16,9 +28,13 @@ export function createSession(config) {
   const { host, port, username, debug, logLevel } = config;
 
   let phase = 'connect';
-  let recvBuf = Buffer.alloc(0);
   let playerLoadedSent = false;
+  let chunksLoadStarted = false;
+  let mapChunksSeen = 0;
+  let daylightTicking = false;
+  let tickingRunsNormally = false;
   let tickTimer = null;
+  let joinBurstLogged = false;
 
   const logger = createLogger({
     getPhase: () => phase,
@@ -34,13 +50,41 @@ export function createSession(config) {
   }
 
   function send(sock, id, payload, detail) {
-    sock.write(writePacket(id, payload));
+    sock.write(buildFrame(id, payload));
     logger.c2s(id, payload, detail);
+  }
+
+  function enterPlay(sock, reason) {
+    if (phase !== 'play_join') return;
+    setPhase('play');
+    logger.event('play ready', chalk.dim(reason));
+    startPlayTimers(sock);
+  }
+
+  /**
+   * Vanilla (1.21.10): play join ends when LevelLoadTracker is ready → player_loaded.
+   * We approximate: chunks load started + at least one chunk + daylight ticking enabled
+   * (update_time.tickDayTime mirrors GameRules.RULE_DAYLIGHT, not a phase id).
+   * tick_end is sent from Minecraft.tick() each frame while TickRateManager.runsNormally(),
+   * not per map_chunk.
+   */
+  function tryFinishPlayJoin(sock, reason) {
+    if (phase !== 'play_join' || !playerLoadedSent) return;
+    if (!chunksLoadStarted || mapChunksSeen === 0) return;
+    if (!daylightTicking) return;
+    if (!tickingRunsNormally) return;
+    enterPlay(sock, reason);
+  }
+
+  function notePlayJoinPacket() {
+    if (phase !== 'play_join' || joinBurstLogged) return;
+    joinBurstLogged = true;
+    logger.event('join burst', chalk.dim('login + chunks (vanilla: LevelLoadTracker)'));
   }
 
   function startPlayTimers(sock) {
     if (tickTimer) return;
-    logger.debug('tick_end timer', chalk.dim('every 1s'));
+    logger.debug('tick_end timer', chalk.dim('every 1s while in play'));
     tickTimer = setInterval(() => {
       if (phase !== 'play') return;
       send(sock, PLAY.C2S_TICK_END, Buffer.alloc(0));
@@ -65,6 +109,10 @@ export function createSession(config) {
     }
 
     if (phase === 'config') {
+      if (id === CFG.DISCONNECT) {
+        const msg = readString(payload, 0);
+        throw new Error('config disconnect: ' + (msg ? msg.value : '?'));
+      }
       if (id === CFG.SELECT_KNOWN_PACKS) {
         send(sock, CFG.C2S_SELECT_KNOWN_PACKS, payload, chalk.dim('echo'));
         logger.event('select_known_packs', chalk.dim('echoed to server'));
@@ -95,9 +143,40 @@ export function createSession(config) {
 
     if (phase === 'play_join' || phase === 'play') {
       if (phase === 'play_join') {
-        setPhase('play');
-        logger.event('play join', chalk.dim('receiving burst'));
-        startPlayTimers(sock);
+        notePlayJoinPacket();
+      }
+
+      if (id === PLAY.GAME_EVENT) {
+        const ev = parseGameEvent(payload);
+        if (ev?.event === GAME_EVENT_LEVEL_CHUNKS_LOAD_START) {
+          chunksLoadStarted = true;
+          logger.debug('LEVEL_CHUNKS_LOAD_START', chalk.dim('LevelLoadTracker'));
+        }
+        return;
+      }
+
+      if (id === PLAY.SET_TICKING_STATE) {
+        const ts = parseSetTickingState(payload);
+        if (ts) {
+          tickingRunsNormally = !ts.isFrozen;
+          tryFinishPlayJoin(sock, 'set_ticking_state unfrozen');
+        }
+        return;
+      }
+
+      if (id === PLAY.UPDATE_TIME) {
+        const t = parseUpdateTime(payload);
+        if (t?.tickDayTime) {
+          daylightTicking = true;
+          tryFinishPlayJoin(sock, 'update_time tickDayTime=true');
+        }
+        return;
+      }
+
+      if (id === PLAY.MAP_CHUNK) {
+        mapChunksSeen++;
+        tryFinishPlayJoin(sock, 'map_chunk received');
+        return;
       }
 
       if (id === PLAY.POSITION) {
@@ -111,6 +190,7 @@ export function createSession(config) {
             send(sock, PLAY.C2S_PLAYER_LOADED, Buffer.alloc(0));
             playerLoadedSent = true;
             logger.event('player_loaded', posDetail);
+            tryFinishPlayJoin(sock, 'player_loaded');
           }
         }
         return;
@@ -134,6 +214,7 @@ export function createSession(config) {
         const batch = Buffer.alloc(4);
         batch.writeFloatBE(6.0);
         send(sock, PLAY.C2S_CHUNK_BATCH_RECEIVED, batch, chalk.dim('perSec=6'));
+        enterPlay(sock, 'chunk_batch_finished');
         return;
       }
     }
@@ -163,20 +244,11 @@ export function createSession(config) {
     );
   }
 
-  function onData(sock, chunk) {
-    recvBuf = Buffer.concat([recvBuf, chunk]);
-    for (;;) {
-      const pkt = tryReadFrame(recvBuf);
-      if (!pkt) break;
-      recvBuf = pkt.rest;
-      onPacket(sock, pkt.id, pkt.payload);
-    }
-  }
-
   function attach(sock) {
+    const feedFrames = createFrameProcessor((id, payload) => onPacket(sock, id, payload));
     sock.on('data', (chunk) => {
       try {
-        onData(sock, chunk);
+        feedFrames(chunk);
       } catch (e) {
         logger.error(e.message);
         sock.destroy();

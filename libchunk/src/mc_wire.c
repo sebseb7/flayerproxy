@@ -184,3 +184,161 @@ fail:
   mc_buf_free(&inner);
   return LC_ERR_OOM;
 }
+
+static lc_status mc_buf_to_byte_buf(const mc_buf *src, lc_byte_buf *out) {
+  if (!src || !out) return LC_ERR_INVALID;
+  lc_byte_buf_free(out);
+  out->data = NULL;
+  out->len = 0;
+  if (src->len == 0) return LC_OK;
+  out->data = (uint8_t *)malloc(src->len);
+  if (!out->data) return LC_ERR_OOM;
+  memcpy(out->data, src->data, src->len);
+  out->len = src->len;
+  return LC_OK;
+}
+
+lc_status lc_try_read_frame(const uint8_t *data, size_t len, lc_frame_view *out) {
+  if (!data || !out) return LC_ERR_INVALID;
+  out->packet_id = 0;
+  out->payload = NULL;
+  out->payload_len = 0;
+  out->frame_bytes = 0;
+
+  lc_buf lb;
+  lc_buf_init(&lb, data, len);
+  int32_t body_len;
+  if (lc_buf_read_varint(&lb, &body_len) != LC_OK) return LC_ERR_TRUNCATED;
+  if (body_len < 0) return LC_ERR_INVALID;
+
+  size_t body_off = lb.off;
+  if ((size_t)body_len > len - body_off) return LC_ERR_TRUNCATED;
+
+  lc_buf pb;
+  lc_buf_init(&pb, data + body_off, (size_t)body_len);
+  int32_t pkt_id;
+  if (lc_buf_read_varint(&pb, &pkt_id) != LC_OK) return LC_ERR_INVALID;
+
+  out->packet_id = pkt_id;
+  out->payload = data + body_off + pb.off;
+  out->payload_len = (size_t)body_len - pb.off;
+  out->frame_bytes = body_off + (size_t)body_len;
+  return LC_OK;
+}
+
+lc_status lc_build_frame(int32_t pkt_id, const uint8_t *payload, size_t payload_len, lc_byte_buf *out) {
+  mc_buf frame;
+  memset(&frame, 0, sizeof frame);
+  lc_status st = mc_buf_frame(&frame, pkt_id, payload, payload_len);
+  if (st != LC_OK) {
+    mc_buf_free(&frame);
+    return st;
+  }
+  st = mc_buf_to_byte_buf(&frame, out);
+  mc_buf_free(&frame);
+  return st;
+}
+
+lc_status lc_write_string(const char *s, lc_byte_buf *out) {
+  mc_buf b;
+  memset(&b, 0, sizeof b);
+  lc_status st = mc_buf_string(&b, s);
+  if (st != LC_OK) {
+    mc_buf_free(&b);
+    return st;
+  }
+  st = mc_buf_to_byte_buf(&b, out);
+  mc_buf_free(&b);
+  return st;
+}
+
+lc_status lc_read_string_at(const uint8_t *data, size_t len, size_t offset, char **out_str, size_t *out_next) {
+  if (!data || !out_str || !out_next) return LC_ERR_INVALID;
+  if (offset >= len) return LC_ERR_TRUNCATED;
+  lc_buf b;
+  lc_buf_init(&b, data + offset, len - offset);
+  char *s = NULL;
+  lc_status st = lc_buf_read_string(&b, &s);
+  if (st != LC_OK) return st;
+  *out_str = s;
+  *out_next = offset + b.off;
+  return LC_OK;
+}
+
+lc_status lc_read_varint_at(const uint8_t *data, size_t len, size_t *offset, int32_t *out) {
+  if (!data || !offset || !out) return LC_ERR_INVALID;
+  if (*offset >= len) return LC_ERR_TRUNCATED;
+  lc_buf b;
+  lc_buf_init(&b, data + *offset, len - *offset);
+  if (lc_buf_read_varint(&b, out) != LC_OK) return LC_ERR_TRUNCATED;
+  *offset += b.off;
+  return LC_OK;
+}
+
+lc_status lc_write_varint(int32_t value, lc_byte_buf *out) {
+  mc_buf b;
+  memset(&b, 0, sizeof b);
+  lc_status st = mc_buf_varint(&b, value);
+  if (st != LC_OK) {
+    mc_buf_free(&b);
+    return st;
+  }
+  st = mc_buf_to_byte_buf(&b, out);
+  mc_buf_free(&b);
+  return st;
+}
+
+#define LC_FRAME_READER_MAX (16u * 1024u * 1024u)
+
+static lc_status frame_reader_reserve(lc_frame_reader *r, size_t need) {
+  if (need <= r->cap) return LC_OK;
+  size_t cap = r->cap ? r->cap : 4096;
+  while (cap < need) {
+    if (cap > LC_FRAME_READER_MAX) return LC_ERR_INVALID;
+    cap *= 2;
+  }
+  uint8_t *p = (uint8_t *)realloc(r->data, cap);
+  if (!p) return LC_ERR_OOM;
+  r->data = p;
+  r->cap = cap;
+  return LC_OK;
+}
+
+void lc_frame_reader_init(lc_frame_reader *r) {
+  if (r) memset(r, 0, sizeof *r);
+}
+
+void lc_frame_reader_reset(lc_frame_reader *r) {
+  if (r) r->len = 0;
+}
+
+void lc_frame_reader_free(lc_frame_reader *r) {
+  if (!r) return;
+  free(r->data);
+  r->data = NULL;
+  r->len = 0;
+  r->cap = 0;
+}
+
+lc_status lc_frame_reader_feed(lc_frame_reader *r, const uint8_t *chunk, size_t chunk_len,
+                               lc_frame_callback cb, void *ctx) {
+  if (!r) return LC_ERR_INVALID;
+  if (chunk_len > 0) {
+    if (!chunk) return LC_ERR_INVALID;
+    if (r->len + chunk_len > LC_FRAME_READER_MAX) return LC_ERR_INVALID;
+    if (frame_reader_reserve(r, r->len + chunk_len) != LC_OK) return LC_ERR_OOM;
+    memcpy(r->data + r->len, chunk, chunk_len);
+    r->len += chunk_len;
+  }
+
+  for (;;) {
+    lc_frame_view fv;
+    lc_status st = lc_try_read_frame(r->data, r->len, &fv);
+    if (st == LC_ERR_TRUNCATED) return LC_OK;
+    if (st != LC_OK) return st;
+    if (cb) cb(ctx, fv.packet_id, fv.payload, fv.payload_len);
+    size_t remain = r->len - fv.frame_bytes;
+    if (remain > 0) memmove(r->data, r->data + fv.frame_bytes, remain);
+    r->len = remain;
+  }
+}

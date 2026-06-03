@@ -1,61 +1,7 @@
 import crypto from 'node:crypto';
+import { readVarInt } from './wire.js';
 
-export function writeVarInt(n) {
-  const out = [];
-  let v = n >>> 0;
-  do {
-    let b = v & 0x7f;
-    v >>>= 7;
-    if (v !== 0) b |= 0x80;
-    out.push(b);
-  } while (v !== 0);
-  return Buffer.from(out);
-}
-
-export function readVarInt(buf, off = 0) {
-  let num = 0;
-  let shift = 0;
-  let o = off;
-  for (;;) {
-    if (o >= buf.length) return null;
-    const b = buf[o++];
-    num |= (b & 0x7f) << shift;
-    if ((b & 0x80) === 0) return { value: num, next: o };
-    shift += 7;
-    if (shift > 35) throw new Error('varint too long');
-  }
-}
-
-export function writeString(s) {
-  const b = Buffer.from(s, 'utf8');
-  return Buffer.concat([writeVarInt(b.length), b]);
-}
-
-export function readString(buf, off) {
-  const lenR = readVarInt(buf, off);
-  if (!lenR) return null;
-  const start = lenR.next;
-  const end = start + lenR.value;
-  if (end > buf.length) return null;
-  return { value: buf.toString('utf8', start, end), next: end };
-}
-
-export function writePacket(id, payload = Buffer.alloc(0)) {
-  const body = Buffer.concat([writeVarInt(id), payload]);
-  return Buffer.concat([writeVarInt(body.length), body]);
-}
-
-export function tryReadFrame(buf) {
-  const lenR = readVarInt(buf, 0);
-  if (!lenR) return null;
-  const total = lenR.next + lenR.value;
-  if (buf.length < total) return null;
-  const body = buf.subarray(lenR.next, total);
-  const rest = buf.subarray(total);
-  const idR = readVarInt(body, 0);
-  if (!idR) return null;
-  return { id: idR.value, payload: body.subarray(idR.next), rest };
-}
+export { readVarInt } from './wire.js';
 
 export function offlineUUID(name) {
   const hash = crypto.createHash('md5').update(`OfflinePlayer:${name}`).digest();
@@ -72,6 +18,34 @@ export function readI64BE(buf, off) {
 export function readF64BE(buf, off) {
   if (off + 8 > buf.length) return null;
   return { value: buf.readDoubleBE(off), next: off + 8 };
+}
+
+/** ClientboundSetTimePacket: gameTime i64 BE, dayTime i64 BE, tickDayTime bool. */
+export function parseUpdateTime(payload) {
+  if (payload.length < 17) return null;
+  return {
+    gameTime: payload.readBigInt64BE(0),
+    dayTime: payload.readBigInt64BE(8),
+    tickDayTime: payload[16] !== 0,
+  };
+}
+
+/** ClientboundGameEventPacket: u8 event id, f32 value. */
+export function parseGameEvent(payload) {
+  if (payload.length < 5) return null;
+  return {
+    event: payload[0],
+    value: payload.readFloatBE(1),
+  };
+}
+
+/** ClientboundTickingStatePacket: tickRate f32 BE, isFrozen bool. */
+export function parseSetTickingState(payload) {
+  if (payload.length < 5) return null;
+  return {
+    tickRate: payload.readFloatBE(0),
+    isFrozen: payload[4] !== 0,
+  };
 }
 
 export function parsePosition(payload) {

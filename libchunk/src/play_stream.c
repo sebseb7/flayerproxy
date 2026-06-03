@@ -473,8 +473,8 @@ int lc_decode_play_stream_to_string(const char *name, const uint8_t *payload, si
     lc_buf_init(&b, payload, payload_len);
     int64_t age, time;
     uint8_t tick;
-    if (lc_buf_read_i64_le(&b, &age) != LC_OK) return -1;
-    if (lc_buf_read_i64_le(&b, &time) != LC_OK) return -1;
+    if (lc_buf_read_i64_be(&b, &age) != LC_OK) return -1;
+    if (lc_buf_read_i64_be(&b, &time) != LC_OK) return -1;
     if (lc_buf_read_bool(&b, &tick) != LC_OK) return -1;
     return lc_snprintf(out, out_sz, "update_time{age=%lld,time=%lld,tickDayTime=%s}",
                       (long long)age, (long long)time, tick ? "true" : "false") > 0

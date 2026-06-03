@@ -4,6 +4,7 @@ export const HS_LOGIN = 2;
 export const LOGIN = { DISCONNECT: 0x00, SUCCESS: 0x02, C2S_START: 0x00, C2S_ACK: 0x03 };
 
 export const CFG = {
+  DISCONNECT: 0x02,
   CUSTOM_PAYLOAD: 0x01,
   FINISH: 0x03,
   KEEP_ALIVE: 0x04,
@@ -18,8 +19,16 @@ export const CFG = {
   C2S_SELECT_KNOWN_PACKS: 0x07,
 };
 
+/** ClientboundGameEventPacket.Type.LEVEL_CHUNKS_LOAD_START (PlayerList.sendLevelInfo). */
+export const GAME_EVENT_LEVEL_CHUNKS_LOAD_START = 13;
+
 export const PLAY = {
   CHUNK_BATCH_FINISHED: 0x0b,
+  GAME_EVENT: 0x26,
+  MAP_CHUNK: 0x2c,
+  UPDATE_TIME: 0x6f,
+  SET_TICKING_STATE: 0x7d,
+  STEP_TICK: 0x7e,
   KEEP_ALIVE: 0x2b,
   POSITION: 0x46,
   PING: 0x3b,
