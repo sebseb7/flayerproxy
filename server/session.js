@@ -11,6 +11,7 @@ import {
 import { offlineUUID } from '../client/protocol.js';
 import { onCaptureReady, getCapture, isCaptureReady } from '../client/captureStore.js';
 import { createServerLogger } from './logger.js';
+import { logPingTickFromEnv } from '../client/logNoise.js';
 
 const HS_STATUS = 1;
 
@@ -24,15 +25,15 @@ function serverLogOptions() {
     LOG_LEVELS[process.env.MC_SERVER_LOG_LEVEL] ??
     LOG_LEVELS[process.env.MC_CLIENT_LOG_LEVEL] ??
     (debug ? LOG_LEVELS.debug : LOG_LEVELS.info);
-  return { debug, logLevel };
+  return { debug, logLevel, logPingTick: logPingTickFromEnv(process.env, 'server') };
 }
 
 /**
  * @param {import('node:net').Socket} sock
- * @param {{ logLevel?: number, debug?: boolean }} [opts]
+ * @param {{ logLevel?: number, debug?: boolean, logPingTick?: boolean }} [opts]
  */
 export function handleClient(sock, opts = {}) {
-  const { debug, logLevel } = { ...serverLogOptions(), ...opts };
+  const { debug, logLevel, logPingTick } = { ...serverLogOptions(), ...opts };
 
   let phase = 'handshake';
   let username = '';
@@ -44,6 +45,7 @@ export function handleClient(sock, opts = {}) {
     getPhase: () => phase,
     logLevel,
     debug,
+    logPingTick,
   });
 
   function setPhase(next) {
@@ -79,11 +81,17 @@ export function handleClient(sock, opts = {}) {
 
   function replayPlayJoin(sock) {
     const snap = getCapture();
+    let sent = 0;
+    let mapChunksSkipped = 0;
+
     for (const pkt of snap.playJoin) {
       send(sock, pkt.id, pkt.payload);
+      sent++;
     }
     playJoinDone = true;
-    logger.event('play_join replay', chalk.dim(`${snap.playJoin.length} S2C packets`));
+    const skipNote =
+      mapChunksSkipped > 0 ? ` (${mapChunksSkipped} map_chunk skipped)` : '';
+    logger.event('play_join replay', chalk.dim(`${sent} S2C packets${skipNote}`));
   }
 
   function beginConfig(sock) {

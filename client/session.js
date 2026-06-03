@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import chalk from 'chalk';
-import { PROTOCOL, HS_LOGIN, LOGIN, PLAY, CLIENT_TICK_MS } from './constants.js';
+import { PROTOCOL, HS_LOGIN, LOGIN, CFG, PLAY, CLIENT_TICK_MS } from './constants.js';
 import { createFrameProcessor, buildFrame, writeVarInt, writeString } from './wire.js';
 import { offlineUUID, expectedChunkGridCount } from './protocol.js';
 import { createLogger } from './logger.js';
@@ -14,7 +14,7 @@ import {
 } from './captureStore.js';
 
 export function createSession(config) {
-  const { host, port, username, debug, logLevel } = config;
+  const { host, port, username, debug, logLevel, logPingTick } = config;
 
   let phase = 'connect';
   let tickTimer = null;
@@ -39,6 +39,7 @@ export function createSession(config) {
     getPhase: () => phase,
     logLevel,
     debug,
+    logPingTick,
   });
 
   function setPhase(next) {
@@ -46,12 +47,16 @@ export function createSession(config) {
     const prev = phase;
     phase = next;
     logger.phaseChange(prev, next);
-    if (next === 'play_join' && conn) startPlayTimers(conn);
+    if (next === 'play' && conn) startPlayTimers(conn);
   }
 
   function send(sock, id, payload, detail) {
     sock.write(buildFrame(id, payload));
     logger.c2s(id, payload, detail);
+  }
+
+  function sendSilent(sock, id, payload) {
+    sock.write(buildFrame(id, payload));
   }
 
   function enterPlay(sock, reason) {
@@ -122,6 +127,7 @@ export function createSession(config) {
     getPhase: () => phase,
     logger,
     send,
+    sendSilent,
     setPhase,
     enterPlay,
     tryFinishPlayJoin,
@@ -133,9 +139,9 @@ export function createSession(config) {
 
   function startPlayTimers(sock) {
     if (tickTimer) return;
-    logger.debug('tick_end timer', chalk.dim(`${1000 / CLIENT_TICK_MS}/s during play_join+play`));
+    logger.debug('tick_end timer', chalk.dim(`${1000 / CLIENT_TICK_MS}/s during play`));
     tickTimer = setInterval(() => {
-      if (phase !== 'play_join' && phase !== 'play') return;
+      if (phase !== 'play') return;
       send(sock, PLAY.C2S_TICK_END, Buffer.alloc(0));
     }, CLIENT_TICK_MS);
   }
@@ -167,8 +173,8 @@ export function createSession(config) {
   function attach(sock) {
     conn = sock;
     const feedFrames = createFrameProcessor((id, payload) => {
-      if (phase === 'config') recordConfigS2c(id, payload);
-      else if (phase === 'play_join') recordPlayJoinS2c(id, payload);
+      if (phase === 'config' && id !== CFG.PING) recordConfigS2c(id, payload);
+      else if (phase === 'play_join' && id !== PLAY.PING) recordPlayJoinS2c(id, payload);
       onPacket(sock, id, payload);
     });
     sock.on('data', (chunk) => {

@@ -8,6 +8,9 @@
  *   MC_SERVER_PORT=25569
  *   MC_CLIENT_DEBUG=1        debug log level; log file defaults to logout (plain text)
  *   MC_CLIENT_LOG_FILE=path  log file path (plain, no ANSI); empty disables file logging
+ *   MC_LOG_PING_TICK=1       log tick_end + ping/pong + keep_alive (default: hidden)
+ *   MC_CLIENT_LOG_PING_TICK=1  same, client only
+ *   MC_SERVER_LOG_PING_TICK=1  same, replay server only
  */
 
 import net from 'node:net';
@@ -41,6 +44,7 @@ session.logger.info(
   'started',
   chalk.dim(`logLevel=${Object.keys(LOG_LEVELS).find((k) => LOG_LEVELS[k] === config.logLevel)}`) +
     (config.debug ? chalk.yellow(' MC_CLIENT_DEBUG=1') : '') +
+    (config.logPingTick ? chalk.yellow(' MC_LOG_PING_TICK=1') : '') +
     (config.logFile ? chalk.dim(` logFile=${config.logFile}`) : '') +
     (isLibchunkLoaded() ? chalk.green(' libchunk=ok') : chalk.yellow(' libchunk=off')),
 );

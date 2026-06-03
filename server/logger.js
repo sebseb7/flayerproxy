@@ -3,6 +3,7 @@ import { PLAY, CFG, LOG_LEVELS } from '../client/constants.js';
 import { s2cPacketName, c2sPacketName, c2sDecodeName } from '../client/packetNames.js';
 import { decodePayload } from '../client/decode.js';
 import { writeLogLine } from '../client/logSink.js';
+import { isNoisyC2sPacket, isNoisyS2cPacket } from '../client/logNoise.js';
 
 const PHASE_STYLE = {
   handshake: chalk.gray,
@@ -20,7 +21,12 @@ const LEVEL_TAG = {
   error: () => chalk.red.bold('ERR'),
 };
 
-export function createServerLogger({ getPhase, logLevel = LOG_LEVELS.info, debug = false }) {
+export function createServerLogger({
+  getPhase,
+  logLevel = LOG_LEVELS.info,
+  debug = false,
+  logPingTick = false,
+}) {
   const showLevelTags = logLevel >= LOG_LEVELS.debug;
 
   function emit(level, parts) {
@@ -82,6 +88,7 @@ export function createServerLogger({ getPhase, logLevel = LOG_LEVELS.info, debug
       const ph = getPhase();
       const len = payload.length;
       const name = s2cPacketName(ph, id);
+      if (!logPingTick && isNoisyS2cPacket(id)) return;
       if (id !== PLAY.KEEP_ALIVE && id !== CFG.KEEP_ALIVE && !name && len > 4096 && !debug) return;
       const nameStr = name ? chalk.white(name) : chalk.dim('?');
       const summary = name ? decodePayload(name, payload) : null;
@@ -96,7 +103,7 @@ export function createServerLogger({ getPhase, logLevel = LOG_LEVELS.info, debug
     },
     c2s(id, payload) {
       if (!can('debug')) return;
-      if (id === PLAY.C2S_TICK_END && !debug) return;
+      if (!logPingTick && isNoisyC2sPacket(id)) return;
       const ph = getPhase();
       const len = payload.length;
       const name = c2sPacketName(ph, id);

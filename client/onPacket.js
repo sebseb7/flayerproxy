@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import { LOGIN, CFG, PLAY, GAME_EVENT_LEVEL_CHUNKS_LOAD_START } from './constants.js';
-import { writeVarInt, readString } from './wire.js';
+import { writeVarInt, readVarInt, readString } from './wire.js';
 import {
   readI64BE,
   parsePosition,
@@ -18,6 +18,7 @@ export function createOnPacket(ctx) {
     getPhase,
     logger,
     send,
+    sendSilent,
     setPhase,
     tryFinishPlayJoin,
     finishPlayJoin,
@@ -27,8 +28,21 @@ export function createOnPacket(ctx) {
   } = ctx;
 
   return function onPacket(sock, id, payload) {
-    logger.s2c(id, payload);
     const phase = getPhase();
+
+    if (phase === 'config' && id === CFG.PING) {
+      const p = readVarInt(payload, 0);
+      if (p) sendSilent(sock, CFG.C2S_PONG, writeVarInt(p.value));
+      return;
+    }
+    if ((phase === 'play_join' || phase === 'play') && id === PLAY.PING) {
+      if (payload.length >= 4) {
+        sendSilent(sock, PLAY.C2S_PONG, payload.subarray(0, 4));
+      }
+      return;
+    }
+
+    logger.s2c(id, payload);
 
     if (phase === 'login') {
       if (id === LOGIN.DISCONNECT) {
@@ -61,11 +75,6 @@ export function createOnPacket(ctx) {
           out.writeBigInt64BE(k.value);
           send(sock, CFG.C2S_KEEP_ALIVE, out, chalk.dim(`id=${k.value}`));
         }
-        return;
-      }
-      if (id === CFG.PING) {
-        const p = readVarInt(payload, 0);
-        if (p) send(sock, CFG.C2S_PONG, writeVarInt(p.value), chalk.dim(`id=${p.value}`));
         return;
       }
       if (id === CFG.FINISH) {
@@ -160,12 +169,6 @@ export function createOnPacket(ctx) {
           const out = Buffer.alloc(8);
           out.writeBigInt64BE(k.value);
           send(sock, PLAY.C2S_KEEP_ALIVE, out, chalk.dim(`id=${k.value}`));
-        }
-        return;
-      }
-      if (id === PLAY.PING) {
-        if (payload.length >= 4) {
-          send(sock, PLAY.C2S_PONG, payload.subarray(0, 4));
         }
         return;
       }
