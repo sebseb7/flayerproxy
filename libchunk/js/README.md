@@ -16,9 +16,12 @@ cd js && npm install
 ```javascript
 const lc = require('@flayerproxy/libchunk');
 
-// Explicit packet name + buffer (payload may include leading packet-id varint)
+// Sniffer .wire file (leading packet-id varint + payload)
 const buf = fs.readFileSync('raw/block_change/.../x1_y2_z3.wire');
 lc.decodeWire('block_change', buf);
+
+// Live connection payload only (no packet-id prefix)
+lc.decodePayload('block_change', payloadBuffer);
 // => { ok: true, text: 'block_change location=(...) type=...' }
 
 // Infer packet from sniffer path

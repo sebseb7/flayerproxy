@@ -3,22 +3,13 @@
   "version": "1.0.0",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "sniffer": "node src/sniffer/index.js",
-    "player-map": "npm run dev --prefix player-map",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "test-client": "node client/index.js",
-    "install:fernflower": "bash scripts/install-fernflower.sh"
+    "test-client": "MC_CLIENT_LOG_FILE=chunks/client.txt MC_CLIENT_DEBUG=1 node client/index.js 127.0.0.1 25571 sebgreenbus2"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "chalk": "^4.1.2",
-    "minecraft-data": "^3.110.2",
-    "minecraft-protocol": "^1.66.2",
-    "mineflayer": "^4.37.1",
-    "prismarine-chunk": "^1.40.0"
+    "chalk": "^4.1.2"
   }
 }
