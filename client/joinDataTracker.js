@@ -14,6 +14,7 @@ const SIMPLE_KEYS = {
   abilities: 'abilities',
   difficulty: 'difficulty',
   declare_commands: 'declare_commands',
+  update_view_position: 'update_view_position',
 };
 
 const ENTITY_PARSERS = {
@@ -55,6 +56,10 @@ function serializePositionPacket(teleportId, x, y, z, yaw, pitch, flags = 0) {
   return Buffer.concat([varintBuf, fieldsBuf]);
 }
 
+function serializeUpdateViewPosition(chunkX, chunkZ) {
+  return Buffer.concat([writeVarInt(chunkX), writeVarInt(chunkZ)]);
+}
+
 export function createJoinDataTracker() {
   let ownEntityId = null;
   let teleportId = 1;
@@ -94,6 +99,11 @@ export function createJoinDataTracker() {
       0
     );
     tracked.set('position', { id: PLAY.POSITION, payload: newPayload });
+
+    const cx = Math.floor(currentPos.x / 16);
+    const cz = Math.floor(currentPos.z / 16);
+    const uvpPayload = serializeUpdateViewPosition(cx, cz);
+    tracked.set('update_view_position', { id: PLAY.UPDATE_VIEW_POSITION, payload: uvpPayload });
   }
 
   function noteS2c(id, payload) {
