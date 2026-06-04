@@ -1,4 +1,6 @@
 import chalk from 'chalk';
+import crypto from 'node:crypto';
+import https from 'node:https';
 import { LOGIN, CFG, PLAY, GAME_EVENT_LEVEL_CHUNKS_LOAD_START } from './constants.js';
 import { writeVarInt, readVarInt, readString } from './wire.js';
 import { getDownstreamClient, recordPlayJoinS2c, trackPlayPacket } from './captureStore.js';
@@ -22,6 +24,95 @@ const {
 
 
 
+function parseEncryptionBegin(payload) {
+  let off = 0;
+  const serverIdResult = readString(payload, off);
+  if (!serverIdResult) throw new Error('failed to read serverId');
+  const serverId = serverIdResult.value;
+  off = serverIdResult.next;
+
+  const pkLenResult = readVarInt(payload, off);
+  if (!pkLenResult) throw new Error('failed to read publicKey len');
+  off = pkLenResult.next;
+  const publicKey = payload.subarray(off, off + pkLenResult.value);
+  off += pkLenResult.value;
+
+  const vtLenResult = readVarInt(payload, off);
+  if (!vtLenResult) throw new Error('failed to read verifyToken len');
+  off = vtLenResult.next;
+  const verifyToken = payload.subarray(off, off + vtLenResult.value);
+  off += vtLenResult.value;
+
+  let shouldAuthenticate = true;
+  if (off < payload.length) {
+    shouldAuthenticate = payload[off] !== 0;
+  }
+
+  return { serverId, publicKey, verifyToken, shouldAuthenticate };
+}
+
+function minecraftHash(serverId, sharedSecret, publicKey) {
+  const sha = crypto.createHash('sha1');
+  sha.update(serverId);
+  sha.update(sharedSecret);
+  sha.update(publicKey);
+  const hash = sha.digest();
+
+  const isNegative = (hash[0] & 0x80) !== 0;
+  if (isNegative) {
+    const inverted = Buffer.alloc(hash.length);
+    let carry = 1;
+    for (let i = hash.length - 1; i >= 0; i--) {
+      const val = (~hash[i] & 0xff) + carry;
+      inverted[i] = val & 0xff;
+      carry = val >> 8;
+    }
+    let hex = inverted.toString('hex').replace(/^0+/, '');
+    return '-' + hex;
+  } else {
+    return hash.toString('hex').replace(/^0+/, '');
+  }
+}
+
+function mojangSessionJoin(accessToken, profileId, serverIdHash) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({
+      accessToken,
+      selectedProfile: profileId,
+      serverId: serverIdHash,
+    });
+
+    const req = https.request({
+      hostname: 'sessionserver.mojang.com',
+      port: 443,
+      path: '/session/minecraft/join',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+        'User-Agent': 'flayerproxy-mc_client',
+      },
+    }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        if (res.statusCode === 204) {
+          resolve();
+        } else {
+          reject(new Error(`Mojang join failed (status ${res.statusCode}): ${data}`));
+        }
+      });
+    });
+
+    req.on('error', (err) => {
+      reject(err);
+    });
+
+    req.write(body);
+    req.end();
+  });
+}
+
 /** @param {object} ctx session callbacks + mutable `state` for play-join flags */
 export function createOnPacket(ctx) {
   const {
@@ -36,6 +127,10 @@ export function createOnPacket(ctx) {
     notePlayJoinPacket,
     writeMapChunk,
     state,
+    accessToken,
+    profileId,
+    enableEncryption,
+    setCompressThreshold,
   } = ctx;
 
   return function onPacket(sock, id, payload) {
@@ -64,6 +159,62 @@ export function createOnPacket(ctx) {
       if (id === LOGIN.DISCONNECT) {
         const msg = readString(payload, 0);
         throw new Error('login disconnect: ' + (msg ? msg.value : '?'));
+      }
+      if (id === LOGIN.COMPRESS) {
+        const threshResult = readVarInt(payload, 0);
+        if (threshResult) {
+          const threshold = threshResult.value;
+          logger.info('compression', chalk.green(`compression enabled (threshold=${threshold})`));
+          setCompressThreshold(threshold);
+        }
+        return;
+      }
+      if (id === LOGIN.ENCRYPTION_BEGIN) {
+        void (async () => {
+          try {
+            const { serverId, publicKey, verifyToken, shouldAuthenticate } = parseEncryptionBegin(payload);
+
+            const sharedSecret = crypto.randomBytes(16);
+
+            if (shouldAuthenticate) {
+              if (!accessToken || !profileId) {
+                throw new Error('online-mode server requires auth; set MC_ACCESS_TOKEN + MC_PROFILE_ID or run from repo root for MSA login');
+              }
+              const serverHash = minecraftHash(serverId, sharedSecret, publicKey);
+              logger.info('auth', chalk.dim('Mojang session join...'));
+              await mojangSessionJoin(accessToken, profileId, serverHash);
+            }
+
+            const encryptedSharedSecret = crypto.publicEncrypt({
+              key: publicKey,
+              format: 'der',
+              type: 'spki',
+              padding: crypto.constants.RSA_PKCS1_PADDING,
+            }, sharedSecret);
+
+            const encryptedVerifyToken = crypto.publicEncrypt({
+              key: publicKey,
+              format: 'der',
+              type: 'spki',
+              padding: crypto.constants.RSA_PKCS1_PADDING,
+            }, verifyToken);
+
+            const responseBody = Buffer.concat([
+              writeVarInt(encryptedSharedSecret.length),
+              encryptedSharedSecret,
+              writeVarInt(encryptedVerifyToken.length),
+              encryptedVerifyToken,
+            ]);
+
+            send(sock, LOGIN.C2S_ENCRYPTION_BEGIN, responseBody, chalk.dim('encryption_begin response'));
+
+            enableEncryption(sharedSecret);
+          } catch (err) {
+            logger.error('encryption_begin failed', chalk.red(err.message));
+            sock.destroy();
+          }
+        })();
+        return;
       }
       if (id === LOGIN.SUCCESS) {
         send(sock, LOGIN.C2S_ACK, Buffer.alloc(0));

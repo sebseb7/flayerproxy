@@ -452,6 +452,23 @@ int lc_c2s_recipe_book_seen_recipe_to_string(const lc_c2s_recipe_book_seen_recip
   return lc_snprintf(buf, buflen, "c2s_recipe_book_seen_recipe{recipeId=%d}", p->recipe_id);
 }
 
+static const char *c2s_recipe_book_type_name(int32_t t) {
+  switch (t) {
+    case 0: return "CRAFTING";
+    case 1: return "FURNACE";
+    case 2: return "BLAST_FURNACE";
+    case 3: return "SMOKER";
+    default: return "?";
+  }
+}
+
+int lc_c2s_recipe_book_change_settings_to_string(const lc_c2s_recipe_book_change_settings *p, char *buf, size_t buflen) {
+  if (!p || !buf || buflen == 0) return 0;
+  return lc_snprintf(buf, buflen, "c2s_recipe_book_change_settings{bookType=%s,open=%d,filtering=%d}",
+                     c2s_recipe_book_type_name(p->book_type), p->is_open, p->is_filtering);
+}
+
+
 int lc_block_action_to_string(const lc_block_action *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;
   return lc_snprintf(buf, buflen, "block_action{pos=(%d,%d,%d),action=%d,param=%d,block=%d}",

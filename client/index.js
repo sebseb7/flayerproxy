@@ -1,22 +1,6 @@
-#!/usr/bin/env node
-
-/**
- * flayerproxy capture app (protocol 773): upstream client records config + play_join;
- * replay server starts listening only after play_join → play (capture complete).
- *
- * Usage: node client/index.js [--auto-respawn] [upstreamHost] [upstreamPort] [username]
- *   --auto-respawn           send PERFORM_RESPAWN on join death (default: off)
- *   MC_CLIENT_AUTO_RESPAWN=1 same as --auto-respawn
- *   MC_SERVER_PORT=25569
- *   MC_CLIENT_DEBUG=1        debug log level; log file defaults to logout (plain text)
- *   MC_CLIENT_LOG_FILE=path  log file path (plain, no ANSI); empty disables file logging
- *   MC_LOG_PING_TICK=1       log tick_end + ping/pong + keep_alive (default: hidden)
- *   MC_CLIENT_LOG_PING_TICK=1  same, client only
- *   MC_SERVER_LOG_PING_TICK=1  same, replay server only
- */
-
 import fs from 'node:fs';
 import net from 'node:net';
+import dns from 'node:dns/promises';
 import chalk from 'chalk';
 import { resetCapture, onCaptureReady } from './captureStore.js';
 import { startCaptureServer } from '../server/index.js';
@@ -60,8 +44,26 @@ session.logger.info(
 );
 session.logger.info('upstream', chalk.white(`${config.host}:${config.port}`));
 
+let connectHost = config.host;
+let connectPort = config.port;
+
+const isIp = net.isIP(config.host);
+if (!isIp && config.host !== 'localhost') {
+  try {
+    const records = await dns.resolveSrv(`_minecraft._tcp.${config.host}`);
+    if (records && records.length > 0) {
+      const record = records[0];
+      connectHost = record.name;
+      connectPort = record.port;
+      session.logger.info('dns', chalk.dim(`SRV ${config.host} -> ${connectHost}:${connectPort}`));
+    }
+  } catch (e) {
+    // fallback to original host/port
+  }
+}
+
 const sock = net.createConnection(
-  { host: config.host, port: config.port },
+  { host: connectHost, port: connectPort },
   () => {
     sock.setNoDelay(true);
     session.onConnect(sock);
@@ -76,3 +78,4 @@ process.on('SIGINT', () => {
   sock.destroy();
   process.exit(0);
 });
+

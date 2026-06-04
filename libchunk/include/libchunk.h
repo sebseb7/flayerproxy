@@ -434,6 +434,12 @@ typedef struct lc_c2s_recipe_book_seen_recipe {
   int32_t recipe_id;
 } lc_c2s_recipe_book_seen_recipe;
 
+typedef struct lc_c2s_recipe_book_change_settings {
+  int32_t book_type;
+  uint8_t is_open;
+  uint8_t is_filtering;
+} lc_c2s_recipe_book_change_settings;
+
 
 typedef struct lc_respawn {
   lc_spawn_info world_state;
@@ -693,6 +699,8 @@ lc_status lc_parse_c2s_arm_animation(const uint8_t *data, size_t len, lc_c2s_arm
 lc_status lc_parse_c2s_interact(const uint8_t *data, size_t len, lc_c2s_interact *out);
 lc_status lc_parse_c2s_container_close(const uint8_t *data, size_t len, lc_c2s_container_close *out);
 lc_status lc_parse_c2s_recipe_book_seen_recipe(const uint8_t *data, size_t len, lc_c2s_recipe_book_seen_recipe *out);
+lc_status lc_parse_c2s_recipe_book_change_settings(const uint8_t *data, size_t len, lc_c2s_recipe_book_change_settings *out);
+
 
 lc_status lc_parse_respawn(const uint8_t *data, size_t len, lc_respawn *out);
 lc_status lc_parse_initialize_world_border(const uint8_t *data, size_t len, lc_initialize_world_border *out);
@@ -801,6 +809,8 @@ int lc_c2s_arm_animation_to_string(const lc_c2s_arm_animation *p, char *buf, siz
 int lc_c2s_interact_to_string(const lc_c2s_interact *p, char *buf, size_t buflen);
 int lc_c2s_container_close_to_string(const lc_c2s_container_close *p, char *buf, size_t buflen);
 int lc_c2s_recipe_book_seen_recipe_to_string(const lc_c2s_recipe_book_seen_recipe *p, char *buf, size_t buflen);
+int lc_c2s_recipe_book_change_settings_to_string(const lc_c2s_recipe_book_change_settings *p, char *buf, size_t buflen);
+
 
 int lc_respawn_to_string(const lc_respawn *p, char *buf, size_t buflen);
 int lc_world_event_to_string(const lc_world_event *p, char *buf, size_t buflen);

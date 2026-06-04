@@ -843,6 +843,17 @@ lc_status lc_parse_c2s_recipe_book_seen_recipe(const uint8_t *data, size_t len, 
   return LC_OK;
 }
 
+lc_status lc_parse_c2s_recipe_book_change_settings(const uint8_t *data, size_t len, lc_c2s_recipe_book_change_settings *out) {
+  memset(out, 0, sizeof(*out));
+  lc_buf b;
+  lc_buf_init(&b, data, len);
+  if (lc_buf_read_varint(&b, &out->book_type) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_bool(&b, &out->is_open) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_bool(&b, &out->is_filtering) != LC_OK) return LC_ERR_TRUNCATED;
+  return LC_OK;
+}
+
+
 lc_status lc_parse_block_action(const uint8_t *data, size_t len, lc_block_action *out) {
   memset(out, 0, sizeof(*out));
   lc_buf b;

@@ -1,6 +1,8 @@
 import fsSync from 'node:fs';
+import zlib from 'node:zlib';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import chalk from 'chalk';
 import { PROTOCOL, HS_LOGIN, LOGIN, CFG, PLAY, CLIENT_TICK_MS } from './constants.js';
 import { createFrameProcessor, buildFrame, writeVarInt, writeString } from './wire.js';
@@ -53,9 +55,66 @@ function loadSavedChunkCoordsSync() {
   return coords;
 }
 
+function readVarIntJS(buf, offset = 0) {
+  let value = 0;
+  let size = 0;
+  let b;
+  while (true) {
+    if (offset + size >= buf.length) {
+      return null;
+    }
+    b = buf[offset + size];
+    value |= (b & 0x7f) << (size * 7);
+    size++;
+    if ((b & 0x80) === 0) {
+      break;
+    }
+    if (size >= 5) {
+      throw new Error('VarInt too big');
+    }
+  }
+  return { value, next: offset + size };
+}
+
+function writeVarIntJS(value) {
+  const bytes = [];
+  let uval = value >>> 0;
+  while (true) {
+    let temp = uval & 0x7f;
+    uval >>>= 7;
+    if (uval !== 0) {
+      temp |= 0x80;
+    }
+    bytes.push(temp);
+    if (uval === 0) {
+      break;
+    }
+  }
+  return Buffer.from(bytes);
+}
+
+function buildFrameJS(id, payload, compressThreshold) {
+  if (payload === undefined) payload = Buffer.alloc(0);
+  if (!Buffer.isBuffer(payload)) payload = Buffer.from(payload);
+
+  if (compressThreshold >= 0) {
+    const uncompressedPacket = Buffer.concat([writeVarIntJS(id), payload]);
+    let packetBody;
+    if (uncompressedPacket.length < compressThreshold) {
+      packetBody = Buffer.concat([writeVarIntJS(0), uncompressedPacket]);
+    } else {
+      const compressedData = zlib.deflateSync(uncompressedPacket);
+      packetBody = Buffer.concat([writeVarIntJS(uncompressedPacket.length), compressedData]);
+    }
+    return Buffer.concat([writeVarIntJS(packetBody.length), packetBody]);
+  } else {
+    const packetBody = Buffer.concat([writeVarIntJS(id), payload]);
+    return Buffer.concat([writeVarIntJS(packetBody.length), packetBody]);
+  }
+}
 
 export function createSession(config) {
-  const { host, port, username, debug, logLevel, logPingTick, autoRespawn = false } = config;
+  const { host, port, username, debug, logLevel, logPingTick, autoRespawn = false, accessToken, profileId } = config;
 
   let phase = 'connect';
   let tickTimer = null;
@@ -63,6 +122,16 @@ export function createSession(config) {
   let conn = null;
   let joinBurstLogged = false;
   const chunkDirsReady = new Set();
+
+  let cipher = null;
+  let decipher = null;
+  let compressThreshold = -1;
+
+  function enableEncryption(sharedSecret) {
+    cipher = crypto.createCipheriv('aes-128-cfb8', sharedSecret, sharedSecret);
+    decipher = crypto.createDecipheriv('aes-128-cfb8', sharedSecret, sharedSecret);
+    logger.info('encryption', chalk.green('AES-128-CFB8 encryption enabled'));
+  }
 
   const state = {
     entityId: null,
@@ -101,7 +170,9 @@ export function createSession(config) {
   }
 
   function send(sock, id, payload, detail) {
-    sock.write(buildFrame(id, payload));
+    const rawFrame = buildFrameJS(id, payload, compressThreshold);
+    const encryptedFrame = cipher ? cipher.update(rawFrame) : rawFrame;
+    sock.write(encryptedFrame);
     if (phase === 'play_join' || phase === 'play') {
       trackC2sPacket(id, payload);
     }
@@ -109,7 +180,9 @@ export function createSession(config) {
   }
 
   function sendSilent(sock, id, payload) {
-    sock.write(buildFrame(id, payload));
+    const rawFrame = buildFrameJS(id, payload, compressThreshold);
+    const encryptedFrame = cipher ? cipher.update(rawFrame) : rawFrame;
+    sock.write(encryptedFrame);
   }
 
   function resetPlayJoinState() {
@@ -260,6 +333,12 @@ export function createSession(config) {
     notePlayJoinPacket,
     writeMapChunk,
     state,
+    accessToken,
+    profileId,
+    enableEncryption,
+    setCompressThreshold: (threshold) => {
+      compressThreshold = threshold;
+    },
   });
 
   function startPlayTimers(sock) {
@@ -306,20 +385,82 @@ export function createSession(config) {
     setUpstreamClient(sock, () => phase, (id, payload, detail) => {
       send(sock, id, payload, detail);
     });
-    const feedFrames = createFrameProcessor((id, payload) => {
-      if (phase === 'config' && id !== CFG.PING) {
-        recordConfigS2c(id, payload);
-      } else if (phase === 'play_join' && id !== PLAY.PING) {
-        recordPlayJoinS2c(id, payload);
+    let incomingBuffer = Buffer.alloc(0);
+
+    const feedFrames = (chunk) => {
+      incomingBuffer = Buffer.concat([incomingBuffer, chunk]);
+
+      while (incomingBuffer.length > 0) {
+        const lengthResult = readVarIntJS(incomingBuffer, 0);
+        if (!lengthResult) {
+          break;
+        }
+        const totalLength = lengthResult.value;
+        const headerSize = lengthResult.next;
+
+        if (incomingBuffer.length < headerSize + totalLength) {
+          break;
+        }
+
+        const packetBody = incomingBuffer.subarray(headerSize, headerSize + totalLength);
+        incomingBuffer = incomingBuffer.subarray(headerSize + totalLength);
+
+        let id;
+        let payload;
+
+        if (compressThreshold >= 0) {
+          const uncompressedLenResult = readVarIntJS(packetBody, 0);
+          if (!uncompressedLenResult) {
+            throw new Error('Invalid compressed packet: failed to read uncompressed length');
+          }
+          const uncompressedLen = uncompressedLenResult.value;
+          const bodyHeaderSize = uncompressedLenResult.next;
+
+          let uncompressedData;
+          if (uncompressedLen === 0) {
+            uncompressedData = packetBody.subarray(bodyHeaderSize);
+          } else {
+            const compressedData = packetBody.subarray(bodyHeaderSize);
+            uncompressedData = zlib.inflateSync(compressedData);
+            if (uncompressedData.length !== uncompressedLen) {
+              throw new Error(`Invalid decompressed length: expected ${uncompressedLen}, got ${uncompressedData.length}`);
+            }
+          }
+
+          const idResult = readVarIntJS(uncompressedData, 0);
+          if (!idResult) {
+            throw new Error('Invalid decompressed packet: failed to read packet ID');
+          }
+          id = idResult.value;
+          payload = uncompressedData.subarray(idResult.next);
+        } else {
+          const idResult = readVarIntJS(packetBody, 0);
+          if (!idResult) {
+            throw new Error('Invalid packet: failed to read packet ID');
+          }
+          id = idResult.value;
+          payload = packetBody.subarray(idResult.next);
+        }
+
+        if (phase === 'config' && id !== CFG.PING) {
+          recordConfigS2c(id, payload);
+        } else if (phase === 'play_join' && id !== PLAY.PING) {
+          recordPlayJoinS2c(id, payload);
+        }
+        if ((phase === 'play_join' || phase === 'play') && id !== PLAY.PING) {
+          trackPlayPacket(id, payload);
+        }
+        onPacket(sock, id, payload);
       }
-      if ((phase === 'play_join' || phase === 'play') && id !== PLAY.PING) {
-        trackPlayPacket(id, payload);
-      }
-      onPacket(sock, id, payload);
-    });
+    };
+
+    feedFrames.reset = () => {
+      incomingBuffer = Buffer.alloc(0);
+    };
     sock.on('data', (chunk) => {
       try {
-        feedFrames(chunk);
+        const decrypted = decipher ? decipher.update(chunk) : chunk;
+        feedFrames(decrypted);
       } catch (e) {
         logger.error(e.message);
         sock.destroy();

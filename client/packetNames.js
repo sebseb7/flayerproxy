@@ -30,7 +30,12 @@ export function s2cPacketName(ph, id) {
     if (id === 0x00) return 'status_response';
     if (id === 0x01) return 'pong';
   }
-  if (ph === 'login' && id === LOGIN.SUCCESS) return 'success';
+  if (ph === 'login') {
+    if (id === LOGIN.DISCONNECT) return 'login_disconnect';
+    if (id === LOGIN.ENCRYPTION_BEGIN) return 'encryption_begin';
+    if (id === LOGIN.SUCCESS) return 'success';
+    if (id === LOGIN.COMPRESS) return 'login_compression';
+  }
   if (ph === 'config' && id === CFG.DISCONNECT) return 'configuration_disconnect';
   if (isPlayPhase(ph)) {
     const n = playS2cById[id];
@@ -80,6 +85,7 @@ export function c2sPacketName(ph, id) {
     if (id === PLAY.C2S_CONTAINER_CLOSE) return 'container_close';
     if (id === PLAY.C2S_CONTAINER_CLICK) return 'container_click';
     if (id === PLAY.C2S_RECIPE_BOOK_SEEN_RECIPE) return 'recipe_book_seen_recipe';
+    if (id === PLAY.C2S_RECIPE_BOOK_CHANGE_SETTINGS) return 'recipe_book_change_settings';
     if (id === PLAY.C2S_BLOCK_PLACE) return 'block_place';
     if (id === PLAY.C2S_USE_ITEM) return 'use_item';
     if (id === PLAY.C2S_INTERACT) return 'interact';
@@ -105,6 +111,7 @@ export function c2sDecodeName(ph, id) {
     if (id === PLAY.C2S_CONTAINER_CLOSE) return 'c2s_container_close';
     if (id === PLAY.C2S_CONTAINER_CLICK) return 'c2s_container_click';
     if (id === PLAY.C2S_RECIPE_BOOK_SEEN_RECIPE) return 'c2s_recipe_book_seen_recipe';
+    if (id === PLAY.C2S_RECIPE_BOOK_CHANGE_SETTINGS) return 'c2s_recipe_book_change_settings';
     if (id === PLAY.C2S_INTERACT) return 'c2s_interact';
   }
   return null;

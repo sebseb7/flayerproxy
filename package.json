@@ -4,7 +4,7 @@
   "main": "client/index.js",
   "type": "module",
   "scripts": {
-    "start": "MC_CLIENT_LOG_FILE=chunks/client-sebgreenbus3.txt MC_CLIENT_DEBUG=1 node client/index.js 127.0.0.1 25571 sebgreenbus3 --block-packets=animation,arm_animation,block_change,block_place,bundle_delimiter,container_close,damage_event,enter_combat_event,entity_action,entity_destroy,entity_equipment,entity_head_rotation,entity_look,entity_metadata,entity_move_look,entity_status,entity_update_attributes,entity_velocity,game_state_change,held_item_slot,hurt_animation,map_chunk,move_rot,move_status,multi_block_change,player_info,player_input,position,position_look,rel_entity_move,set_passengers,sound_effect,spawn_entity,sync_entity_position,unload_chunk,update_health,update_light,update_time,update_view_position,world_event,world_particles,tile_entity_data,player_loaded,experience,advancements,declare_commands,set_slot,window_items,step_tick,set_ticking_state,simulation_distance,update_view_distance,spawn_position,initialize_world_border,system_chat,teleport_confirm,recipe_book_add,recipe_book_settings,update_recipes,abilities,difficulty,login,finish_configuration,server_data,registry_data,select_known_packs,feature_flags,custom_payload,client_information,tags,close_window,respawn,end_combat_event,death_combat_event,client_command,collect,interact",
+    "start": "MC_CLIENT_LOG_FILE=chunks/client-sebgreenbus3.txt MC_CLIENT_DEBUG=1 node client/index.js 127.0.0.1 25571 sebgreenbus3 --block-packets=animation,arm_animation,block_change,block_place,bundle_delimiter,container_close,damage_event,enter_combat_event,entity_action,entity_destroy,entity_equipment,entity_head_rotation,entity_look,entity_metadata,entity_move_look,entity_status,entity_update_attributes,entity_velocity,game_state_change,held_item_slot,hurt_animation,map_chunk,move_rot,move_status,multi_block_change,player_info,player_input,position,position_look,rel_entity_move,set_passengers,sound_effect,spawn_entity,sync_entity_position,unload_chunk,update_health,update_light,update_time,update_view_position,world_event,world_particles,tile_entity_data,player_loaded,experience,advancements,declare_commands,set_slot,window_items,step_tick,set_ticking_state,simulation_distance,update_view_distance,spawn_position,initialize_world_border,system_chat,teleport_confirm,recipe_book_add,recipe_book_settings,update_recipes,abilities,difficulty,login,finish_configuration,server_data,registry_data,select_known_packs,feature_flags,custom_payload,client_information,tags,close_window,respawn,end_combat_event,death_combat_event,client_command,collect,interact,block_dig,use_item,recipe_book_seen_recipe,open_window,set_player_inventory,container_click,set_cursor_item,explosion",
     "test-client": "MC_CLIENT_LOG_FILE=chunks/client.txt MC_CLIENT_DEBUG=1 node client/index.js 127.0.0.1 25571 sebgreenbus2"
   },
   "keywords": [],
@@ -13,6 +13,7 @@
   "description": "",
   "dependencies": {
     "chalk": "^4.1.2",
-    "minecraft-data": "^3.110.2"
+    "minecraft-data": "^3.110.2",
+    "prismarine-auth": "^3.1.1"
   }
 }

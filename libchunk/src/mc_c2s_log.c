@@ -100,6 +100,12 @@ static const char *direction_name(uint8_t v) {
 static const char *hand_name(int32_t hand) {
   return hand == 0 ? "MAIN_HAND" : hand == 1 ? "OFF_HAND" : "?";
 }
+
+static const char *recipe_book_type_name(int32_t type) {
+  static const char *names[] = {"CRAFTING", "FURNACE", "BLAST_FURNACE", "SMOKER"};
+  if (type < 0 || (size_t)type >= sizeof names / sizeof names[0]) return "?";
+  return names[type];
+}
 /* Good for: Unpack packed block position from long.
  * Callers: mc_c2s_log.c (same file).
  */
@@ -426,6 +432,17 @@ void mc_log_c2s_play(const char *username, int32_t pkt_id, const uint8_t *payloa
     case MC_PKT_C2S_SET_CARRIED_ITEM:
       log_varint_field(who, pkt_id, name, "slot", &b);
       return;
+
+    case MC_PKT_C2S_RECIPE_BOOK_CHANGE_SETTINGS: {
+      lc_c2s_recipe_book_change_settings p;
+      if (lc_parse_c2s_recipe_book_change_settings(payload, payload_len, &p) == LC_OK) {
+        MC_LOGI("c2s", "%s C2S 0x%02x %s bookType=%s open=%d filtering=%d",
+                who, pkt_id, name, recipe_book_type_name(p.book_type), p.is_open, p.is_filtering);
+      } else {
+        log_remaining_hex(who, pkt_id, name, &b);
+      }
+      return;
+    }
 
     default: {
       char hex[160];

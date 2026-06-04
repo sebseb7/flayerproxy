@@ -39,6 +39,7 @@ int lc_packet_name_supported(const char *name) {
       "c2s_interact",
       "c2s_container_close",
       "c2s_recipe_book_seen_recipe",
+      "c2s_recipe_book_change_settings",
       "respawn",
       "world_event",
       "block_action",
@@ -236,6 +237,10 @@ int lc_decode_payload_to_string(const char *name, const uint8_t *payload, size_t
     lc_c2s_recipe_book_seen_recipe p;
     st = lc_parse_c2s_recipe_book_seen_recipe(payload, payload_len, &p);
     if (st == LC_OK) lc_c2s_recipe_book_seen_recipe_to_string(&p, out, out_sz);
+  } else if (strcmp(name, "c2s_recipe_book_change_settings") == 0) {
+    lc_c2s_recipe_book_change_settings p;
+    st = lc_parse_c2s_recipe_book_change_settings(payload, payload_len, &p);
+    if (st == LC_OK) lc_c2s_recipe_book_change_settings_to_string(&p, out, out_sz);
   } else if (strcmp(name, "respawn") == 0) {
     lc_respawn p;
     memset(&p, 0, sizeof p);
