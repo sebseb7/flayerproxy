@@ -97,6 +97,13 @@ export function createLogger({ getPhase, logLevel, debug, logPingTick = false })
     },
 
     s2c(id, payload, detail) {
+      // Feed the entity tracker independently of debug logging — the tracker is
+      // core state used by the replay server, not just a debug aid.
+      if (entityTracker && Buffer.isBuffer(payload)) {
+        const ph = getPhase();
+        const name = s2cPacketName(ph, id);
+        if (name) entityTracker.noteS2c(name, payload);
+      }
       if (!this._can('debug')) return;
       const ph = getPhase();
       const len = payload.length;
