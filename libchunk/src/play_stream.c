@@ -36,8 +36,8 @@ static lc_status parse_spawn_position(const uint8_t *data, size_t len, char *dim
   snprintf(dim, dim_sz, "%s", dn ? dn : "");
   free(dn);
   if (lc_buf_read_position(&b, loc) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f32_le(&b, yaw) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f32_le(&b, pitch) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f32_be(&b, yaw) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f32_be(&b, pitch) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
 /* Good for: Decode Login play packet to debug string.
@@ -221,9 +221,9 @@ static int decode_entity_teleport(const uint8_t *payload, size_t payload_len, ch
   int8_t yaw, pitch;
   uint8_t on_ground;
   if (lc_buf_read_varint(&b, &entity_id) != LC_OK) return -1;
-  if (lc_buf_read_f64_le(&b, &x) != LC_OK) return -1;
-  if (lc_buf_read_f64_le(&b, &y) != LC_OK) return -1;
-  if (lc_buf_read_f64_le(&b, &z) != LC_OK) return -1;
+  if (lc_buf_read_f64_be(&b, &x) != LC_OK) return -1;
+  if (lc_buf_read_f64_be(&b, &y) != LC_OK) return -1;
+  if (lc_buf_read_f64_be(&b, &z) != LC_OK) return -1;
   if (lc_buf_read_i8(&b, &yaw) != LC_OK) return -1;
   if (lc_buf_read_i8(&b, &pitch) != LC_OK) return -1;
   if (lc_buf_read_bool(&b, &on_ground) != LC_OK) return -1;
@@ -411,9 +411,9 @@ int lc_decode_play_stream_to_string(const char *name, const uint8_t *payload, si
     lc_buf_init(&b, payload, payload_len);
     float health, sat;
     int32_t food;
-    if (lc_buf_read_f32_le(&b, &health) != LC_OK) return -1;
+    if (lc_buf_read_f32_be(&b, &health) != LC_OK) return -1;
     if (lc_buf_read_varint(&b, &food) != LC_OK) return -1;
-    if (lc_buf_read_f32_le(&b, &sat) != LC_OK) return -1;
+    if (lc_buf_read_f32_be(&b, &sat) != LC_OK) return -1;
     return lc_snprintf(out, out_sz, "update_health{health=%.1f,food=%d,saturation=%.2f}", health, food,
                       sat) > 0
                ? 1
@@ -424,7 +424,7 @@ int lc_decode_play_stream_to_string(const char *name, const uint8_t *payload, si
     lc_buf_init(&b, payload, payload_len);
     float bar;
     int32_t level, total;
-    if (lc_buf_read_f32_le(&b, &bar) != LC_OK) return -1;
+    if (lc_buf_read_f32_be(&b, &bar) != LC_OK) return -1;
     if (lc_buf_read_varint(&b, &level) != LC_OK) return -1;
     if (lc_buf_read_varint(&b, &total) != LC_OK) return -1;
     return lc_snprintf(out, out_sz, "experience{bar=%.3f,level=%d,totalXp=%d}", bar, level, total) > 0
@@ -437,8 +437,8 @@ int lc_decode_play_stream_to_string(const char *name, const uint8_t *payload, si
     int8_t flags;
     float fly, walk;
     if (lc_buf_read_i8(&b, &flags) != LC_OK) return -1;
-    if (lc_buf_read_f32_le(&b, &fly) != LC_OK) return -1;
-    if (lc_buf_read_f32_le(&b, &walk) != LC_OK) return -1;
+    if (lc_buf_read_f32_be(&b, &fly) != LC_OK) return -1;
+    if (lc_buf_read_f32_be(&b, &walk) != LC_OK) return -1;
     return lc_snprintf(out, out_sz, "abilities{flags=0x%02x,flyingSpeed=%.3f,walkingSpeed=%.3f}",
                       (unsigned)(uint8_t)flags, fly, walk) > 0
                ? 1
@@ -485,7 +485,7 @@ int lc_decode_play_stream_to_string(const char *name, const uint8_t *payload, si
     uint8_t reason;
     float mode;
     if (lc_buf_read_u8(&b, &reason) != LC_OK) return -1;
-    if (lc_buf_read_f32_le(&b, &mode) != LC_OK) return -1;
+    if (lc_buf_read_f32_be(&b, &mode) != LC_OK) return -1;
     return lc_snprintf(out, out_sz, "game_state_change{reason=%u,value=%.3f}", (unsigned)reason,
                       mode) > 0
                ? 1
@@ -525,15 +525,15 @@ int lc_decode_play_stream_to_string(const char *name, const uint8_t *payload, si
     lc_buf b;
     lc_buf_init(&b, payload, payload_len);
     double x, z;
-    if (lc_buf_read_f64_le(&b, &x) != LC_OK) return -1;
-    if (lc_buf_read_f64_le(&b, &z) != LC_OK) return -1;
+    if (lc_buf_read_f64_be(&b, &x) != LC_OK) return -1;
+    if (lc_buf_read_f64_be(&b, &z) != LC_OK) return -1;
     return lc_snprintf(out, out_sz, "world_border_center{x=%.1f,z=%.1f}", x, z) > 0 ? 1 : -1;
   }
   if (strcmp(name, "world_border_size") == 0) {
     lc_buf b;
     lc_buf_init(&b, payload, payload_len);
     double d;
-    if (lc_buf_read_f64_le(&b, &d) != LC_OK) return -1;
+    if (lc_buf_read_f64_be(&b, &d) != LC_OK) return -1;
     return lc_snprintf(out, out_sz, "world_border_size{diameter=%.0f}", d) > 0 ? 1 : -1;
   }
   if (strcmp(name, "world_border_lerp_size") == 0) {
@@ -541,8 +541,8 @@ int lc_decode_play_stream_to_string(const char *name, const uint8_t *payload, si
     lc_buf_init(&b, payload, payload_len);
     double old_d, new_d;
     int64_t time;
-    if (lc_buf_read_f64_le(&b, &old_d) != LC_OK) return -1;
-    if (lc_buf_read_f64_le(&b, &new_d) != LC_OK) return -1;
+    if (lc_buf_read_f64_be(&b, &old_d) != LC_OK) return -1;
+    if (lc_buf_read_f64_be(&b, &new_d) != LC_OK) return -1;
     if (lc_buf_read_varlong(&b, &time) != LC_OK) return -1;
     return lc_snprintf(out, out_sz, "world_border_lerp_size{old=%.0f,new=%.0f,timeMs=%lld}", old_d,
                       new_d, (long long)time) > 0

@@ -526,6 +526,30 @@ typedef struct lc_world_event {
   uint8_t global;
 } lc_world_event;
 
+typedef struct lc_block_action {
+  lc_block_pos pos;
+  uint8_t b0;   /* action id */
+  uint8_t b1;   /* action param */
+  int32_t block_type; /* varint block registry id */
+} lc_block_action;
+
+typedef struct lc_explosion {
+  double x, y, z;     /* center */
+  float  radius;
+  int32_t block_count;
+  uint8_t has_knockback;
+  double knock_x, knock_y, knock_z;
+} lc_explosion;
+
+typedef struct lc_c2s_container_click {
+  int32_t container_id;
+  int32_t state_id;
+  int16_t slot_num;
+  int8_t  button_num;
+  int32_t click_type;    /* ClickType varint: 0=PICKUP..6=PICKUP_ALL */
+  int32_t changed_slots_count;
+} lc_c2s_container_click;
+
 
 
 /* --- merged chunk column --- */
@@ -669,6 +693,9 @@ lc_status lc_parse_set_ticking_state(const uint8_t *data, size_t len, lc_set_tic
 lc_status lc_parse_update_health(const uint8_t *data, size_t len, lc_update_health *out);
 lc_status lc_parse_update_view_position(const uint8_t *data, size_t len, lc_update_view_position *out);
 lc_status lc_parse_world_event(const uint8_t *data, size_t len, lc_world_event *out);
+lc_status lc_parse_block_action(const uint8_t *data, size_t len, lc_block_action *out);
+lc_status lc_parse_explosion(const uint8_t *data, size_t len, lc_explosion *out);
+lc_status lc_parse_c2s_container_click(const uint8_t *data, size_t len, lc_c2s_container_click *out);
 
 /**
  * Write human-readable debug summary into buf (NUL-terminated if buflen > 0).
@@ -758,6 +785,9 @@ int lc_c2s_recipe_book_seen_recipe_to_string(const lc_c2s_recipe_book_seen_recip
 
 int lc_respawn_to_string(const lc_respawn *p, char *buf, size_t buflen);
 int lc_world_event_to_string(const lc_world_event *p, char *buf, size_t buflen);
+int lc_block_action_to_string(const lc_block_action *p, char *buf, size_t buflen);
+int lc_explosion_to_string(const lc_explosion *p, char *buf, size_t buflen);
+int lc_c2s_container_click_to_string(const lc_c2s_container_click *p, char *buf, size_t buflen);
 int lc_initialize_world_border_to_string(const lc_initialize_world_border *p, char *buf, size_t buflen);
 int lc_custom_payload_to_string(const lc_custom_payload *p, char *buf, size_t buflen);
 int lc_feature_flags_to_string(const lc_feature_flags *p, char *buf, size_t buflen);

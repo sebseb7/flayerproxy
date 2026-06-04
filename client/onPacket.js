@@ -231,12 +231,6 @@ export function createOnPacket(ctx) {
             state.sessionChunkCoords.add(`${loc.chunkX},${loc.chunkZ}`);
             const file = mapChunkWirePath(loc);
             writeMapChunk(file, payload);
-            logger.debug(
-              'map_chunk',
-              chalk.dim(
-                `chunk(${loc.chunkX},${loc.chunkZ}) block(${loc.blockX},${loc.blockZ}) → ${file} (data=${chunkDataLen}B)`,
-              ),
-            );
           } else {
             if (state.chunkCoords.has(`${loc.chunkX},${loc.chunkZ}`)) {
               state.sessionChunkCoords.add(`${loc.chunkX},${loc.chunkZ}`);

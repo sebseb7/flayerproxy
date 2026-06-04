@@ -18,9 +18,9 @@ static lc_status read_c2s_move_flags(lc_buf *b, lc_c2s_move_flags *out) {
 lc_status lc_parse_c2s_position(const uint8_t *data, size_t len, lc_c2s_position *out) {
   lc_buf b;
   lc_buf_init(&b, data, len);
-  if (lc_buf_read_f64_le(&b, &out->x) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->y) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->z) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->x) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->y) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->z) != LC_OK) return LC_ERR_TRUNCATED;
   if (read_c2s_move_flags(&b, &out->flags) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
@@ -31,11 +31,11 @@ lc_status lc_parse_c2s_position(const uint8_t *data, size_t len, lc_c2s_position
 lc_status lc_parse_c2s_position_look(const uint8_t *data, size_t len, lc_c2s_position_look *out) {
   lc_buf b;
   lc_buf_init(&b, data, len);
-  if (lc_buf_read_f64_le(&b, &out->x) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->y) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->z) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f32_le(&b, &out->yaw) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f32_le(&b, &out->pitch) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->x) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->y) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->z) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f32_be(&b, &out->yaw) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f32_be(&b, &out->pitch) != LC_OK) return LC_ERR_TRUNCATED;
   if (read_c2s_move_flags(&b, &out->flags) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
@@ -46,8 +46,8 @@ lc_status lc_parse_c2s_position_look(const uint8_t *data, size_t len, lc_c2s_pos
 lc_status lc_parse_c2s_look(const uint8_t *data, size_t len, lc_c2s_look *out) {
   lc_buf b;
   lc_buf_init(&b, data, len);
-  if (lc_buf_read_f32_le(&b, &out->yaw) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f32_le(&b, &out->pitch) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f32_be(&b, &out->yaw) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f32_be(&b, &out->pitch) != LC_OK) return LC_ERR_TRUNCATED;
   if (read_c2s_move_flags(&b, &out->flags) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }

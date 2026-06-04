@@ -452,6 +452,42 @@ int lc_c2s_recipe_book_seen_recipe_to_string(const lc_c2s_recipe_book_seen_recip
   return lc_snprintf(buf, buflen, "c2s_recipe_book_seen_recipe{recipeId=%d}", p->recipe_id);
 }
 
+int lc_block_action_to_string(const lc_block_action *p, char *buf, size_t buflen) {
+  if (!p || !buf || buflen == 0) return 0;
+  return lc_snprintf(buf, buflen, "block_action{pos=(%d,%d,%d),action=%d,param=%d,block=%d}",
+                     p->pos.x, p->pos.y, p->pos.z, (int)p->b0, (int)p->b1, p->block_type);
+}
+
+int lc_explosion_to_string(const lc_explosion *p, char *buf, size_t buflen) {
+  if (!p || !buf || buflen == 0) return 0;
+  int w = lc_snprintf(buf, buflen, "explosion{center=(%.2f,%.2f,%.2f),radius=%.2f,blocks=%d",
+                      p->x, p->y, p->z, p->radius, p->block_count);
+  if (p->has_knockback)
+    w = lc_appendf(buf, buflen, w, ",knockback=(%.3f,%.3f,%.3f)",
+                   p->knock_x, p->knock_y, p->knock_z);
+  return lc_appendf(buf, buflen, w, "}");
+}
+
+static const char *lc_click_type_name(int32_t t) {
+  switch (t) {
+    case 0: return "PICKUP";
+    case 1: return "QUICK_MOVE";
+    case 2: return "SWAP";
+    case 3: return "CLONE";
+    case 4: return "THROW";
+    case 5: return "QUICK_CRAFT";
+    case 6: return "PICKUP_ALL";
+    default: return "?";
+  }
+}
+
+int lc_c2s_container_click_to_string(const lc_c2s_container_click *p, char *buf, size_t buflen) {
+  if (!p || !buf || buflen == 0) return 0;
+  return lc_snprintf(buf, buflen,
+                     "c2s_container_click{cid=%d,state=%d,slot=%d,btn=%d,type=%s,changed=%d}",
+                     p->container_id, p->state_id, (int)p->slot_num, (int)p->button_num,
+                     lc_click_type_name(p->click_type), p->changed_slots_count);
+}
 
 /* Good for: One-line debug summary of lc_initialize world border (sniffer / decode tools).
  * Callers: decode_wire.c, play_stream.c.

@@ -347,7 +347,7 @@ static int capture_join_spawn_position(mc_registry_join_template *join, const ui
     free(dim);
     return -1;
   }
-  if (lc_buf_read_f32_le(&b, &join->spawn_yaw) != LC_OK || lc_buf_read_f32_le(&b, &join->spawn_pitch) != LC_OK) {
+  if (lc_buf_read_f32_be(&b, &join->spawn_yaw) != LC_OK || lc_buf_read_f32_be(&b, &join->spawn_pitch) != LC_OK) {
     free(dim);
     return -1;
   }

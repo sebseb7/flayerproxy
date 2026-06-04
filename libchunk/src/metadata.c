@@ -109,13 +109,13 @@ static lc_status lc_skip_particle(lc_buf *b) {
     case 14:
       for (int i = 0; i < 4; i++) {
         float f;
-        if (lc_buf_read_f32_le(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
+        if (lc_buf_read_f32_be(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
       }
       return LC_OK;
     case 15:
       for (int i = 0; i < 7; i++) {
         float f;
-        if (lc_buf_read_f32_le(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
+        if (lc_buf_read_f32_be(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
       }
       return LC_OK;
     case 16:
@@ -123,7 +123,7 @@ static lc_status lc_skip_particle(lc_buf *b) {
       int32_t v;
       if (lc_buf_read_i32_be(b, &v) != LC_OK) return LC_ERR_TRUNCATED;
       float f;
-      return lc_buf_read_f32_le(b, &f);
+      return lc_buf_read_f32_be(b, &f);
     }
     case 21:
     case 36:
@@ -133,11 +133,11 @@ static lc_status lc_skip_particle(lc_buf *b) {
     }
     case 8: {
       float f;
-      return lc_buf_read_f32_le(b, &f);
+      return lc_buf_read_f32_be(b, &f);
     }
     case 38: {
       float f;
-      return lc_buf_read_f32_le(b, &f);
+      return lc_buf_read_f32_be(b, &f);
     }
     case 47: {
       lc_equipment eq;
@@ -157,7 +157,7 @@ static lc_status lc_skip_particle(lc_buf *b) {
       } else if (pos_type == 1) {
         if (lc_buf_read_varint(b, &pos_type) != LC_OK) return LC_ERR_TRUNCATED;
         float f;
-        if (lc_buf_read_f32_le(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
+        if (lc_buf_read_f32_be(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
       } else {
         return LC_ERR_INVALID;
       }
@@ -169,7 +169,7 @@ static lc_status lc_skip_particle(lc_buf *b) {
     case 49: {
       double d;
       for (int i = 0; i < 3; i++)
-        if (lc_buf_read_f64_le(b, &d) != LC_OK) return LC_ERR_TRUNCATED;
+        if (lc_buf_read_f64_be(b, &d) != LC_OK) return LC_ERR_TRUNCATED;
       uint8_t u;
       return lc_buf_read_u8(b, &u);
     }
@@ -260,7 +260,7 @@ static lc_status lc_skip_metadata_value(lc_buf *b, int type_id) {
     }
     case 3: {
       float f;
-      return lc_buf_read_f32_le(b, &f);
+      return lc_buf_read_f32_be(b, &f);
     }
     case 4: {
       char *s = NULL;
@@ -282,9 +282,9 @@ static lc_status lc_skip_metadata_value(lc_buf *b, int type_id) {
     }
     case 9: {
       float f;
-      if (lc_buf_read_f32_le(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
-      if (lc_buf_read_f32_le(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
-      return lc_buf_read_f32_le(b, &f);
+      if (lc_buf_read_f32_be(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
+      if (lc_buf_read_f32_be(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
+      return lc_buf_read_f32_be(b, &f);
     }
     case 10:
 /* Good for: Read position from packet cursor lc_buf (all parsers).
@@ -348,14 +348,14 @@ static lc_status lc_skip_metadata_value(lc_buf *b, int type_id) {
       return lc_skip_registry_holder_painting(b);
     case 34: {
       float f;
-      if (lc_buf_read_f32_le(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
-      if (lc_buf_read_f32_le(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
-      return lc_buf_read_f32_le(b, &f);
+      if (lc_buf_read_f32_be(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
+      if (lc_buf_read_f32_be(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
+      return lc_buf_read_f32_be(b, &f);
     }
     case 35: {
       float f;
       for (int i = 0; i < 4; i++)
-        if (lc_buf_read_f32_le(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
+        if (lc_buf_read_f32_be(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
       return LC_OK;
     }
     case 36:
@@ -385,7 +385,7 @@ static lc_status lc_parse_metadata_value(lc_buf *b, int type_id, lc_metadata_ent
       return lc_buf_read_varlong(b, &e->v.i64);
     case 3:
       e->kind = LC_META_FLOAT;
-      return lc_buf_read_f32_le(b, &e->v.f32);
+      return lc_buf_read_f32_be(b, &e->v.f32);
     case 4:
       e->kind = LC_META_STRING;
       return lc_buf_read_string(b, &e->v.string);

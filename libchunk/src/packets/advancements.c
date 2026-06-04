@@ -45,8 +45,8 @@ static lc_status skip_display_data(lc_buf *b) {
     free(tex);
   }
   float x, y;
-  if (lc_buf_read_f32_le(b, &x) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f32_le(b, &y) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f32_be(b, &x) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f32_be(b, &y) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
 

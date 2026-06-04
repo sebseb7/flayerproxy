@@ -27,11 +27,11 @@ static lc_status skip_brigadier_minmax_f32(lc_buf *b) {
   if (lc_buf_read_bitfield(b, spec, 3, flags) != LC_OK) return LC_ERR_TRUNCATED;
   if (flags[1]) {
     float f;
-    if (lc_buf_read_f32_le(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
+    if (lc_buf_read_f32_be(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
   }
   if (flags[2]) {
     float f;
-    if (lc_buf_read_f32_le(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
+    if (lc_buf_read_f32_be(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
   }
   return LC_OK;
 }
@@ -42,11 +42,11 @@ static lc_status skip_brigadier_minmax_f64(lc_buf *b) {
   if (lc_buf_read_bitfield(b, spec, 3, flags) != LC_OK) return LC_ERR_TRUNCATED;
   if (flags[1]) {
     double d;
-    if (lc_buf_read_f64_le(b, &d) != LC_OK) return LC_ERR_TRUNCATED;
+    if (lc_buf_read_f64_be(b, &d) != LC_OK) return LC_ERR_TRUNCATED;
   }
   if (flags[2]) {
     double d;
-    if (lc_buf_read_f64_le(b, &d) != LC_OK) return LC_ERR_TRUNCATED;
+    if (lc_buf_read_f64_be(b, &d) != LC_OK) return LC_ERR_TRUNCATED;
   }
   return LC_OK;
 }
@@ -437,7 +437,7 @@ int lc_decode_set_ticking_state(const uint8_t *payload, size_t payload_len, char
   lc_buf_init(&b, payload, payload_len);
   float tick_rate;
   uint8_t frozen;
-  if (lc_buf_read_f32_le(&b, &tick_rate) != LC_OK) return -1;
+  if (lc_buf_read_f32_be(&b, &tick_rate) != LC_OK) return -1;
   if (lc_buf_read_bool(&b, &frozen) != LC_OK) return -1;
   int w = lc_snprintf(out, out_sz, "set_ticking_state{tickRate=%.2f,isFrozen=%s}", tick_rate,
                       frozen ? "true" : "false");

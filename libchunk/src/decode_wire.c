@@ -40,6 +40,9 @@ int lc_packet_name_supported(const char *name) {
       "c2s_recipe_book_seen_recipe",
       "respawn",
       "world_event",
+      "block_action",
+      "explosion",
+      "c2s_container_click",
       "initialize_world_border",
       "registry_data",
       "custom_payload",
@@ -242,6 +245,18 @@ int lc_decode_payload_to_string(const char *name, const uint8_t *payload, size_t
     if (st == LC_OK) {
       lc_world_event_to_string(&p, out, out_sz);
     }
+  } else if (strcmp(name, "block_action") == 0) {
+    lc_block_action p;
+    st = lc_parse_block_action(payload, payload_len, &p);
+    if (st == LC_OK) lc_block_action_to_string(&p, out, out_sz);
+  } else if (strcmp(name, "explosion") == 0) {
+    lc_explosion p;
+    st = lc_parse_explosion(payload, payload_len, &p);
+    if (st == LC_OK) lc_explosion_to_string(&p, out, out_sz);
+  } else if (strcmp(name, "c2s_container_click") == 0) {
+    lc_c2s_container_click p;
+    st = lc_parse_c2s_container_click(payload, payload_len, &p);
+    if (st == LC_OK) lc_c2s_container_click_to_string(&p, out, out_sz);
   } else if (strcmp(name, "initialize_world_border") == 0) {
     lc_initialize_world_border p;
     st = lc_parse_initialize_world_border(payload, payload_len, &p);

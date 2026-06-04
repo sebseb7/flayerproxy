@@ -153,7 +153,7 @@ static int lc_fprint_slot_component_data(FILE *f, lc_buf *b, int32_t comp_type, 
     case 40: {
       if (lc_buf_read_varint(b, &v) != LC_OK) return -1;
       float fl;
-      if (lc_buf_read_f32_le(b, &fl) != LC_OK) return -1;
+      if (lc_buf_read_f32_be(b, &fl) != LC_OK) return -1;
       fprintf(f, "%svarint: %d  f32: %g\n", indent, v, fl);
       return 0;
     }

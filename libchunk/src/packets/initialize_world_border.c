@@ -6,10 +6,10 @@
 lc_status lc_parse_initialize_world_border(const uint8_t *data, size_t len, lc_initialize_world_border *out) {
   lc_buf b;
   lc_buf_init(&b, data, len);
-  if (lc_buf_read_f64_le(&b, &out->x) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->z) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->old_diameter) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->new_diameter) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->x) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->z) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->old_diameter) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->new_diameter) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_varint(&b, &out->speed) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_varint(&b, &out->portal_teleport_boundary) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_varint(&b, &out->warning_blocks) != LC_OK) return LC_ERR_TRUNCATED;

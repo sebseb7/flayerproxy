@@ -298,9 +298,9 @@ lc_status lc_parse_spawn_entity(const uint8_t *data, size_t len, lc_spawn_entity
   if (lc_buf_read_varint(&b, &out->entity_id) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_uuid(&b, &out->object_uuid) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_varint(&b, &out->type) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->x) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->y) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->z) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->x) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->y) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->z) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_lpvec3(&b, &out->velocity) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_i8(&b, &out->pitch) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_i8(&b, &out->yaw) != LC_OK) return LC_ERR_TRUNCATED;
@@ -449,14 +449,14 @@ lc_status lc_parse_sync_entity_position(const uint8_t *data, size_t len, lc_sync
   lc_buf b;
   lc_buf_init(&b, data, len);
   if (lc_buf_read_varint(&b, &out->entity_id) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->x) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->y) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->z) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->dx) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->dy) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->dz) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f32_le(&b, &out->yaw) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f32_le(&b, &out->pitch) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->x) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->y) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->z) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->dx) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->dy) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->dz) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f32_be(&b, &out->yaw) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f32_be(&b, &out->pitch) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_bool(&b, &out->on_ground) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
@@ -497,9 +497,9 @@ lc_status lc_parse_entity_teleport(const uint8_t *data, size_t len, lc_entity_te
   lc_buf b;
   lc_buf_init(&b, data, len);
   if (lc_buf_read_varint(&b, &out->entity_id) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->x) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->y) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->z) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->x) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->y) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->z) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_i8(&b, &out->yaw) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_i8(&b, &out->pitch) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_bool(&b, &out->on_ground) != LC_OK) return LC_ERR_TRUNCATED;
@@ -595,7 +595,7 @@ lc_status lc_parse_entity_update_attributes(const uint8_t *data, size_t len,
   for (int32_t pi = 0; pi < prop_count; pi++) {
     lc_entity_attribute_property *prop = &out->properties[pi];
     if (lc_buf_read_varint(&b, &prop->key) != LC_OK) goto fail;
-    if (lc_buf_read_f64_le(&b, &prop->value) != LC_OK) goto fail;
+    if (lc_buf_read_f64_be(&b, &prop->value) != LC_OK) goto fail;
 
     int32_t mod_count;
     if (lc_buf_read_varint(&b, &mod_count) != LC_OK) goto fail;
@@ -609,7 +609,7 @@ lc_status lc_parse_entity_update_attributes(const uint8_t *data, size_t len,
     for (int32_t mi = 0; mi < mod_count; mi++) {
       lc_entity_attribute_modifier *mod = &prop->modifiers[mi];
       if (lc_buf_read_string(&b, &mod->uuid) != LC_OK) goto fail;
-      if (lc_buf_read_f64_le(&b, &mod->amount) != LC_OK) goto fail;
+      if (lc_buf_read_f64_be(&b, &mod->amount) != LC_OK) goto fail;
       if (lc_buf_read_i8(&b, &mod->operation) != LC_OK) goto fail;
     }
   }
@@ -627,14 +627,14 @@ lc_status lc_parse_position(const uint8_t *data, size_t len, lc_position *out) {
   lc_buf b;
   lc_buf_init(&b, data, len);
   if (lc_buf_read_varint(&b, &out->teleport_id) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->x) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->y) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->z) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->dx) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->dy) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->dz) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f32_le(&b, &out->yaw) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f32_le(&b, &out->pitch) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->x) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->y) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->z) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->dx) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->dy) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->dz) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f32_be(&b, &out->yaw) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f32_be(&b, &out->pitch) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_u32_be(&b, &out->flags) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
@@ -668,10 +668,10 @@ void lc_respawn_free(lc_respawn *p) {
 lc_status lc_parse_initialize_world_border(const uint8_t *data, size_t len, lc_initialize_world_border *out) {
   lc_buf b;
   lc_buf_init(&b, data, len);
-  if (lc_buf_read_f64_le(&b, &out->x) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->z) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->old_diameter) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->new_diameter) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->x) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->z) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->old_diameter) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->new_diameter) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_varint(&b, &out->speed) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_varint(&b, &out->portal_teleport_boundary) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_varint(&b, &out->warning_blocks) != LC_OK) return LC_ERR_TRUNCATED;
@@ -748,14 +748,14 @@ lc_status lc_parse_game_event(const uint8_t *data, size_t len, lc_game_event *ou
   lc_buf b;
   lc_buf_init(&b, data, len);
   if (lc_buf_read_u8(&b, &out->event) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f32_le(&b, &out->value) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f32_be(&b, &out->value) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
 
 lc_status lc_parse_set_ticking_state(const uint8_t *data, size_t len, lc_set_ticking_state *out) {
   lc_buf b;
   lc_buf_init(&b, data, len);
-  if (lc_buf_read_f32_le(&b, &out->tick_rate) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f32_be(&b, &out->tick_rate) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_bool(&b, &out->is_frozen) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
@@ -763,9 +763,9 @@ lc_status lc_parse_set_ticking_state(const uint8_t *data, size_t len, lc_set_tic
 lc_status lc_parse_update_health(const uint8_t *data, size_t len, lc_update_health *out) {
   lc_buf b;
   lc_buf_init(&b, data, len);
-  if (lc_buf_read_f32_le(&b, &out->health) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f32_be(&b, &out->health) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_varint(&b, &out->food) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f32_le(&b, &out->saturation) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f32_be(&b, &out->saturation) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
 
@@ -843,6 +843,55 @@ lc_status lc_parse_c2s_recipe_book_seen_recipe(const uint8_t *data, size_t len, 
   return LC_OK;
 }
 
+lc_status lc_parse_block_action(const uint8_t *data, size_t len, lc_block_action *out) {
+  memset(out, 0, sizeof(*out));
+  lc_buf b;
+  lc_buf_init(&b, data, len);
+  if (lc_buf_read_position(&b, &out->pos) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_u8(&b, &out->b0) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_u8(&b, &out->b1) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_varint(&b, &out->block_type) != LC_OK) return LC_ERR_TRUNCATED;
+  return LC_OK;
+}
 
+lc_status lc_parse_explosion(const uint8_t *data, size_t len, lc_explosion *out) {
+  memset(out, 0, sizeof(*out));
+  lc_buf b;
+  lc_buf_init(&b, data, len);
+  /* center: 3x f64 (Vec3.STREAM_CODEC → Netty readDouble, big-endian) */
+  if (lc_buf_read_f64_be(&b, &out->x) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->y) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->z) != LC_OK) return LC_ERR_TRUNCATED;
+  /* radius: f32 (ByteBufCodecs.FLOAT → Netty readFloat, big-endian) */
+  if (lc_buf_read_f32_be(&b, &out->radius) != LC_OK) return LC_ERR_TRUNCATED;
+  /* blockCount: i32 big-endian (ByteBufCodecs.INT) */
+  int32_t bc;
+  if (lc_buf_read_i32_be(&b, &bc) != LC_OK) return LC_ERR_TRUNCATED;
+  out->block_count = bc;
+  /* optional Vec3 playerKnockback: bool + 3xf64 */
+  uint8_t present;
+  if (lc_buf_read_u8(&b, &present) != LC_OK) return LC_ERR_TRUNCATED;
+  out->has_knockback = present;
+  if (present) {
+    if (lc_buf_read_f64_be(&b, &out->knock_x) != LC_OK) return LC_ERR_TRUNCATED;
+    if (lc_buf_read_f64_be(&b, &out->knock_y) != LC_OK) return LC_ERR_TRUNCATED;
+    if (lc_buf_read_f64_be(&b, &out->knock_z) != LC_OK) return LC_ERR_TRUNCATED;
+  }
+  /* remainder: explosionParticle, explosionSound, blockParticles — skip */
+  return LC_OK;
+}
 
-
+lc_status lc_parse_c2s_container_click(const uint8_t *data, size_t len, lc_c2s_container_click *out) {
+  memset(out, 0, sizeof(*out));
+  lc_buf b;
+  lc_buf_init(&b, data, len);
+  if (lc_buf_read_varint(&b, &out->container_id) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_varint(&b, &out->state_id) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_i16_be(&b, &out->slot_num) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_i8(&b, &out->button_num) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_varint(&b, &out->click_type) != LC_OK) return LC_ERR_TRUNCATED;
+  /* changedSlots: varint count (map<short, HashedStack>) */
+  if (lc_buf_read_varint(&b, &out->changed_slots_count) != LC_OK) return LC_ERR_TRUNCATED;
+  /* skip the rest (slot data, carriedItem) */
+  return LC_OK;
+}

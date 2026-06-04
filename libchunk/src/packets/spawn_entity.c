@@ -24,9 +24,9 @@ lc_status lc_parse_spawn_entity(const uint8_t *data, size_t len, lc_spawn_entity
   if (lc_buf_read_varint(&b, &out->entity_id) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_uuid(&b, &out->object_uuid) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_varint(&b, &out->type) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->x) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->y) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->z) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->x) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->y) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->z) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_lpvec3(&b, &out->velocity) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_i8(&b, &out->pitch) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_i8(&b, &out->yaw) != LC_OK) return LC_ERR_TRUNCATED;

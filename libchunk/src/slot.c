@@ -43,7 +43,7 @@ static lc_status lc_skip_registry_entry_holder(lc_buf *b) {
     if (lc_buf_read_bool(b, &has) != LC_OK) return LC_ERR_TRUNCATED;
     if (!has) return LC_OK;
     float f;
-    return lc_buf_read_f32_le(b, &f);
+    return lc_buf_read_f32_be(b, &f);
   }
   return lc_buf_read_varint(b, &n);
 }
@@ -73,20 +73,20 @@ static lc_status lc_skip_option_registry_entry_holder_set(lc_buf *b) {
 
 static lc_status lc_skip_blocks_attacks(lc_buf *b) {
   float f;
-  if (lc_buf_read_f32_le(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f32_le(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f32_be(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f32_be(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
   int32_t n;
   if (lc_buf_read_varint(b, &n) != LC_OK) return LC_ERR_TRUNCATED;
   if (n < 0) return LC_ERR_INVALID;
   for (int32_t i = 0; i < n; i++) {
-    if (lc_buf_read_f32_le(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
+    if (lc_buf_read_f32_be(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
     if (lc_skip_option_registry_entry_holder_set(b) != LC_OK) return LC_ERR_TRUNCATED;
-    if (lc_buf_read_f32_le(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
-    if (lc_buf_read_f32_le(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
+    if (lc_buf_read_f32_be(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
+    if (lc_buf_read_f32_be(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
   }
-  if (lc_buf_read_f32_le(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f32_le(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f32_le(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f32_be(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f32_be(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f32_be(b, &f) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_skip_option_string(b) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_skip_option_registry_entry_holder(b) != LC_OK) return LC_ERR_TRUNCATED;
   return lc_skip_option_registry_entry_holder(b);
@@ -233,7 +233,7 @@ static lc_status lc_skip_attribute_modifiers(lc_buf *b) {
     if (lc_buf_read_varint(b, &v) != LC_OK) return LC_ERR_TRUNCATED;
     if (lc_buf_read_string(b, &s) != LC_OK) return LC_ERR_TRUNCATED;
     free(s);
-    if (lc_buf_read_f64_le(b, &d) != LC_OK) return LC_ERR_TRUNCATED;
+    if (lc_buf_read_f64_be(b, &d) != LC_OK) return LC_ERR_TRUNCATED;
     if (lc_buf_read_varint(b, &v) != LC_OK) return LC_ERR_TRUNCATED;
     if (lc_buf_read_varint(b, &v) != LC_OK) return LC_ERR_TRUNCATED;
     if (lc_skip_attribute_modifier_display(b) != LC_OK) return LC_ERR_TRUNCATED;
@@ -303,7 +303,7 @@ static lc_status lc_skip_slot_component_data(lc_buf *b, int32_t comp_type) {
       return lc_skip_blocks_attacks(b);
     case 7: {
       float f;
-      return lc_buf_read_f32_le(b, &f);
+      return lc_buf_read_f32_be(b, &f);
     }
     case 27:
     case 44:
@@ -358,7 +358,7 @@ static lc_status lc_skip_slot_component_data(lc_buf *b, int32_t comp_type) {
     case 40: {
       if (lc_buf_read_varint(b, &v) != LC_OK) return LC_ERR_TRUNCATED;
       float f;
-      return lc_buf_read_f32_le(b, &f);
+      return lc_buf_read_f32_be(b, &f);
     }
     case 54: {
       uint8_t has;

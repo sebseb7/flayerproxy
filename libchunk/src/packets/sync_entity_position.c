@@ -7,14 +7,14 @@ lc_status lc_parse_sync_entity_position(const uint8_t *data, size_t len, lc_sync
   lc_buf b;
   lc_buf_init(&b, data, len);
   if (lc_buf_read_varint(&b, &out->entity_id) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->x) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->y) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->z) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->dx) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->dy) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f64_le(&b, &out->dz) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f32_le(&b, &out->yaw) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_f32_le(&b, &out->pitch) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->x) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->y) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->z) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->dx) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->dy) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_be(&b, &out->dz) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f32_be(&b, &out->yaw) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f32_be(&b, &out->pitch) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_bool(&b, &out->on_ground) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }

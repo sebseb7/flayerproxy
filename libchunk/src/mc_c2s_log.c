@@ -227,8 +227,8 @@ static void log_player_action(const char *who, int32_t pkt_id, const char *name,
 static lc_status decode_block_hit(lc_buf *b, lc_block_pos *pos, int32_t *face, float *hx, float *hy,
                                   float *hz, uint8_t *inside, uint8_t *world_border) {
   if (read_block_pos_long(b, pos) != LC_OK || lc_buf_read_varint(b, face) != LC_OK ||
-      lc_buf_read_f32_le(b, hx) != LC_OK || lc_buf_read_f32_le(b, hy) != LC_OK ||
-      lc_buf_read_f32_le(b, hz) != LC_OK || lc_buf_read_u8(b, inside) != LC_OK ||
+      lc_buf_read_f32_be(b, hx) != LC_OK || lc_buf_read_f32_be(b, hy) != LC_OK ||
+      lc_buf_read_f32_be(b, hz) != LC_OK || lc_buf_read_u8(b, inside) != LC_OK ||
 /* Good for: Read u8 from packet cursor lc_buf (all parsers).
  * Callers: buf.c, c2s_move.c, chunk.c, mc_c2s_log.c (same file), metadata.c, nbt.c, packets.c, play_stream.c, respawn.c, slot.c, spawn_info.c.
  */
@@ -409,7 +409,7 @@ void mc_log_c2s_play(const char *username, int32_t pkt_id, const uint8_t *payloa
 /* Good for: Read f32_le from packet cursor lc_buf (all parsers).
  * Callers: c2s_move.c, mc_c2s_log.c (same file), metadata.c, packets.c, play_stream.c, position.c, slot.c, slot_fprint.c, sync_entity_position.c.
  */
-          lc_buf_read_f32_le(&b, &yaw) == LC_OK && lc_buf_read_f32_le(&b, &pitch) == LC_OK) {
+          lc_buf_read_f32_be(&b, &yaw) == LC_OK && lc_buf_read_f32_be(&b, &pitch) == LC_OK) {
         MC_LOGI("c2s", "%s C2S 0x%02x %s hand=%s seq=%d yaw=%.2f pitch=%.2f", who, pkt_id, name,
                 hand_name(hand), seq, (double)yaw, (double)pitch);
         log_remaining_hex(who, pkt_id, name, &b);

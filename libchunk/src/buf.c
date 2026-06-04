@@ -136,7 +136,7 @@ lc_status lc_buf_read_i64_le(lc_buf *b, int64_t *out) {
  * Callers: c2s_move.c, mc_c2s_log.c, metadata.c, packets.c, play_stream.c, position.c, slot.c, slot_fprint.c, sync_entity_position.c.
  */
 
-lc_status lc_buf_read_f32_le(lc_buf *b, float *out) {
+lc_status lc_buf_read_f32_be(lc_buf *b, float *out) {
   /* Minecraft protocol uses big-endian IEEE floats (protodef f32/f64). */
   if (lc_buf_need(b, 4) != LC_OK) return LC_ERR_TRUNCATED;
   uint32_t bits = ((uint32_t)b->data[b->off] << 24) | ((uint32_t)b->data[b->off + 1] << 16) |
@@ -145,11 +145,11 @@ lc_status lc_buf_read_f32_le(lc_buf *b, float *out) {
   memcpy(out, &bits, sizeof(float));
   return LC_OK;
 }
-/* Good for: Read f64_le from packet cursor lc_buf (all parsers).
+/* Good for: Read f64_be from packet cursor lc_buf (all parsers).
  * Callers: c2s_move.c, initialize_world_border.c, metadata.c, packets.c, play_stream.c, position.c, slot.c, spawn_entity.c, sync_entity_position.c.
  */
 
-lc_status lc_buf_read_f64_le(lc_buf *b, double *out) {
+lc_status lc_buf_read_f64_be(lc_buf *b, double *out) {
   if (lc_buf_need(b, 8) != LC_OK) return LC_ERR_TRUNCATED;
   uint64_t bits = 0;
   for (int i = 0; i < 8; i++) bits = (bits << 8) | b->data[b->off + i];

@@ -29,7 +29,7 @@ static lc_status lc_buf_read_sound_event_ref(lc_buf *b, lc_sound_event_ref *out)
     if (lc_buf_read_bool(b, &has_range) != LC_OK) return LC_ERR_TRUNCATED;
     out->has_fixed_range = has_range;
     if (has_range) {
-      if (lc_buf_read_f32_le(b, &out->fixed_range) != LC_OK) return LC_ERR_TRUNCATED;
+      if (lc_buf_read_f32_be(b, &out->fixed_range) != LC_OK) return LC_ERR_TRUNCATED;
     }
     return LC_OK;
   }
@@ -48,8 +48,8 @@ lc_status lc_parse_sound_effect(const uint8_t *data, size_t len, lc_sound_effect
   if (lc_buf_read_i32_be(&b, &out->x) != LC_OK) goto fail;
   if (lc_buf_read_i32_be(&b, &out->y) != LC_OK) goto fail;
   if (lc_buf_read_i32_be(&b, &out->z) != LC_OK) goto fail;
-  if (lc_buf_read_f32_le(&b, &out->volume) != LC_OK) goto fail;
-  if (lc_buf_read_f32_le(&b, &out->pitch) != LC_OK) goto fail;
+  if (lc_buf_read_f32_be(&b, &out->volume) != LC_OK) goto fail;
+  if (lc_buf_read_f32_be(&b, &out->pitch) != LC_OK) goto fail;
   if (lc_buf_read_i64_le(&b, &out->seed) != LC_OK) goto fail;
   return LC_OK;
 
@@ -93,8 +93,8 @@ lc_status lc_parse_entity_sound_effect(const uint8_t *data, size_t len, lc_entit
   if (lc_buf_read_sound_event_ref(&b, &out->sound) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_varint(&b, &out->source) != LC_OK) goto fail;
   if (lc_buf_read_varint(&b, &out->entity_id) != LC_OK) goto fail;
-  if (lc_buf_read_f32_le(&b, &out->volume) != LC_OK) goto fail;
-  if (lc_buf_read_f32_le(&b, &out->pitch) != LC_OK) goto fail;
+  if (lc_buf_read_f32_be(&b, &out->volume) != LC_OK) goto fail;
+  if (lc_buf_read_f32_be(&b, &out->pitch) != LC_OK) goto fail;
   if (lc_buf_read_i64_le(&b, &out->seed) != LC_OK) goto fail;
   return LC_OK;
 
