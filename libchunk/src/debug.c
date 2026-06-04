@@ -434,6 +434,14 @@ int lc_respawn_to_string(const lc_respawn *p, char *buf, size_t buflen) {
                    w->death_pos.x, w->death_pos.y, w->death_pos.z);
   return lc_appendf(buf, buflen, n, "}");
 }
+
+int lc_world_event_to_string(const lc_world_event *p, char *buf, size_t buflen) {
+  if (!p || !buf || buflen == 0) return 0;
+  return lc_snprintf(buf, buflen, "world_event{type=%d,pos=(%d,%d,%d),data=%d,global=%s}",
+                     p->type, p->location.x, p->location.y, p->location.z, p->data,
+                     p->global ? "true" : "false");
+}
+
 /* Good for: One-line debug summary of lc_initialize world border (sniffer / decode tools).
  * Callers: decode_wire.c, play_stream.c.
  */

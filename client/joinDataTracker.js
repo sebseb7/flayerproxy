@@ -136,6 +136,24 @@ export function createJoinDataTracker() {
       return;
     }
 
+    // 2b. Check if it's respawn to update dimension
+    if (packetName === 'respawn') {
+      try {
+        const respawn = lc.parseRespawn(payload);
+        if (respawn && respawn.dimensionName) {
+          dimensionName = respawn.dimensionName;
+          if (loginData) {
+            loginData.dimensionName = respawn.dimensionName;
+          }
+        }
+      } catch (e) {
+        // ignore parsing error
+      }
+      tracked.set('respawn', { id, payload });
+      return;
+    }
+
+
     // 3. Check if it's game_state_change
     if (packetName === 'game_state_change') {
       try {
@@ -252,6 +270,10 @@ export function createJoinDataTracker() {
 
     if (packetName === 'position') {
       return 'position';
+    }
+
+    if (packetName === 'respawn') {
+      return 'respawn';
     }
 
     if (ownEntityId !== null && ENTITY_PARSERS[packetName]) {

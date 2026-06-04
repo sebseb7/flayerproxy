@@ -816,4 +816,16 @@ lc_status lc_parse_attach_entity(const uint8_t *data, size_t len, lc_attach_enti
   return LC_OK;
 }
 
+lc_status lc_parse_world_event(const uint8_t *data, size_t len, lc_world_event *out) {
+  memset(out, 0, sizeof(*out));
+  lc_buf b;
+  lc_buf_init(&b, data, len);
+  if (lc_buf_read_i32_be(&b, &out->type) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_position(&b, &out->location) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_i32_be(&b, &out->data) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_bool(&b, &out->global) != LC_OK) return LC_ERR_TRUNCATED;
+  return LC_OK;
+}
+
+
 

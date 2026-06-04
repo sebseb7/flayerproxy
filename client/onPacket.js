@@ -16,7 +16,9 @@ const {
   parseSetTickingState,
   parseUpdateHealth,
   parseUpdateViewPosition,
+  parseRespawn,
 } = require('../libchunk/js/index.js');
+
 
 
 
@@ -107,10 +109,21 @@ export function createOnPacket(ctx) {
         notePlayJoinPacket();
       }
 
-      if (phase === 'death' && id === PLAY.RESPAWN) {
-        beginRespawnJoin(sock);
-        recordPlayJoinS2c(id, payload);
-        return;
+      if (id === PLAY.RESPAWN) {
+        try {
+          const respawn = parseRespawn(payload);
+          if (respawn && respawn.dimensionName) {
+            state.dimension = respawn.dimensionName;
+            logger.debug('respawn', chalk.dim(`dimension changed to "${state.dimension}"`));
+          }
+        } catch (e) {
+          // ignore parsing error
+        }
+        if (phase === 'death') {
+          beginRespawnJoin(sock);
+          recordPlayJoinS2c(id, payload);
+          return;
+        }
       }
 
       // --- Packets handled only by the proxy (never forwarded) ---

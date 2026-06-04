@@ -145,4 +145,21 @@ export function parseEntityEffect(buffer: Buffer): EntityEffectResult | null;
 export function parseRemoveEntityEffect(buffer: Buffer): RemoveEntityEffectResult | null;
 export function parseAttachEntity(buffer: Buffer): AttachEntityResult | null;
 
+export interface RespawnResult {
+  dimension: number;
+  dimensionName?: string;
+  copyMetadata: number;
+}
+
+export interface WorldEventResult {
+  type: number;
+  location: { x: number; y: number; z: number };
+  data: number;
+  global: boolean;
+}
+
+export function parseRespawn(buffer: Buffer): RespawnResult | null;
+export function parseWorldEvent(buffer: Buffer): WorldEventResult | null;
+
+
 

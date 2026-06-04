@@ -237,5 +237,13 @@ module.exports = {
     if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
     return native.parseAttachEntity(buffer);
   },
+  parseRespawn: (buffer) => {
+    if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+    return native.parseRespawn(buffer);
+  },
+  parseWorldEvent: (buffer) => {
+    if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+    return native.parseWorldEvent(buffer);
+  },
 };
 

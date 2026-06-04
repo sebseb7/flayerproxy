@@ -409,6 +409,15 @@ typedef struct lc_c2s_arm_animation {
   int32_t hand;
 } lc_c2s_arm_animation;
 
+typedef struct lc_c2s_container_close {
+  int32_t container_id;
+} lc_c2s_container_close;
+
+typedef struct lc_c2s_recipe_book_seen_recipe {
+  int32_t recipe_id;
+} lc_c2s_recipe_book_seen_recipe;
+
+
 typedef struct lc_respawn {
   lc_spawn_info world_state;
   uint8_t copy_metadata;
@@ -509,6 +518,14 @@ typedef struct lc_update_view_position {
   int32_t chunk_x;
   int32_t chunk_z;
 } lc_update_view_position;
+
+typedef struct lc_world_event {
+  int32_t type;
+  lc_block_pos location;
+  int32_t data;
+  uint8_t global;
+} lc_world_event;
+
 
 
 /* --- merged chunk column --- */
@@ -632,6 +649,9 @@ lc_status lc_parse_c2s_teleport_confirm(const uint8_t *data, size_t len, lc_c2s_
 lc_status lc_parse_c2s_block_dig(const uint8_t *data, size_t len, lc_c2s_block_dig *out);
 lc_status lc_parse_c2s_player_input(const uint8_t *data, size_t len, lc_c2s_player_input *out);
 lc_status lc_parse_c2s_arm_animation(const uint8_t *data, size_t len, lc_c2s_arm_animation *out);
+lc_status lc_parse_c2s_container_close(const uint8_t *data, size_t len, lc_c2s_container_close *out);
+lc_status lc_parse_c2s_recipe_book_seen_recipe(const uint8_t *data, size_t len, lc_c2s_recipe_book_seen_recipe *out);
+
 lc_status lc_parse_respawn(const uint8_t *data, size_t len, lc_respawn *out);
 lc_status lc_parse_initialize_world_border(const uint8_t *data, size_t len, lc_initialize_world_border *out);
 lc_status lc_parse_custom_payload(const uint8_t *data, size_t len, lc_custom_payload *out);
@@ -648,6 +668,7 @@ lc_status lc_parse_game_event(const uint8_t *data, size_t len, lc_game_event *ou
 lc_status lc_parse_set_ticking_state(const uint8_t *data, size_t len, lc_set_ticking_state *out);
 lc_status lc_parse_update_health(const uint8_t *data, size_t len, lc_update_health *out);
 lc_status lc_parse_update_view_position(const uint8_t *data, size_t len, lc_update_view_position *out);
+lc_status lc_parse_world_event(const uint8_t *data, size_t len, lc_world_event *out);
 
 /**
  * Write human-readable debug summary into buf (NUL-terminated if buflen > 0).
@@ -732,7 +753,11 @@ int lc_c2s_teleport_confirm_to_string(const lc_c2s_teleport_confirm *p, char *bu
 int lc_c2s_block_dig_to_string(const lc_c2s_block_dig *p, char *buf, size_t buflen);
 int lc_c2s_player_input_to_string(const lc_c2s_player_input *p, char *buf, size_t buflen);
 int lc_c2s_arm_animation_to_string(const lc_c2s_arm_animation *p, char *buf, size_t buflen);
+int lc_c2s_container_close_to_string(const lc_c2s_container_close *p, char *buf, size_t buflen);
+int lc_c2s_recipe_book_seen_recipe_to_string(const lc_c2s_recipe_book_seen_recipe *p, char *buf, size_t buflen);
+
 int lc_respawn_to_string(const lc_respawn *p, char *buf, size_t buflen);
+int lc_world_event_to_string(const lc_world_event *p, char *buf, size_t buflen);
 int lc_initialize_world_border_to_string(const lc_initialize_world_border *p, char *buf, size_t buflen);
 int lc_custom_payload_to_string(const lc_custom_payload *p, char *buf, size_t buflen);
 int lc_feature_flags_to_string(const lc_feature_flags *p, char *buf, size_t buflen);

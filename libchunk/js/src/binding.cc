@@ -921,6 +921,47 @@ Napi::Value ParseAttachEntity(const Napi::CallbackInfo &info) {
   return o;
 }
 
+Napi::Value ParseRespawn(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  CHECK_BUFFER_ARG(info, "parseRespawn");
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  lc_respawn parsed;
+  lc_status st = lc_parse_respawn(buf.Data(), buf.Length(), &parsed);
+  if (st != LC_OK) return env.Null();
+
+  Napi::Object o = Napi::Object::New(env);
+  o.Set("dimension", Napi::Number::New(env, parsed.world_state.dimension));
+  if (parsed.world_state.name) {
+    o.Set("dimensionName", Napi::String::New(env, parsed.world_state.name));
+  }
+  o.Set("copyMetadata", Napi::Number::New(env, parsed.copy_metadata));
+  lc_respawn_free(&parsed);
+  return o;
+}
+
+Napi::Value ParseWorldEvent(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  CHECK_BUFFER_ARG(info, "parseWorldEvent");
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  lc_world_event parsed;
+  lc_status st = lc_parse_world_event(buf.Data(), buf.Length(), &parsed);
+  if (st != LC_OK) return env.Null();
+
+  Napi::Object o = Napi::Object::New(env);
+  o.Set("type", Napi::Number::New(env, parsed.type));
+  
+  Napi::Object loc = Napi::Object::New(env);
+  loc.Set("x", Napi::Number::New(env, parsed.location.x));
+  loc.Set("y", Napi::Number::New(env, parsed.location.y));
+  loc.Set("z", Napi::Number::New(env, parsed.location.z));
+  o.Set("location", loc);
+
+  o.Set("data", Napi::Number::New(env, parsed.data));
+  o.Set("global", Napi::Boolean::New(env, parsed.global != 0));
+  return o;
+}
+
+
 
 Napi::Value ParsePlayLogin(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
@@ -1029,6 +1070,8 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("parseEntityEffect", Napi::Function::New(env, ParseEntityEffect));
   exports.Set("parseRemoveEntityEffect", Napi::Function::New(env, ParseRemoveEntityEffect));
   exports.Set("parseAttachEntity", Napi::Function::New(env, ParseAttachEntity));
+  exports.Set("parseRespawn", Napi::Function::New(env, ParseRespawn));
+  exports.Set("parseWorldEvent", Napi::Function::New(env, ParseWorldEvent));
   exports.Set("isPacketSupported", Napi::Function::New(env, [](const Napi::CallbackInfo &info) {
     Napi::Env env = info.Env();
     if (!info[0].IsString()) return Napi::Boolean::New(env, false);

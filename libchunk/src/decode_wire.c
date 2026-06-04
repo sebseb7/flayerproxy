@@ -37,6 +37,7 @@ int lc_packet_name_supported(const char *name) {
       "c2s_player_input",
       "c2s_arm_animation",
       "respawn",
+      "world_event",
       "initialize_world_border",
       "registry_data",
       "custom_payload",
@@ -224,6 +225,12 @@ int lc_decode_payload_to_string(const char *name, const uint8_t *payload, size_t
     if (st == LC_OK) {
       lc_respawn_to_string(&p, out, out_sz);
       lc_respawn_free(&p);
+    }
+  } else if (strcmp(name, "world_event") == 0) {
+    lc_world_event p;
+    st = lc_parse_world_event(payload, payload_len, &p);
+    if (st == LC_OK) {
+      lc_world_event_to_string(&p, out, out_sz);
     }
   } else if (strcmp(name, "initialize_world_border") == 0) {
     lc_initialize_world_border p;
