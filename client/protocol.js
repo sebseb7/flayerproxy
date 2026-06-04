@@ -47,14 +47,14 @@ export function parseSetTickingState(payload) {
 }
 
 
-/** ClientboundSetHealthPacket: f32 health LE, varint food, f32 saturation LE. */
+/** ClientboundSetHealthPacket: f32 health BE, varint food, f32 saturation BE. */
 export function parseUpdateHealth(payload) {
   if (payload.length < 5) return null;
-  const health = payload.readFloatLE(0);
+  const health = payload.readFloatBE(0);
   const food = readVarInt(payload, 4);
   if (!food) return null;
   if (food.next + 4 > payload.length) return null;
-  const saturation = payload.readFloatLE(food.next);
+  const saturation = payload.readFloatBE(food.next);
   return { health, food: food.value, saturation };
 }
 
