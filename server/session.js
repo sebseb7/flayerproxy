@@ -1,3 +1,5 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import chalk from 'chalk';
 import { HS_LOGIN, LOGIN, CFG, PLAY, LOG_LEVELS } from '../client/constants.js';
 import {
@@ -9,14 +11,28 @@ import {
   readString,
 } from '../client/wire.js';
 import { offlineUUID } from '../client/protocol.js';
-import { onCaptureReady, getCapture, isCaptureReady } from '../client/captureStore.js';
+import { onCaptureReady, getCapture, isCaptureReady, getUpstreamClient, setDownstreamClient } from '../client/captureStore.js';
 import { createServerLogger } from './logger.js';
 import { logPingTickFromEnv } from '../client/logNoise.js';
+import { createOnPacket } from './onPacket.js';
 
-const HS_STATUS = 1;
-
-const STATUS_JSON =
-  '{"version":{"name":"1.21.10","protocol":773},"players":{"max":20,"online":0,"sample":[]},"description":{"text":"flayerproxy capture replay"}}';
+async function getChunkFiles(dir) {
+  let results = [];
+  try {
+    const list = await fs.readdir(dir, { withFileTypes: true });
+    for (const file of list) {
+      const res = path.resolve(dir, file.name);
+      if (file.isDirectory()) {
+        results = results.concat(await getChunkFiles(res));
+      } else if (file.name.endsWith('.chunk')) {
+        results.push(res);
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+  return results;
+}
 
 function serverLogOptions() {
   const debug =
@@ -40,6 +56,12 @@ export function handleClient(sock, opts = {}) {
   let configCursor = 0;
   let configAwait = null;
   let playJoinDone = false;
+  let keepAliveTimer = null;
+  let keepAliveId = 1000n;
+  
+  setDownstreamClient(sock, () => phase, (id, payload) => {
+    send(sock, id, payload);
+  });
 
   const logger = createServerLogger({
     getPhase: () => phase,
@@ -48,11 +70,26 @@ export function handleClient(sock, opts = {}) {
     logPingTick,
   });
 
+  function startPlayTimers(sock) {
+    if (keepAliveTimer) return;
+    logger.debug('keep_alive timer', chalk.dim('every 15s during play'));
+    keepAliveTimer = setInterval(() => {
+      if (phase !== 'play') return;
+      const payload = Buffer.alloc(8);
+      payload.writeBigInt64BE(keepAliveId);
+      send(sock, PLAY.KEEP_ALIVE, payload);
+      keepAliveId += 1n;
+    }, 15000);
+  }
+
   function setPhase(next) {
     if (phase === next) return;
     const prev = phase;
     phase = next;
     logger.phaseChange(prev, next);
+    if (next === 'play' && sock) {
+      startPlayTimers(sock);
+    }
   }
 
   function send(sock, id, payload) {
@@ -79,18 +116,35 @@ export function handleClient(sock, opts = {}) {
     return sent;
   }
 
-  function replayPlayJoin(sock) {
+  async function replayPlayJoin(sock) {
     const snap = getCapture();
     let sent = 0;
     let mapChunksSkipped = 0;
 
     for (const pkt of snap.playJoin) {
+      if (pkt.id === PLAY.MAP_CHUNK) {
+        mapChunksSkipped++;
+        continue;
+      }
       send(sock, pkt.id, pkt.payload);
       sent++;
     }
+
+    const chunkFiles = await getChunkFiles(path.resolve('chunks'));
+    let fsChunksSent = 0;
+    for (const file of chunkFiles) {
+      try {
+        const payload = await fs.readFile(file);
+        send(sock, PLAY.MAP_CHUNK, payload);
+        fsChunksSent++;
+      } catch (err) {
+        logger.error(`Failed to read chunk file ${file}: ${err.message}`);
+      }
+    }
+
     playJoinDone = true;
     const skipNote =
-      mapChunksSkipped > 0 ? ` (${mapChunksSkipped} map_chunk skipped)` : '';
+      mapChunksSkipped > 0 ? ` (${mapChunksSkipped} original chunks skipped, ${fsChunksSent} chunks loaded from disk)` : '';
     logger.event('play_join replay', chalk.dim(`${sent} S2C packets${skipNote}`));
   }
 
@@ -138,25 +192,27 @@ export function handleClient(sock, opts = {}) {
     return false;
   }
 
-  function isPlayMovementOrPlugin(id) {
+  /** Packets that belong only to the proxy↔client link and must NOT be relayed upstream. */
+  function isLocalOnlyC2s(id) {
     return (
-      id === PLAY.C2S_CUSTOM_PAYLOAD ||
-      id === PLAY.C2S_POSITION ||
-      id === PLAY.C2S_POSITION_LOOK ||
-      id === PLAY.C2S_MOVE_ROT ||
-      id === PLAY.C2S_MOVE_STATUS ||
-      id === PLAY.C2S_TICK_END
+      id === PLAY.C2S_KEEP_ALIVE ||
+      id === PLAY.C2S_PONG ||
+      id === PLAY.C2S_CHUNK_BATCH_RECEIVED ||
+      id === PLAY.C2S_PLAYER_LOADED
     );
   }
 
   function handlePlayC2sCommon(sock, id, payload) {
-    if (isPlayMovementOrPlugin(id)) return true;
-    if (id === PLAY.C2S_TELEPORT_CONFIRM) return true;
-    if (id === PLAY.C2S_CHUNK_BATCH_RECEIVED) return true;
-    // C2S keep_alive is the client's reply to our S2C challenge — do not echo S2C back.
-    if (id === PLAY.C2S_KEEP_ALIVE) return true;
-    if (id === PLAY.C2S_PONG) return true;
-    return false;
+    if (isLocalOnlyC2s(id)) return true;
+
+    // Forward everything else to upstream when in play phase
+    if (phase === 'play') {
+      const upstream = getUpstreamClient();
+      if (upstream.sock && upstream.getPhase() === 'play' && upstream.send) {
+        upstream.send(id, payload);
+      }
+    }
+    return true;
   }
 
   function handlePlayJoinC2s(sock, id, payload) {
@@ -179,74 +235,21 @@ export function handleClient(sock, opts = {}) {
     return handlePlayC2sCommon(sock, id, payload);
   }
 
+  const onPacket = createOnPacket({
+    getPhase: () => phase,
+    logger,
+    send,
+    setPhase,
+    sendLoginSuccess,
+    beginConfig,
+    setUsername: (name) => { username = name; },
+    handleConfigC2s,
+    handlePlayJoinC2s,
+    handlePlayC2s,
+  });
+
   const feed = createFrameProcessor((id, payload) => {
-    if (phase === 'handshake') {
-      let o = 0;
-      const next = readVarInt(payload, o);
-      if (!next) return;
-      o = next.next;
-      const hostLen = readVarInt(payload, o);
-      if (!hostLen) return;
-      o = hostLen.next + hostLen.value + 2;
-      const intention = readVarInt(payload, o);
-      if (!intention) return;
-      if (intention.value === HS_STATUS) {
-        setPhase('status');
-        return;
-      }
-      if (intention.value === HS_LOGIN) {
-        setPhase('login');
-        return;
-      }
-      throw new Error(`unsupported handshake intention ${intention.value}`);
-    }
-
-    if (phase === 'status') {
-      logger.c2s(id, payload);
-      if (id === 0x00) {
-        send(sock, 0x00, writeString(STATUS_JSON));
-        return;
-      }
-      if (id === 0x01 && payload.length >= 8) {
-        send(sock, 0x01, payload.subarray(0, 8));
-        sock.end();
-        return;
-      }
-      return;
-    }
-
-    if (phase === 'login') {
-      logger.c2s(id, payload);
-      if (id === LOGIN.C2S_START) {
-        const name = readString(payload, 0);
-        username = name?.value ?? 'Player';
-        sendLoginSuccess(sock, username);
-        logger.info('login success', chalk.dim(username));
-        return;
-      }
-      if (id === LOGIN.C2S_ACK) {
-        beginConfig(sock);
-        return;
-      }
-      return;
-    }
-
-    if (phase === 'config') {
-      const handled = handleConfigC2s(sock, id, payload);
-      if (!handled) logger.warn('unhandled C2S', chalk.dim(`0x${id.toString(16)} len=${payload.length}`));
-      return;
-    }
-
-    if (phase === 'play_join') {
-      const handled = handlePlayJoinC2s(sock, id, payload);
-      if (!handled) logger.warn('unhandled C2S', chalk.dim(`0x${id.toString(16)} len=${payload.length}`));
-      return;
-    }
-
-    if (phase === 'play') {
-      const handled = handlePlayC2s(sock, id, payload);
-      if (!handled) logger.warn('unhandled C2S', chalk.dim(`0x${id.toString(16)} len=${payload.length}`));
-    }
+    onPacket(sock, id, payload);
   });
 
   sock.on('data', (chunk) => {
@@ -258,5 +261,9 @@ export function handleClient(sock, opts = {}) {
     }
   });
   sock.on('error', (e) => logger.error('socket', chalk.red(e.message)));
-  sock.on('close', () => logger.info('client disconnected', chalk.dim(username || '?')));
+  sock.on('close', () => {
+    setDownstreamClient(null, () => 'handshake', null);
+    if (keepAliveTimer) clearInterval(keepAliveTimer);
+    logger.info('client disconnected', chalk.dim(username || '?'));
+  });
 }

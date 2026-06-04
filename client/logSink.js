@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 
 const ANSI_RE = /\u001b\[[0-9;]*m/g;
 
@@ -12,7 +13,13 @@ let logStream = null;
 /** @param {string | null | undefined} logFile */
 export function initLogSink(logFile) {
   closeLogSink();
-  if (logFile) logStream = fs.createWriteStream(logFile, { flags: 'w' });
+  if (logFile) {
+    const dir = path.dirname(logFile);
+    if (dir && dir !== '.') {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    logStream = fs.createWriteStream(logFile, { flags: 'w' });
+  }
 }
 
 export function writeLogLine(line) {

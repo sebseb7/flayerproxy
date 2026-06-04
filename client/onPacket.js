@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import { LOGIN, CFG, PLAY, GAME_EVENT_LEVEL_CHUNKS_LOAD_START } from './constants.js';
 import { writeVarInt, readVarInt, readString } from './wire.js';
+import { getDownstreamClient } from './captureStore.js';
 import {
   readI64BE,
   parsePosition,
@@ -91,48 +92,54 @@ export function createOnPacket(ctx) {
         notePlayJoinPacket();
       }
 
+      // --- Packets handled only by the proxy (never forwarded) ---
+
+      if (id === PLAY.KEEP_ALIVE) {
+        const k = readI64BE(payload, 0);
+        if (k) {
+          const out = Buffer.alloc(8);
+          out.writeBigInt64BE(k.value);
+          send(sock, PLAY.C2S_KEEP_ALIVE, out, chalk.dim(`id=${k.value}`));
+        }
+        return;
+      }
+      if (id === PLAY.CHUNK_BATCH_FINISHED) {
+        const batch = Buffer.alloc(4);
+        batch.writeFloatBE(6.0);
+        send(sock, PLAY.C2S_CHUNK_BATCH_RECEIVED, batch, chalk.dim('perSec=6'));
+        tryFinishPlayJoin(sock, 'chunk_batch_finished');
+        return;
+      }
+
+      // --- Packets that update local proxy state (AND get forwarded below) ---
+
       if (id === PLAY.GAME_EVENT) {
         const ev = parseGameEvent(payload);
         if (ev?.event === GAME_EVENT_LEVEL_CHUNKS_LOAD_START) {
           state.chunksLoadStarted = true;
         }
-        return;
-      }
-
-      if (id === PLAY.SET_TICKING_STATE) {
+      } else if (id === PLAY.SET_TICKING_STATE) {
         const ts = parseSetTickingState(payload);
         if (ts) {
           state.tickingRunsNormally = !ts.isFrozen;
           tryFinishPlayJoin(sock, 'set_ticking_state unfrozen');
         }
-        return;
-      }
-
-      if (id === PLAY.UPDATE_TIME) {
+      } else if (id === PLAY.UPDATE_TIME) {
         const t = parseUpdateTime(payload);
         if (t?.tickDayTime) {
           state.daylightTicking = true;
           tryFinishPlayJoin(sock, 'update_time tickDayTime=true');
         }
-        return;
-      }
-
-      if (id === PLAY.LOGIN) {
+      } else if (id === PLAY.LOGIN) {
         const vd = parseLoginViewDistance(payload);
         if (vd != null) state.viewDistance = vd;
-        return;
-      }
-
-      if (id === PLAY.UPDATE_VIEW_POSITION) {
+      } else if (id === PLAY.UPDATE_VIEW_POSITION) {
         const vp = parseUpdateViewPosition(payload);
         if (vp) {
           state.chunkCenterX = vp.chunkX;
           state.chunkCenterZ = vp.chunkZ;
         }
-        return;
-      }
-
-      if (id === PLAY.MAP_CHUNK) {
+      } else if (id === PLAY.MAP_CHUNK) {
         state.mapChunksSeen++;
         const loc = getLocationFromChunkPayload(payload);
         if (loc) state.chunkCoords.add(`${loc.chunkX},${loc.chunkZ}`);
@@ -150,34 +157,56 @@ export function createOnPacket(ctx) {
             ),
           );
         }
-        return;
-      }
-
-      if (id === PLAY.POSITION) {
+      } else if (id === PLAY.POSITION) {
         const pos = parsePosition(payload);
         if (pos) {
-          const posDetail = chalk.dim(
-            `tp=${pos.teleportId} (${pos.x.toFixed(2)},${pos.y.toFixed(2)},${pos.z.toFixed(2)})`,
-          );
-          send(sock, PLAY.C2S_TELEPORT_CONFIRM, writeVarInt(pos.teleportId), posDetail);
+          if (phase === 'play') {
+            state.chunkCenterX = Math.floor(pos.x / 16);
+            state.chunkCenterZ = Math.floor(pos.z / 16);
+
+            const downstream = getDownstreamClient();
+            if (downstream.sock && downstream.getPhase() === 'play' && downstream.send) {
+              downstream.send(PLAY.POSITION, payload);
+            } else {
+              const posDetail = chalk.dim(
+                `tp=${pos.teleportId} (${pos.x.toFixed(2)},${pos.y.toFixed(2)},${pos.z.toFixed(2)})`
+              );
+              // 1. send C2S_TELEPORT_CONFIRM
+              send(sock, PLAY.C2S_TELEPORT_CONFIRM, writeVarInt(pos.teleportId), posDetail);
+
+              // 2. send C2S_POSITION_LOOK
+              const plBuf = Buffer.alloc(8 + 8 + 8 + 4 + 4 + 1);
+              plBuf.writeDoubleBE(pos.x, 0);
+              plBuf.writeDoubleBE(pos.y, 8);
+              plBuf.writeDoubleBE(pos.z, 16);
+              plBuf.writeFloatBE(pos.yaw, 24);
+              plBuf.writeFloatBE(pos.pitch, 28);
+              plBuf.writeUInt8(1, 32); // onGround = true
+              send(sock, PLAY.C2S_POSITION_LOOK, plBuf, chalk.dim(`x=${pos.x.toFixed(2)},y=${pos.y.toFixed(2)},z=${pos.z.toFixed(2)},yaw=${pos.yaw.toFixed(1)},pitch=${pos.pitch.toFixed(1)}`));
+            }
+          } else {
+            state.pendingTeleport = {
+              id: pos.teleportId,
+              x: pos.x,
+              y: pos.y,
+              z: pos.z,
+              yaw: pos.yaw,
+              pitch: pos.pitch,
+            };
+            state.chunkCenterX = Math.floor(pos.x / 16);
+            state.chunkCenterZ = Math.floor(pos.z / 16);
+            tryFinishPlayJoin(sock, 'position received');
+          }
         }
-        return;
+        return; // POSITION has its own forwarding logic above
       }
-      if (id === PLAY.KEEP_ALIVE) {
-        const k = readI64BE(payload, 0);
-        if (k) {
-          const out = Buffer.alloc(8);
-          out.writeBigInt64BE(k.value);
-          send(sock, PLAY.C2S_KEEP_ALIVE, out, chalk.dim(`id=${k.value}`));
+
+      // --- Forward all S2C play packets to the downstream client ---
+      if (phase === 'play') {
+        const downstream = getDownstreamClient();
+        if (downstream.sock && downstream.getPhase() === 'play' && downstream.send) {
+          downstream.send(id, payload);
         }
-        return;
-      }
-      if (id === PLAY.CHUNK_BATCH_FINISHED) {
-        const batch = Buffer.alloc(4);
-        batch.writeFloatBE(6.0);
-        send(sock, PLAY.C2S_CHUNK_BATCH_RECEIVED, batch, chalk.dim('perSec=6'));
-        tryFinishPlayJoin(sock, 'chunk_batch_finished');
-        return;
       }
     }
   };

@@ -100,5 +100,11 @@ export function parsePosition(payload) {
   o = y.next;
   const z = readF64BE(payload, o);
   if (!z) return null;
-  return { teleportId: tid.value, x: x.value, y: y.value, z: z.value };
+  o = z.next;
+  if (o + 24 > payload.length) return null;
+  o += 24;
+  if (o + 8 > payload.length) return null;
+  const yaw = payload.readFloatBE(o);
+  const pitch = payload.readFloatBE(o + 4);
+  return { teleportId: tid.value, x: x.value, y: y.value, z: z.value, yaw, pitch };
 }

@@ -21,6 +21,10 @@ const S2C_NAMES = {
 };
 
 export function s2cPacketName(ph, id) {
+  if (ph === 'status') {
+    if (id === 0x00) return 'status_response';
+    if (id === 0x01) return 'pong';
+  }
   if (ph === 'login' && id === LOGIN.SUCCESS) return 'success';
   if (ph === 'config' && id === CFG.DISCONNECT) return 'configuration_disconnect';
   if (ph === 'play' || ph === 'play_join') {
@@ -31,6 +35,10 @@ export function s2cPacketName(ph, id) {
 }
 
 export function c2sPacketName(ph, id) {
+  if (ph === 'status') {
+    if (id === 0x00) return 'status_request';
+    if (id === 0x01) return 'ping';
+  }
   if (ph === 'connect' && id === 0x00) return 'handshake';
   if (ph === 'login') {
     if (id === LOGIN.C2S_START) return 'login_start';
@@ -63,9 +71,17 @@ export function c2sPacketName(ph, id) {
 }
 
 export function c2sDecodeName(ph, id) {
+  if (ph === 'status') {
+    if (id === 0x00) return 'status_request';
+    if (id === 0x01) return 'ping';
+  }
   if (ph === 'config' && id === CFG.C2S_SELECT_KNOWN_PACKS) return 'select_known_packs';
-  if ((ph === 'play' || ph === 'play_join') && id === PLAY.C2S_TELEPORT_CONFIRM) {
-    return 'c2s_teleport_confirm';
+  if (ph === 'play' || ph === 'play_join') {
+    if (id === PLAY.C2S_TELEPORT_CONFIRM) return 'c2s_teleport_confirm';
+    if (id === PLAY.C2S_POSITION) return 'c2s_position';
+    if (id === PLAY.C2S_POSITION_LOOK) return 'c2s_position_look';
+    if (id === PLAY.C2S_MOVE_ROT) return 'c2s_look';
+    if (id === PLAY.C2S_MOVE_STATUS) return 'c2s_flying';
   }
   return null;
 }

@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import chalk from 'chalk';
 import { DECODE_MAX } from './constants.js';
 import { writeLogLine, isLogSinkOpen } from './logSink.js';
+import { readString } from './wire.js';
 
 const require = createRequire(import.meta.url);
 
@@ -32,6 +33,27 @@ export function warnLibchunkLoadError() {
 }
 
 export function decodePayload(packetName, payload) {
+  if (packetName === 'status_request') {
+    return 'status_request{}';
+  }
+  if (packetName === 'status_response') {
+    const s = readString(payload, 0);
+    return s ? `status_response{json=${s.value}}` : null;
+  }
+  if (packetName === 'ping' || packetName === 'pong') {
+    if (payload.length === 8) {
+      try {
+        const val = payload.readBigInt64BE(0);
+        return `${packetName}{id=${val}}`;
+      } catch (e) {}
+    } else if (payload.length === 4) {
+      try {
+        const val = payload.readInt32BE(0);
+        return `${packetName}{id=${val}}`;
+      } catch (e) {}
+    }
+  }
+
   if (!libchunk || !packetName || payload.length === 0) return null;
   if (!libchunk.isPacketSupported(packetName)) return null;
   const r = libchunk.decodePayload(packetName, payload);

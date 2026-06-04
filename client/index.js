@@ -13,6 +13,7 @@
  *   MC_SERVER_LOG_PING_TICK=1  same, replay server only
  */
 
+import fs from 'node:fs';
 import net from 'node:net';
 import chalk from 'chalk';
 import { resetCapture, onCaptureReady } from './captureStore.js';
@@ -25,6 +26,11 @@ import { initLogSink, writeLogLine } from './logSink.js';
 
 const serverPort = Number(process.env.MC_SERVER_PORT || 25569);
 const config = loadConfig();
+
+try {
+  fs.rmSync('chunks', { recursive: true, force: true });
+  fs.mkdirSync('chunks', { recursive: true });
+} catch (e) {}
 
 initLogSink(config.logFile);
 resetCapture();

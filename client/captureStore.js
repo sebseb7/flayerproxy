@@ -23,6 +23,42 @@ export function isCaptureReady() {
   return ready;
 }
 
+let upstreamSock = null;
+let getUpstreamPhase = () => 'connect';
+let upstreamSend = null;
+
+export function setUpstreamClient(sock, getPhaseFn, sendFn) {
+  upstreamSock = sock;
+  getUpstreamPhase = getPhaseFn;
+  upstreamSend = sendFn;
+}
+
+export function getUpstreamClient() {
+  return {
+    sock: upstreamSock,
+    getPhase: getUpstreamPhase,
+    send: upstreamSend,
+  };
+}
+
+let downstreamSock = null;
+let getDownstreamPhase = () => 'handshake';
+let downstreamSend = null;
+
+export function setDownstreamClient(sock, getPhaseFn, sendFn) {
+  downstreamSock = sock;
+  getDownstreamPhase = getPhaseFn;
+  downstreamSend = sendFn;
+}
+
+export function getDownstreamClient() {
+  return {
+    sock: downstreamSock,
+    getPhase: getDownstreamPhase,
+    send: downstreamSend,
+  };
+}
+
 export function recordConfigS2c(id, payload) {
   if (ready) return;
   config.push({ id, payload: Buffer.from(payload) });

@@ -11,6 +11,8 @@ import {
   recordPlayJoinS2c,
   markCaptureReady,
   getCapture,
+  setUpstreamClient,
+  getDownstreamClient,
 } from './captureStore.js';
 
 export function createSession(config) {
@@ -33,6 +35,7 @@ export function createSession(config) {
     chunkCenterZ: 0,
     daylightTicking: false,
     tickingRunsNormally: false,
+    pendingTeleport: null,
   };
 
   const logger = createLogger({
@@ -90,6 +93,29 @@ export function createSession(config) {
   /** Vanilla: player_loaded after LevelLoadTracker; capture seals after view-distance chunk grid. */
   function finishPlayJoin(sock, reason) {
     if (phase !== 'play_join') return;
+
+    if (state.pendingTeleport) {
+      const pos = state.pendingTeleport;
+      const posDetail = chalk.dim(
+        `tp=${pos.id} (${pos.x.toFixed(2)},${pos.y.toFixed(2)},${pos.z.toFixed(2)})`
+      );
+
+      // 1. send C2S_TELEPORT_CONFIRM
+      send(sock, PLAY.C2S_TELEPORT_CONFIRM, writeVarInt(pos.id), posDetail);
+
+      // 2. send C2S_POSITION_LOOK
+      const plBuf = Buffer.alloc(8 + 8 + 8 + 4 + 4 + 1);
+      plBuf.writeDoubleBE(pos.x, 0);
+      plBuf.writeDoubleBE(pos.y, 8);
+      plBuf.writeDoubleBE(pos.z, 16);
+      plBuf.writeFloatBE(pos.yaw, 24);
+      plBuf.writeFloatBE(pos.pitch, 28);
+      plBuf.writeUInt8(1, 32); // onGround = true
+      send(sock, PLAY.C2S_POSITION_LOOK, plBuf, chalk.dim(`x=${pos.x.toFixed(2)},y=${pos.y.toFixed(2)},z=${pos.z.toFixed(2)},yaw=${pos.yaw.toFixed(1)},pitch=${pos.pitch.toFixed(1)}`));
+
+      state.pendingTeleport = null;
+    }
+
     if (!state.playerLoadedSent) {
       send(sock, PLAY.C2S_PLAYER_LOADED, Buffer.alloc(0));
       state.playerLoadedSent = true;
@@ -142,6 +168,12 @@ export function createSession(config) {
     logger.debug('tick_end timer', chalk.dim(`${1000 / CLIENT_TICK_MS}/s during play`));
     tickTimer = setInterval(() => {
       if (phase !== 'play') return;
+
+      const downstream = getDownstreamClient();
+      if (downstream.sock && downstream.getPhase() === 'play') {
+        return;
+      }
+
       send(sock, PLAY.C2S_TICK_END, Buffer.alloc(0));
     }, CLIENT_TICK_MS);
   }
@@ -164,14 +196,17 @@ export function createSession(config) {
     logger.info(
       'connecting',
       chalk.white(`${host}:${port}`) +
-        chalk.dim(' as ') +
-        chalk.bold.white(username) +
-        chalk.dim(` (protocol ${PROTOCOL})`),
+      chalk.dim(' as ') +
+      chalk.bold.white(username) +
+      chalk.dim(` (protocol ${PROTOCOL})`),
     );
   }
 
   function attach(sock) {
     conn = sock;
+    setUpstreamClient(sock, () => phase, (id, payload, detail) => {
+      send(sock, id, payload, detail);
+    });
     const feedFrames = createFrameProcessor((id, payload) => {
       if (phase === 'config' && id !== CFG.PING) recordConfigS2c(id, payload);
       else if (phase === 'play_join' && id !== PLAY.PING) recordPlayJoinS2c(id, payload);
@@ -187,6 +222,7 @@ export function createSession(config) {
     });
     sock.on('error', (e) => logger.error('socket', chalk.red(e.message)));
     sock.on('close', () => {
+      setUpstreamClient(null, () => 'connect', null);
       if (tickTimer) clearInterval(tickTimer);
       logger.warn('disconnected');
       process.exit(sock.destroyed ? 0 : 1);
