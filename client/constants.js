@@ -64,6 +64,7 @@ export const PLAY = {
   C2S_ARM_ANIMATION: 0x3c,
   C2S_BLOCK_PLACE: 0x3f,
   C2S_USE_ITEM: 0x40,
+  C2S_INTERACT: 0x19,
 };
 
 /** Vanilla client tick period (20 TPS). */

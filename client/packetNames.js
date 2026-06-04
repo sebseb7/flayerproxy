@@ -82,6 +82,7 @@ export function c2sPacketName(ph, id) {
     if (id === PLAY.C2S_RECIPE_BOOK_SEEN_RECIPE) return 'recipe_book_seen_recipe';
     if (id === PLAY.C2S_BLOCK_PLACE) return 'block_place';
     if (id === PLAY.C2S_USE_ITEM) return 'use_item';
+    if (id === PLAY.C2S_INTERACT) return 'interact';
   }
   return null;
 }
@@ -104,6 +105,7 @@ export function c2sDecodeName(ph, id) {
     if (id === PLAY.C2S_CONTAINER_CLOSE) return 'c2s_container_close';
     if (id === PLAY.C2S_CONTAINER_CLICK) return 'c2s_container_click';
     if (id === PLAY.C2S_RECIPE_BOOK_SEEN_RECIPE) return 'c2s_recipe_book_seen_recipe';
+    if (id === PLAY.C2S_INTERACT) return 'c2s_interact';
   }
   return null;
 }

@@ -409,6 +409,23 @@ typedef struct lc_c2s_arm_animation {
   int32_t hand;
 } lc_c2s_arm_animation;
 
+/* ServerboundInteractPacket action types */
+typedef enum lc_c2s_interact_action {
+  LC_INTERACT_ACTION_INTERACT = 0,
+  LC_INTERACT_ACTION_ATTACK = 1,
+  LC_INTERACT_ACTION_INTERACT_AT = 2,
+} lc_c2s_interact_action;
+
+typedef struct lc_c2s_interact {
+  int32_t entity_id;
+  lc_c2s_interact_action action;
+  /* for INTERACT and INTERACT_AT */
+  int32_t hand;
+  /* for INTERACT_AT */
+  float at_x, at_y, at_z;
+  uint8_t using_secondary_action;
+} lc_c2s_interact;
+
 typedef struct lc_c2s_container_close {
   int32_t container_id;
 } lc_c2s_container_close;
@@ -673,6 +690,7 @@ lc_status lc_parse_c2s_teleport_confirm(const uint8_t *data, size_t len, lc_c2s_
 lc_status lc_parse_c2s_block_dig(const uint8_t *data, size_t len, lc_c2s_block_dig *out);
 lc_status lc_parse_c2s_player_input(const uint8_t *data, size_t len, lc_c2s_player_input *out);
 lc_status lc_parse_c2s_arm_animation(const uint8_t *data, size_t len, lc_c2s_arm_animation *out);
+lc_status lc_parse_c2s_interact(const uint8_t *data, size_t len, lc_c2s_interact *out);
 lc_status lc_parse_c2s_container_close(const uint8_t *data, size_t len, lc_c2s_container_close *out);
 lc_status lc_parse_c2s_recipe_book_seen_recipe(const uint8_t *data, size_t len, lc_c2s_recipe_book_seen_recipe *out);
 
@@ -780,6 +798,7 @@ int lc_c2s_teleport_confirm_to_string(const lc_c2s_teleport_confirm *p, char *bu
 int lc_c2s_block_dig_to_string(const lc_c2s_block_dig *p, char *buf, size_t buflen);
 int lc_c2s_player_input_to_string(const lc_c2s_player_input *p, char *buf, size_t buflen);
 int lc_c2s_arm_animation_to_string(const lc_c2s_arm_animation *p, char *buf, size_t buflen);
+int lc_c2s_interact_to_string(const lc_c2s_interact *p, char *buf, size_t buflen);
 int lc_c2s_container_close_to_string(const lc_c2s_container_close *p, char *buf, size_t buflen);
 int lc_c2s_recipe_book_seen_recipe_to_string(const lc_c2s_recipe_book_seen_recipe *p, char *buf, size_t buflen);
 

@@ -194,3 +194,46 @@ int lc_c2s_arm_animation_to_string(const lc_c2s_arm_animation *p, char *buf, siz
   if (!p || !buf || buflen == 0) return 0;
   return lc_snprintf(buf, buflen, "c2s_arm_animation{hand=%s}", c2s_hand_name(p->hand));
 }
+
+/* Good for: Decode Minecraft wire payload for c2s interact into a struct.
+ * Callers: decode_wire.c.
+ */
+
+lc_status lc_parse_c2s_interact(const uint8_t *data, size_t len, lc_c2s_interact *out) {
+  lc_buf b;
+  lc_buf_init(&b, data, len);
+  if (lc_buf_read_varint(&b, &out->entity_id) != LC_OK) return LC_ERR_TRUNCATED;
+  int32_t action;
+  if (lc_buf_read_varint(&b, &action) != LC_OK) return LC_ERR_TRUNCATED;
+  out->action = (lc_c2s_interact_action)action;
+  out->hand = -1;
+  out->at_x = out->at_y = out->at_z = 0.0f;
+  if (out->action == LC_INTERACT_ACTION_INTERACT) {
+    if (lc_buf_read_varint(&b, &out->hand) != LC_OK) return LC_ERR_TRUNCATED;
+  } else if (out->action == LC_INTERACT_ACTION_INTERACT_AT) {
+    if (lc_buf_read_f32_be(&b, &out->at_x) != LC_OK) return LC_ERR_TRUNCATED;
+    if (lc_buf_read_f32_be(&b, &out->at_y) != LC_OK) return LC_ERR_TRUNCATED;
+    if (lc_buf_read_f32_be(&b, &out->at_z) != LC_OK) return LC_ERR_TRUNCATED;
+    if (lc_buf_read_varint(&b, &out->hand) != LC_OK) return LC_ERR_TRUNCATED;
+  }
+  if (lc_buf_read_bool(&b, &out->using_secondary_action) != LC_OK) return LC_ERR_TRUNCATED;
+  return LC_OK;
+}
+
+int lc_c2s_interact_to_string(const lc_c2s_interact *p, char *buf, size_t buflen) {
+  if (!p || !buf || buflen == 0) return 0;
+  if (p->action == LC_INTERACT_ACTION_ATTACK) {
+    return lc_snprintf(buf, buflen, "c2s_interact{entityId=%d,action=attack,secondary=%d}",
+                       p->entity_id, p->using_secondary_action);
+  } else if (p->action == LC_INTERACT_ACTION_INTERACT) {
+    return lc_snprintf(buf, buflen, "c2s_interact{entityId=%d,action=interact,hand=%s,secondary=%d}",
+                       p->entity_id, c2s_hand_name(p->hand), p->using_secondary_action);
+  } else if (p->action == LC_INTERACT_ACTION_INTERACT_AT) {
+    return lc_snprintf(buf, buflen,
+                       "c2s_interact{entityId=%d,action=interact_at,at=(%.2f,%.2f,%.2f),hand=%s,secondary=%d}",
+                       p->entity_id, p->at_x, p->at_y, p->at_z, c2s_hand_name(p->hand),
+                       p->using_secondary_action);
+  }
+  return lc_snprintf(buf, buflen, "c2s_interact{entityId=%d,action=%d,secondary=%d}",
+                     p->entity_id, (int)p->action, p->using_secondary_action);
+}

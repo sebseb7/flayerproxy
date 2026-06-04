@@ -36,6 +36,7 @@ int lc_packet_name_supported(const char *name) {
       "c2s_block_dig",
       "c2s_player_input",
       "c2s_arm_animation",
+      "c2s_interact",
       "c2s_container_close",
       "c2s_recipe_book_seen_recipe",
       "respawn",
@@ -223,6 +224,10 @@ int lc_decode_payload_to_string(const char *name, const uint8_t *payload, size_t
     lc_c2s_arm_animation p;
     st = lc_parse_c2s_arm_animation(payload, payload_len, &p);
     if (st == LC_OK) lc_c2s_arm_animation_to_string(&p, out, out_sz);
+  } else if (strcmp(name, "c2s_interact") == 0) {
+    lc_c2s_interact p;
+    st = lc_parse_c2s_interact(payload, payload_len, &p);
+    if (st == LC_OK) lc_c2s_interact_to_string(&p, out, out_sz);
   } else if (strcmp(name, "c2s_container_close") == 0) {
     lc_c2s_container_close p;
     st = lc_parse_c2s_container_close(payload, payload_len, &p);
