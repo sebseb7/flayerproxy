@@ -10,6 +10,7 @@ import { createOnPacket } from './onPacket.js';
 import {
   recordConfigS2c,
   recordPlayJoinS2c,
+  trackPlayPacket,
   clearPlayJoinCapture,
   markCaptureReady,
   getCapture,
@@ -289,8 +290,14 @@ export function createSession(config) {
       send(sock, id, payload, detail);
     });
     const feedFrames = createFrameProcessor((id, payload) => {
-      if (phase === 'config' && id !== CFG.PING) recordConfigS2c(id, payload);
-      else if (phase === 'play_join' && id !== PLAY.PING) recordPlayJoinS2c(id, payload);
+      if (phase === 'config' && id !== CFG.PING) {
+        recordConfigS2c(id, payload);
+      } else if (phase === 'play_join' && id !== PLAY.PING) {
+        recordPlayJoinS2c(id, payload);
+      }
+      if ((phase === 'play_join' || phase === 'play') && id !== PLAY.PING) {
+        trackPlayPacket(id, payload);
+      }
       onPacket(sock, id, payload);
     });
     sock.on('data', (chunk) => {

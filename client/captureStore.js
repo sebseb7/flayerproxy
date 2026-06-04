@@ -1,5 +1,6 @@
 import chalk from 'chalk';
 import { writeLogLine } from './logSink.js';
+import { createJoinDataTracker } from './joinDataTracker.js';
 
 /** In-memory S2C capture from upstream (config + play_join). Shared by client and server. */
 
@@ -13,10 +14,13 @@ let config = [];
 let playJoin = [];
 let ready = false;
 
+const joinDataTracker = createJoinDataTracker();
+
 export function resetCapture() {
   config = [];
   playJoin = [];
   ready = false;
+  joinDataTracker.reset();
 }
 
 export function isCaptureReady() {
@@ -69,10 +73,15 @@ export function recordPlayJoinS2c(id, payload) {
   playJoin.push({ id, payload: Buffer.from(payload) });
 }
 
+export function trackPlayPacket(id, payload) {
+  joinDataTracker.noteS2c(id, payload);
+}
+
 /** Drop pre-death join burst; post-respawn play_join is recorded fresh. */
 export function clearPlayJoinCapture() {
   if (ready) return;
   playJoin = [];
+  joinDataTracker.reset();
 }
 
 export function markCaptureReady() {
@@ -98,5 +107,6 @@ export function onCaptureReady(fn) {
 }
 
 export function getCapture() {
-  return { config, playJoin, ready };
+  const mergedPlayJoin = joinDataTracker.mergeWith(playJoin);
+  return { config, playJoin: mergedPlayJoin, ready };
 }
