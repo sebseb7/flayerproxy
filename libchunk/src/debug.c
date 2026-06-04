@@ -442,6 +442,17 @@ int lc_world_event_to_string(const lc_world_event *p, char *buf, size_t buflen) 
                      p->global ? "true" : "false");
 }
 
+int lc_c2s_container_close_to_string(const lc_c2s_container_close *p, char *buf, size_t buflen) {
+  if (!p || !buf || buflen == 0) return 0;
+  return lc_snprintf(buf, buflen, "c2s_container_close{containerId=%d}", p->container_id);
+}
+
+int lc_c2s_recipe_book_seen_recipe_to_string(const lc_c2s_recipe_book_seen_recipe *p, char *buf, size_t buflen) {
+  if (!p || !buf || buflen == 0) return 0;
+  return lc_snprintf(buf, buflen, "c2s_recipe_book_seen_recipe{recipeId=%d}", p->recipe_id);
+}
+
+
 /* Good for: One-line debug summary of lc_initialize world border (sniffer / decode tools).
  * Callers: decode_wire.c, play_stream.c.
  */

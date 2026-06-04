@@ -77,6 +77,8 @@ export function c2sPacketName(ph, id) {
     if (id === PLAY.C2S_PLAYER_INPUT) return 'player_input';
     if (id === PLAY.C2S_HELD_ITEM_SLOT) return 'held_item_slot';
     if (id === PLAY.C2S_ARM_ANIMATION) return 'arm_animation';
+    if (id === PLAY.C2S_CONTAINER_CLOSE) return 'container_close';
+    if (id === PLAY.C2S_RECIPE_BOOK_SEEN_RECIPE) return 'recipe_book_seen_recipe';
     if (id === PLAY.C2S_BLOCK_PLACE) return 'block_place';
     if (id === PLAY.C2S_USE_ITEM) return 'use_item';
   }
@@ -98,6 +100,8 @@ export function c2sDecodeName(ph, id) {
     if (id === PLAY.C2S_BLOCK_DIG) return 'c2s_block_dig';
     if (id === PLAY.C2S_PLAYER_INPUT) return 'c2s_player_input';
     if (id === PLAY.C2S_ARM_ANIMATION) return 'c2s_arm_animation';
+    if (id === PLAY.C2S_CONTAINER_CLOSE) return 'c2s_container_close';
+    if (id === PLAY.C2S_RECIPE_BOOK_SEEN_RECIPE) return 'c2s_recipe_book_seen_recipe';
   }
   return null;
 }

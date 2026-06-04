@@ -83,3 +83,12 @@ export function isBlockedPacket(name, id) {
   }
   return false;
 }
+
+/**
+ * Returns the sorted list of blocked packet names/ids (for logging).
+ * @returns {string[]}
+ */
+export function getBlockedPacketsList() {
+  const blocked = getBlockedPackets();
+  return Array.from(blocked).sort();
+}

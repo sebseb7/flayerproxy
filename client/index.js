@@ -25,6 +25,7 @@ import { createSession } from './session.js';
 import { isLibchunkLoaded, warnLibchunkLoadError } from './decode.js';
 import { LOG_LEVELS } from './constants.js';
 import { initLogSink, writeLogLine } from './logSink.js';
+import { getBlockedPacketsList } from './logNoise.js';
 
 const serverPort = Number(process.env.MC_SERVER_PORT || 25569);
 const config = loadConfig();
@@ -54,7 +55,8 @@ session.logger.info(
     (config.logPingTick ? chalk.yellow(' MC_LOG_PING_TICK=1') : '') +
     (config.logFile ? chalk.dim(` logFile=${config.logFile}`) : '') +
     (isLibchunkLoaded() ? chalk.green(' libchunk=ok') : chalk.yellow(' libchunk=off')) +
-    (config.autoRespawn ? chalk.yellow(' --auto-respawn') : ''),
+    (config.autoRespawn ? chalk.yellow(' --auto-respawn') : '') +
+    (() => { const bp = getBlockedPacketsList(); return bp.length ? chalk.dim(` blocked=[${bp.join(',')}]`) : ''; })()
 );
 session.logger.info('upstream', chalk.white(`${config.host}:${config.port}`));
 

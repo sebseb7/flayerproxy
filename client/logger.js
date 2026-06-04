@@ -169,6 +169,7 @@ export function createLogger({ getPhase, logLevel, debug, logPingTick = false })
   };
 
   const statsInterval = setInterval(() => {
+    return;
     const activeEntities = Array.from(entityTracker.entities.values());
     if (activeEntities.length === 0) {
       loggerObj.info('Entity Tracker Stats: 0 active entities');
@@ -227,7 +228,7 @@ export function createLogger({ getPhase, logLevel, debug, logPingTick = false })
       if (ent.attributes && Object.keys(ent.attributes).length > 0) {
         attrStr = ` attributes=${JSON.stringify(ent.attributes)}`;
       }
-      
+
       loggerObj.info(`  - ID ${ent.id}: type=${typeName} ${posStr} ${velStr} ${rotStr} age=${ageSec}s uuid=${ent.uuid}${metaStr}${eqStr}${statusStr}${passStr}${attachedStr}${effectsStr}${attrStr}`);
     }
     loggerObj.info('============================');

@@ -827,5 +827,22 @@ lc_status lc_parse_world_event(const uint8_t *data, size_t len, lc_world_event *
   return LC_OK;
 }
 
+lc_status lc_parse_c2s_container_close(const uint8_t *data, size_t len, lc_c2s_container_close *out) {
+  memset(out, 0, sizeof(*out));
+  lc_buf b;
+  lc_buf_init(&b, data, len);
+  if (lc_buf_read_varint(&b, &out->container_id) != LC_OK) return LC_ERR_TRUNCATED;
+  return LC_OK;
+}
+
+lc_status lc_parse_c2s_recipe_book_seen_recipe(const uint8_t *data, size_t len, lc_c2s_recipe_book_seen_recipe *out) {
+  memset(out, 0, sizeof(*out));
+  lc_buf b;
+  lc_buf_init(&b, data, len);
+  if (lc_buf_read_varint(&b, &out->recipe_id) != LC_OK) return LC_ERR_TRUNCATED;
+  return LC_OK;
+}
+
+
 
 
