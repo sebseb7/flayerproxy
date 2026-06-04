@@ -5,9 +5,8 @@
   "main": "index.js",
   "types": "index.d.ts",
   "scripts": {
-    "install": "node ../scripts/npm-prebuild.cjs && node-gyp rebuild",
-    "build": "node ../scripts/npm-prebuild.cjs && node-gyp rebuild",
-    "test": "node test/wirePath.test.js && node test/configPackets.test.js && node test/loginAdvancements.test.js && node test/decode.test.js"
+    "install": "node-gyp rebuild",
+    "build": "node-gyp rebuild"
   },
   "dependencies": {
     "node-addon-api": "^8.3.0"

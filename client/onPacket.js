@@ -178,6 +178,10 @@ export function createOnPacket(ctx) {
         if (vp) {
           state.chunkCenterX = vp.chunkX;
           state.chunkCenterZ = vp.chunkZ;
+          logger.debug(
+            'update_view_position',
+            chalk.dim(`chunk(${vp.chunkX},${vp.chunkZ})`),
+          );
         }
       } else if (id === PLAY.MAP_CHUNK) {
         state.mapChunksSeen++;

@@ -207,9 +207,19 @@ export function createSession(config) {
   function tryFinishPlayJoin(sock, reason) {
     if (phase !== 'play_join') return;
     if (state.playerDead) return;
-    if (!state.chunksLoadStarted || !playJoinChunksReady()) return;
-    if (!state.daylightTicking) return;
-    if (!state.tickingRunsNormally) return;
+
+    const waiting = [];
+    if (!state.chunksLoadStarted) waiting.push('game_event:level_chunks_load_start');
+    if (!playJoinChunksReady()) {
+      waiting.push(`center_chunk(${state.chunkCenterX},${state.chunkCenterZ})`);
+    }
+    if (!state.daylightTicking) waiting.push('update_time:tickDayTime');
+    if (!state.tickingRunsNormally) waiting.push('set_ticking_state:unfrozen');
+    if (waiting.length > 0) {
+      logger.debug('play_join waiting', chalk.dim(`${reason} → ${waiting.join(', ')}`));
+      return;
+    }
+
     finishPlayJoin(sock, reason);
   }
 
