@@ -165,12 +165,17 @@ export function createOnPacket(ctx) {
         if (h) {
           const wasDead = state.playerDead;
           state.playerDead = h.health <= 0;
-          if (phase === 'death' && h.health > 0) {
+          if (phase === 'play_join') {
+            state.healthKnown = true;
+            if (state.playerDead && !wasDead) {
+              enterDeath(sock, `update_health health=${h.health}`);
+              return;
+            }
+            if (!state.playerDead) {
+              tryFinishPlayJoin(sock, `update_health health=${h.health}`);
+            }
+          } else if (phase === 'death' && h.health > 0) {
             state.playerDead = false;
-          }
-          if (phase === 'play_join' && state.playerDead && !wasDead) {
-            enterDeath(sock, `update_health health=${h.health}`);
-            return;
           }
         }
       } else if (id === PLAY.UPDATE_VIEW_POSITION) {

@@ -74,6 +74,7 @@ export function createSession(config) {
     tickingRunsNormally: false,
     pendingTeleport: null,
     playerDead: false,
+    healthKnown: false,
     respawnRequested: false,
   };
 
@@ -109,6 +110,7 @@ export function createSession(config) {
     state.daylightTicking = false;
     state.tickingRunsNormally = false;
     state.pendingTeleport = null;
+    state.healthKnown = false;
     joinBurstLogged = false;
   }
 
@@ -215,6 +217,7 @@ export function createSession(config) {
     }
     if (!state.daylightTicking) waiting.push('update_time:tickDayTime');
     if (!state.tickingRunsNormally) waiting.push('set_ticking_state:unfrozen');
+    if (!state.healthKnown) waiting.push('update_health');
     if (waiting.length > 0) {
       logger.debug('play_join waiting', chalk.dim(`${reason} → ${waiting.join(', ')}`));
       return;
