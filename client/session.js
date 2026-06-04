@@ -5,7 +5,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import chalk from 'chalk';
 import { PROTOCOL, HS_LOGIN, LOGIN, CFG, PLAY, CLIENT_TICK_MS } from './constants.js';
-import { createFrameProcessor, buildFrame, writeVarInt, writeString } from './wire.js';
+import { createFrameProcessor, buildFrame, writeVarInt, writeString, readVarInt, readString } from './wire.js';
 import { offlineUUID } from './protocol.js';
 import { createLogger } from './logger.js';
 import { createOnPacket } from './onPacket.js';
@@ -111,6 +111,56 @@ function buildFrameJS(id, payload, compressThreshold) {
     const packetBody = Buffer.concat([writeVarIntJS(id), payload]);
     return Buffer.concat([writeVarIntJS(packetBody.length), packetBody]);
   }
+}
+
+function rewriteSelectKnownPacks(payload) {
+  try {
+    let off = 0;
+    const countRes = readVarInt(payload, off);
+    if (!countRes) return payload;
+    const count = countRes.value;
+    off = countRes.next;
+    const packs = [];
+    let changed = false;
+    for (let i = 0; i < count; i++) {
+      const nsRes = readString(payload, off);
+      if (!nsRes) return payload;
+      const ns = nsRes.value;
+      off = nsRes.next;
+
+      const idRes = readString(payload, off);
+      if (!idRes) return payload;
+      const idVal = idRes.value;
+      off = idRes.next;
+
+      const verRes = readString(payload, off);
+      if (!verRes) return payload;
+      let ver = verRes.value;
+      off = verRes.next;
+
+      if (ns === 'minecraft' && idVal === 'core' && ver === '1.21.4') {
+        ver = '1.21.10';
+        changed = true;
+      }
+      packs.push({ namespace: ns, id: idVal, version: ver });
+    }
+
+    if (changed) {
+      let newPayload = writeVarInt(packs.length);
+      for (const pack of packs) {
+        newPayload = Buffer.concat([
+          newPayload,
+          writeString(pack.namespace),
+          writeString(pack.id),
+          writeString(pack.version),
+        ]);
+      }
+      return newPayload;
+    }
+  } catch (e) {
+    // fallback to original payload
+  }
+  return payload;
 }
 
 export function createSession(config) {
@@ -443,6 +493,9 @@ export function createSession(config) {
         }
 
         if (phase === 'config' && id !== CFG.PING) {
+          if (id === CFG.SELECT_KNOWN_PACKS) {
+            payload = rewriteSelectKnownPacks(payload);
+          }
           recordConfigS2c(id, payload);
         } else if (phase === 'play_join' && id !== PLAY.PING) {
           recordPlayJoinS2c(id, payload);
