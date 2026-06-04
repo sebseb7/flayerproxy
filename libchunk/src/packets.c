@@ -419,9 +419,9 @@ lc_status lc_parse_rel_entity_move(const uint8_t *data, size_t len, lc_rel_entit
   lc_buf b;
   lc_buf_init(&b, data, len);
   if (lc_buf_read_varint(&b, &out->entity_id) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_i16_le(&b, &out->dx) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_i16_le(&b, &out->dy) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_i16_le(&b, &out->dz) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_i16_be(&b, &out->dx) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_i16_be(&b, &out->dy) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_i16_be(&b, &out->dz) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_bool(&b, &out->on_ground) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
@@ -433,9 +433,9 @@ lc_status lc_parse_entity_move_look(const uint8_t *data, size_t len, lc_entity_m
   lc_buf b;
   lc_buf_init(&b, data, len);
   if (lc_buf_read_varint(&b, &out->entity_id) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_i16_le(&b, &out->dx) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_i16_le(&b, &out->dy) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_i16_le(&b, &out->dz) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_i16_be(&b, &out->dx) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_i16_be(&b, &out->dy) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_i16_be(&b, &out->dz) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_i8(&b, &out->yaw) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_i8(&b, &out->pitch) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_bool(&b, &out->on_ground) != LC_OK) return LC_ERR_TRUNCATED;

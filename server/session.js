@@ -70,13 +70,14 @@ function serializeSpawnEntityPacket(ent) {
   coordsBuf.writeDoubleBE(ent.y, 8);
   coordsBuf.writeDoubleBE(ent.z, 16);
   
+  // Use the last tracked velocity (updated by entity_velocity packets)
   const vel = ent.vel || { x: 0, y: 0, z: 0 };
   const velBuf = packLpVec3(vel.x, vel.y, vel.z);
-  
+
   const rotBuf = Buffer.alloc(3);
-  rotBuf.writeInt8(ent.rot.pitch || 0, 0);
-  rotBuf.writeInt8(ent.rot.yaw || 0, 1);
-  rotBuf.writeInt8(ent.rot.headPitch || 0, 2);
+  rotBuf.writeInt8(ent.rot.pitch || 0, 0);   // pitch
+  rotBuf.writeInt8(ent.rot.yaw   || 0, 1);   // yaw
+  rotBuf.writeInt8(ent.rot.headYaw || ent.rot.yaw || 0, 2); // headYaw (not headPitch)
   
   const dataBuf = writeVarInt(ent.data || 0);
   return Buffer.concat([idBuf, uuidBuf, typeBuf, coordsBuf, velBuf, rotBuf, dataBuf]);
