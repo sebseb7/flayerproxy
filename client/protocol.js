@@ -1,8 +1,6 @@
 import crypto from 'node:crypto';
 import { readVarInt } from './wire.js';
 
-export { readVarInt } from './wire.js';
-
 export function offlineUUID(name) {
   const hash = crypto.createHash('md5').update(`OfflinePlayer:${name}`).digest();
   hash[6] = (hash[6] & 0x0f) | 0x30;
@@ -15,7 +13,7 @@ export function readI64BE(buf, off) {
   return { value: buf.readBigInt64BE(off), next: off + 8 };
 }
 
-export function readF64BE(buf, off) {
+function readF64BE(buf, off) {
   if (off + 8 > buf.length) return null;
   return { value: buf.readDoubleBE(off), next: off + 8 };
 }
@@ -68,18 +66,6 @@ export function parseUpdateViewPosition(payload) {
   const z = readVarInt(payload, x.next);
   if (!z) return null;
   return { chunkX: x.value, chunkZ: z.value };
-}
-
-/** Matches libchunk mc_static_chunk_radius_from_view. */
-export function chunkRadiusFromView(viewDistance) {
-  if (viewDistance <= 0) return 0;
-  return viewDistance - 1;
-}
-
-export function expectedChunkGridCount(viewDistance) {
-  const r = chunkRadiusFromView(viewDistance);
-  const side = 2 * r + 1;
-  return side * side;
 }
 
 export function parsePosition(payload) {

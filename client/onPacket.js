@@ -28,7 +28,6 @@ export function createOnPacket(ctx) {
     enterDeath,
     beginRespawnJoin,
     tryFinishPlayJoin,
-    finishPlayJoin,
     notePlayJoinPacket,
     writeMapChunk,
     state,

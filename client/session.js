@@ -4,7 +4,7 @@ import path from 'node:path';
 import chalk from 'chalk';
 import { PROTOCOL, HS_LOGIN, LOGIN, CFG, PLAY, CLIENT_TICK_MS } from './constants.js';
 import { createFrameProcessor, buildFrame, writeVarInt, writeString } from './wire.js';
-import { offlineUUID, expectedChunkGridCount } from './protocol.js';
+import { offlineUUID } from './protocol.js';
 import { createLogger } from './logger.js';
 import { createOnPacket } from './onPacket.js';
 import {
@@ -156,18 +156,6 @@ export function createSession(config) {
     logger.event('play ready', chalk.dim(reason));
   }
 
-  function chunksInViewGrid() {
-    const r = Math.max(0, state.viewDistance - 1);
-    let n = 0;
-    for (const key of state.chunkCoords) {
-      const [xs, zs] = key.split(',');
-      const cx = Number(xs);
-      const cz = Number(zs);
-      if (Math.abs(cx - state.chunkCenterX) <= r && Math.abs(cz - state.chunkCenterZ) <= r) n++;
-    }
-    return n;
-  }
-
   function playJoinChunksReady() {
     return state.sessionChunkCoords.has(`${state.chunkCenterX},${state.chunkCenterZ}`);
   }
@@ -249,11 +237,9 @@ export function createSession(config) {
     send,
     sendSilent,
     setPhase,
-    enterPlay,
     enterDeath,
     beginRespawnJoin,
     tryFinishPlayJoin,
-    finishPlayJoin,
     notePlayJoinPacket,
     writeMapChunk,
     state,

@@ -7,8 +7,6 @@ import {
   createFrameProcessor,
   writeVarInt,
   writeString,
-  readVarInt,
-  readString,
 } from '../client/wire.js';
 import { offlineUUID } from '../client/protocol.js';
 import { onCaptureReady, getCapture, isCaptureReady, getUpstreamClient, setDownstreamClient } from '../client/captureStore.js';
