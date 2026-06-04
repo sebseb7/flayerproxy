@@ -8,11 +8,13 @@ import {
   parseUpdateTime,
   parseGameEvent,
   parseSetTickingState,
-  parsePlayLogin,
   parseUpdateHealth,
   parseUpdateViewPosition,
 } from './protocol.js';
 import { getLocationFromChunkPayload, mapChunkWirePath, getChunkDataLen } from './chunk.js';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { parsePlayLogin } = require('../libchunk/js/index.js');
 
 
 /** @param {object} ctx session callbacks + mutable `state` for play-join flags */
@@ -223,16 +225,9 @@ export function createOnPacket(ctx) {
               logger.warn(
                 'map_chunk_placeholder',
                 chalk.yellow(
-                  `chunk(${loc.chunkX},${loc.chunkZ}) NOT cached. Triggering view-distance toggle...`,
+                  `chunk(${loc.chunkX},${loc.chunkZ}) NOT cached (placeholder ignored)`,
                 ),
               );
-              const clientInfoLow = Buffer.from([5, 0x65, 0x6e, 0x5f, 0x55, 0x53, 2, 0, 1, 127, 1, 0, 1, 0]);
-              send(sock, 0x0d, clientInfoLow, chalk.dim('client_information (toggle view distance 2)'));
-              
-              setTimeout(() => {
-                const clientInfoHigh = Buffer.from([5, 0x65, 0x6e, 0x5f, 0x55, 0x53, 10, 0, 1, 127, 1, 0, 1, 0]);
-                send(sock, 0x0d, clientInfoHigh, chalk.dim('client_information (toggle view distance 10)'));
-              }, 200);
             }
           }
         }

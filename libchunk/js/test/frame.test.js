@@ -25,4 +25,6 @@ assert.strictEqual(peek.ok, true);
 assert.strictEqual(peek.x, 3);
 assert.strictEqual(peek.z, -7);
 
+assert.strictEqual(lc.parsePlayLogin(Buffer.alloc(0)), null);
+
 console.log('frame.test.js ok');

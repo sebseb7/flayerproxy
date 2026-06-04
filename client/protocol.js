@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { readVarInt, readString } from './wire.js';
+import { readVarInt } from './wire.js';
 
 export { readVarInt } from './wire.js';
 
@@ -48,55 +48,6 @@ export function parseSetTickingState(payload) {
   };
 }
 
-/** ClientboundLoginPacket fields needed for join / death handling. */
-export function parsePlayLogin(payload) {
-  let o = 0;
-  if (o + 5 > payload.length) return null;
-  const entityId = payload.readInt32BE(o);
-  o += 4;
-  o += 1; // hardcore
-  const dimCount = readVarInt(payload, o);
-  if (!dimCount) return null;
-  o = dimCount.next;
-  for (let i = 0; i < dimCount.value; i++) {
-    const s = readString(payload, o);
-    if (!s) return null;
-    o = s.next;
-  }
-  const maxPlayers = readVarInt(payload, o);
-  if (!maxPlayers) return null;
-  o = maxPlayers.next;
-  const viewDistance = readVarInt(payload, o);
-  if (!viewDistance) return null;
-  o = viewDistance.next;
-  const simulationDistance = readVarInt(payload, o);
-  if (!simulationDistance) return null;
-  o = simulationDistance.next;
-  o += 3; // reducedDebug, showDeathScreen, limitedCrafting
-  const dimension = readVarInt(payload, o);
-  if (!dimension) return null;
-  o = dimension.next;
-  const dimensionName = readString(payload, o);
-  if (!dimensionName) return null;
-  o = dimensionName.next;
-  if (o + 8 + 2 + 2 + 1 > payload.length) return null;
-  o += 8; // hashedSeed i64 BE
-  o += 2; // gamemode i8, previousGamemode u8
-  o += 2; // isDebug, isFlat
-  const hasDeath = payload[o] !== 0;
-  return {
-    entityId,
-    viewDistance: viewDistance.value,
-    simulationDistance: simulationDistance.value,
-    hasDeath,
-  };
-}
-
-/** @deprecated use parsePlayLogin */
-export function parseLoginViewDistance(payload) {
-  const login = parsePlayLogin(payload);
-  return login?.viewDistance ?? null;
-}
 
 /** ClientboundSetHealthPacket: f32 health LE, varint food, f32 saturation LE. */
 export function parseUpdateHealth(payload) {

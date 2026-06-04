@@ -141,4 +141,8 @@ module.exports = {
     if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
     return native.peekMapChunkCoords(buffer);
   },
+  parsePlayLogin: (buffer) => {
+    if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+    return native.parsePlayLogin(buffer);
+  },
 };

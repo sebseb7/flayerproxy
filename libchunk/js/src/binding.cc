@@ -9,6 +9,7 @@ extern "C" {
 #include "decode_wire.h"
 #include "libchunk.h"
 #include "mc_wire.h"
+#include "packets_write.h"
 }
 
 namespace {
@@ -415,6 +416,28 @@ Napi::Value ReadVarIntAt(const Napi::CallbackInfo &info) {
   return o;
 }
 
+Napi::Value ParsePlayLogin(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1 || !info[0].IsBuffer()) {
+    Napi::TypeError::New(env, "parsePlayLogin(buffer)").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  lc_play_login parsed;
+  char **world_names = nullptr;
+  size_t world_name_count = 0;
+  lc_status st = lc_parse_play_login(buf.Data(), buf.Length(), &parsed, &world_names, &world_name_count);
+  if (st != LC_OK) return env.Null();
+
+  Napi::Object o = Napi::Object::New(env);
+  o.Set("entityId", Napi::Number::New(env, parsed.entity_id));
+  o.Set("viewDistance", Napi::Number::New(env, parsed.view_distance));
+  o.Set("simulationDistance", Napi::Number::New(env, parsed.simulation_distance));
+  o.Set("hasDeath", Napi::Boolean::New(env, parsed.world_state.has_death != 0));
+  lc_play_login_free(&parsed);
+  return o;
+}
+
 Napi::Value PeekMapChunkCoords(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
   if (info.Length() < 1 || !info[0].IsBuffer()) {
@@ -472,6 +495,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("readStringAt", Napi::Function::New(env, ReadStringAt));
   exports.Set("readVarIntAt", Napi::Function::New(env, ReadVarIntAt));
   exports.Set("peekMapChunkCoords", Napi::Function::New(env, PeekMapChunkCoords));
+  exports.Set("parsePlayLogin", Napi::Function::New(env, ParsePlayLogin));
   exports.Set("isPacketSupported", Napi::Function::New(env, [](const Napi::CallbackInfo &info) {
     Napi::Env env = info.Env();
     if (!info[0].IsString()) return Napi::Boolean::New(env, false);
