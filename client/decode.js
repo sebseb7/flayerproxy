@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import { DECODE_MAX, DECODE_MAX_LOGIN } from './constants.js';
 import { writeLogLine, isLogSinkOpen } from './logSink.js';
 import { readString } from './wire.js';
+import { resolveSoundRefs } from './soundNames.js';
 
 const require = createRequire(import.meta.url);
 
@@ -61,8 +62,11 @@ export function decodePayload(packetName, payload) {
     if (r.unsupported) return null;
     return chalk.red(r.error || 'decode failed');
   }
-  const oneLine = (r.text || '').replace(/\s+/g, ' ').trim();
+  let oneLine = (r.text || '').replace(/\s+/g, ' ').trim();
   if (!oneLine) return null;
+  if (packetName === 'sound_effect' || packetName === 'entity_sound_effect') {
+    oneLine = resolveSoundRefs(oneLine);
+  }
   const maxLen = packetName === 'login' ? DECODE_MAX_LOGIN : DECODE_MAX;
   return oneLine.length > maxLen ? `${oneLine.slice(0, maxLen)}…` : oneLine;
 }

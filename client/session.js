@@ -160,7 +160,6 @@ export function createSession(config) {
     return state.sessionChunkCoords.has(`${state.chunkCenterX},${state.chunkCenterZ}`);
   }
 
-  /** Vanilla: player_loaded after LevelLoadTracker; capture seals after view-distance chunk grid. */
   function finishPlayJoin(sock, reason) {
     if (phase !== 'play_join') return;
 
@@ -217,7 +216,7 @@ export function createSession(config) {
   function notePlayJoinPacket() {
     if (phase !== 'play_join' || joinBurstLogged) return;
     joinBurstLogged = true;
-    logger.event('join burst', chalk.dim('login + chunks (vanilla: LevelLoadTracker)'));
+    logger.event('join burst', chalk.dim('login + chunks'));
   }
 
   function writeMapChunk(file, payload) {

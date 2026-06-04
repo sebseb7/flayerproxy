@@ -29,6 +29,7 @@ Napi::Value SupportedPackets(const Napi::CallbackInfo &info) {
       "entity_move_look",    "entity_look",
       "sync_entity_position",
       "entity_velocity",     "entity_head_rotation",
+      "sound_effect",        "entity_sound_effect",
       "entity_update_attributes",
       "entity_teleport",     "entity_effect",
       "remove_entity_effect",

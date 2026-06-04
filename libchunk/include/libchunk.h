@@ -263,6 +263,30 @@ typedef struct lc_entity_velocity {
   lc_vec3 velocity;
 } lc_entity_velocity;
 
+typedef struct lc_sound_event_ref {
+  char *id;
+  uint8_t has_fixed_range;
+  float fixed_range;
+} lc_sound_event_ref;
+
+typedef struct lc_sound_effect {
+  lc_sound_event_ref sound;
+  int32_t source;
+  int32_t x, y, z;
+  float volume;
+  float pitch;
+  int64_t seed;
+} lc_sound_effect;
+
+typedef struct lc_entity_sound_effect {
+  lc_sound_event_ref sound;
+  int32_t source;
+  int32_t entity_id;
+  float volume;
+  float pitch;
+  int64_t seed;
+} lc_entity_sound_effect;
+
 typedef struct lc_entity_head_rotation {
   int32_t entity_id;
   int8_t head_yaw;
@@ -452,6 +476,9 @@ void lc_map_chunk_free(lc_map_chunk *p);
 void lc_update_light_free(lc_update_light *p);
 void lc_multi_block_change_free(lc_multi_block_change *p);
 void lc_entity_metadata_free(lc_entity_metadata *p);
+void lc_sound_event_ref_free(lc_sound_event_ref *p);
+void lc_sound_effect_free(lc_sound_effect *p);
+void lc_entity_sound_effect_free(lc_entity_sound_effect *p);
 void lc_entity_equipment_free(lc_entity_equipment *p);
 void lc_entity_destroy_free(lc_entity_destroy *p);
 void lc_set_passengers_free(lc_set_passengers *p);
@@ -497,6 +524,8 @@ lc_status lc_parse_rel_entity_move(const uint8_t *data, size_t len, lc_rel_entit
 lc_status lc_parse_entity_move_look(const uint8_t *data, size_t len, lc_entity_move_look *out);
 lc_status lc_parse_sync_entity_position(const uint8_t *data, size_t len, lc_sync_entity_position *out);
 lc_status lc_parse_entity_velocity(const uint8_t *data, size_t len, lc_entity_velocity *out);
+lc_status lc_parse_sound_effect(const uint8_t *data, size_t len, lc_sound_effect *out);
+lc_status lc_parse_entity_sound_effect(const uint8_t *data, size_t len, lc_entity_sound_effect *out);
 lc_status lc_parse_entity_head_rotation(const uint8_t *data, size_t len, lc_entity_head_rotation *out);
 lc_status lc_parse_entity_update_attributes(const uint8_t *data, size_t len,
                                             lc_entity_update_attributes *out);
@@ -583,6 +612,9 @@ int lc_rel_entity_move_to_string(const lc_rel_entity_move *p, char *buf, size_t 
 int lc_entity_move_look_to_string(const lc_entity_move_look *p, char *buf, size_t buflen);
 int lc_sync_entity_position_to_string(const lc_sync_entity_position *p, char *buf, size_t buflen);
 int lc_entity_velocity_to_string(const lc_entity_velocity *p, char *buf, size_t buflen);
+const char *lc_sound_source_name(int32_t source);
+int lc_sound_effect_to_string(const lc_sound_effect *p, char *buf, size_t buflen);
+int lc_entity_sound_effect_to_string(const lc_entity_sound_effect *p, char *buf, size_t buflen);
 int lc_entity_head_rotation_to_string(const lc_entity_head_rotation *p, char *buf, size_t buflen);
 const char *lc_entity_attribute_key_name(int32_t key);
 int lc_entity_update_attributes_to_string(const lc_entity_update_attributes *p, char *buf,

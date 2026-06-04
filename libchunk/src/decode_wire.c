@@ -24,6 +24,8 @@ int lc_packet_name_supported(const char *name) {
       "sync_entity_position",
       "entity_velocity",
       "entity_head_rotation",
+      "sound_effect",
+      "entity_sound_effect",
       "entity_update_attributes",
       "position",
       "c2s_position",
@@ -152,6 +154,22 @@ int lc_decode_payload_to_string(const char *name, const uint8_t *payload, size_t
     lc_entity_head_rotation p;
     st = lc_parse_entity_head_rotation(payload, payload_len, &p);
     if (st == LC_OK) lc_entity_head_rotation_to_string(&p, out, out_sz);
+  } else if (strcmp(name, "sound_effect") == 0) {
+    lc_sound_effect p;
+    memset(&p, 0, sizeof p);
+    st = lc_parse_sound_effect(payload, payload_len, &p);
+    if (st == LC_OK) {
+      lc_sound_effect_to_string(&p, out, out_sz);
+      lc_sound_effect_free(&p);
+    }
+  } else if (strcmp(name, "entity_sound_effect") == 0) {
+    lc_entity_sound_effect p;
+    memset(&p, 0, sizeof p);
+    st = lc_parse_entity_sound_effect(payload, payload_len, &p);
+    if (st == LC_OK) {
+      lc_entity_sound_effect_to_string(&p, out, out_sz);
+      lc_entity_sound_effect_free(&p);
+    }
   } else if (strcmp(name, "entity_update_attributes") == 0) {
     lc_entity_update_attributes p;
     memset(&p, 0, sizeof p);

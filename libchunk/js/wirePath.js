@@ -22,6 +22,8 @@ const DECODED_PACKET_NAMES = new Set([
   'sync_entity_position',
   'entity_velocity',
   'entity_head_rotation',
+  'sound_effect',
+  'entity_sound_effect',
   'entity_update_attributes',
   'entity_teleport',
   'entity_effect',

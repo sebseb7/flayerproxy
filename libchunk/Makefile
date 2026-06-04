@@ -13,7 +13,7 @@ CHUNK_LIBS = -lchunk $(AVIF_LIBS)
 
 PACKET_SRC = src/packets/custom_payload.c src/packets/feature_flags.c src/packets/select_known_packs.c \
 	src/packets/finish_configuration.c src/packets/bundle_delimiter.c src/packets/step_tick.c \
-	src/packets/success.c src/packets/advancements.c
+	src/packets/success.c src/packets/advancements.c src/packets/sound_effect.c
 SRC = src/buf.c src/nbt.c src/metadata.c src/slot.c src/slot_fprint.c src/packets.c $(PACKET_SRC) src/c2s_move.c src/position_flags.c src/debug.c src/chunk.c src/dump_json.c src/decode_wire.c src/play_stream.c src/play_wire_extra.c src/block_entity.c src/map_colors.c src/state_map_color.c src/state_block_name.c src/state_top_rgb.c src/biome_tint.c src/map_png.c src/map_avif.c src/map_tile.c src/packets_write.c src/update_tags.c src/mc_wire.c src/mc_static_grass.c src/mc_static_config.c src/mc_registry_join_template.c src/mc_static_registries.c src/mc_static_registries_data.c
 CFLAGS += $(AVIF_CFLAGS)
 OBJ = $(SRC:src/%.c=build/%.o)

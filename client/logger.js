@@ -4,6 +4,7 @@ import { s2cPacketName, c2sPacketName, c2sDecodeName } from './packetNames.js';
 import { decodePayload } from './decode.js';
 import { writeLogLine, closeLogSink } from './logSink.js';
 import { isNoisyC2sPacket, isNoisyS2cPacket } from './logNoise.js';
+import { createEntityTracker } from './entityTracker.js';
 
 const PHASE_STYLE = {
   connect: chalk.gray,
@@ -22,6 +23,7 @@ const LEVEL_TAG = {
 };
 
 export function createLogger({ getPhase, logLevel, debug, logPingTick = false }) {
+  const entityTracker = createEntityTracker();
   const showLevelTags = logLevel >= LOG_LEVELS.debug;
 
   function levelTag(level) {
@@ -98,6 +100,7 @@ export function createLogger({ getPhase, logLevel, debug, logPingTick = false })
       const nameStr = name ? chalk.white(name) : chalk.dim('?');
       const summary = name ? decodePayload(name, payload) : null;
       const summaryStr = summary ? chalk.cyan(` ${summary}`) : '';
+      const entityNote = name ? entityTracker.noteS2c(name, payload) : null;
       this._emit('debug', [
         this._phaseLabel(),
         chalk.bgMagenta.black(' S2C '),
@@ -106,6 +109,7 @@ export function createLogger({ getPhase, logLevel, debug, logPingTick = false })
         chalk.dim(`len=${len}`),
         summaryStr,
         detail && !summary ? detail : '',
+        entityNote || '',
       ]);
     },
 
