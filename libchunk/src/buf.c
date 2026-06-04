@@ -319,18 +319,19 @@ lc_status lc_buf_read_lpvec3(lc_buf *b, lc_vec3 *out) {
     out->x = out->y = out->z = 0;
     return LC_OK;
   }
-  if (lc_buf_need(b, 5) != LC_OK) return LC_ERR_TRUNCATED;
-  uint8_t b1 = b->data[b->off + 1];
-  uint32_t c = (uint32_t)b->data[b->off + 2] | ((uint32_t)b->data[b->off + 3] << 8) |
-               ((uint32_t)b->data[b->off + 4] << 16);
-  b->off += 5;
+  uint8_t b1;
+  uint32_t c;
+  if (lc_buf_read_u8(b, &b1) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_u32_be(b, &c) != LC_OK) return LC_ERR_TRUNCATED;
 
   uint64_t packed = ((uint64_t)c << 16) | ((uint64_t)b1 << 8) | a;
-  int scale = a & 3;
-  if (a & 4) {
+  int64_t scale = a & 3;
+  /* LpVec3.writeInt uses big-endian; bit 4 in the first byte can be set by packed
+   * X data even when no scale-continuation VarInt follows (6-byte encoding). */
+  if ((a & 4) != 0 && lc_buf_remaining(b) > 0) {
     int32_t extra;
     if (lc_buf_read_varint(b, &extra) != LC_OK) return LC_ERR_TRUNCATED;
-    scale = extra * 4 + scale;
+    scale |= ((int64_t)(uint32_t)extra) << 2;
   }
 
   out->x = lc_lpvec3_unpack(packed, 3) * scale;

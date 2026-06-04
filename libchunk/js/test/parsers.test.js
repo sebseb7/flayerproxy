@@ -66,4 +66,14 @@ const lc = require('..');
   assert.strictEqual(r.chunkZ, 22);
 }
 
+// 7. entity_velocity LpVec3 (big-endian int per ClientboundSetEntityMotionPacket)
+{
+  const r = lc.decodePayload('entity_velocity', Buffer.from('0af9ff81ebfe71', 'hex'));
+  assert.ok(r.ok, r.text);
+  assert.match(r.text, /vel=\(0\.000,0\.994,0\.015\)/);
+  const zero = lc.decodePayload('entity_velocity', Buffer.from('0a00', 'hex'));
+  assert.ok(zero.ok);
+  assert.match(zero.text, /vel=\(0\.000,0\.000,0\.000\)/);
+}
+
 console.log('all parser tests passed!');

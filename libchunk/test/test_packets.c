@@ -87,7 +87,7 @@ int main(void) {
   CASE("set_passengers", lc_set_passengers, lc_parse_set_passengers, lc_set_passengers_free,
        lc_set_passengers_to_string, "de84960401df849604");
   CASE("entity_velocity", lc_entity_velocity, lc_parse_entity_velocity, NULL, lc_entity_velocity_to_string,
-       "de849604f9ff7fff0415");
+       "0af9ff81ebfe71");
   CASE("entity_head_rotation", lc_entity_head_rotation, lc_parse_entity_head_rotation, NULL,
        lc_entity_head_rotation_to_string, "a0c29706db");
 

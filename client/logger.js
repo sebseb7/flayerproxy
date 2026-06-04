@@ -22,6 +22,11 @@ const LEVEL_TAG = {
   error: () => chalk.red.bold('ERR'),
 };
 
+/** @param {Buffer} buf */
+function payloadHex(buf) {
+  return buf.toString('hex').replace(/(.{2})/g, '$1 ').trim();
+}
+
 export function createLogger({ getPhase, logLevel, debug, logPingTick = false }) {
   const entityTracker = createEntityTracker();
   const showLevelTags = logLevel >= LOG_LEVELS.debug;
@@ -101,6 +106,8 @@ export function createLogger({ getPhase, logLevel, debug, logPingTick = false })
       const summary = name ? decodePayload(name, payload) : null;
       const summaryStr = summary ? chalk.cyan(` ${summary}`) : '';
       const entityNote = name ? entityTracker.noteS2c(name, payload) : null;
+      const wireHex =
+        name === 'entity_velocity' ? chalk.dim(` wire=${payloadHex(payload)}`) : '';
       this._emit('debug', [
         this._phaseLabel(),
         chalk.bgMagenta.black(' S2C '),
@@ -108,6 +115,7 @@ export function createLogger({ getPhase, logLevel, debug, logPingTick = false })
         nameStr,
         chalk.dim(`len=${len}`),
         summaryStr,
+        wireHex,
         detail && !summary ? detail : '',
         entityNote || '',
       ]);
