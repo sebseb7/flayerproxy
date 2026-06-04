@@ -417,6 +417,114 @@ Napi::Value ReadVarIntAt(const Napi::CallbackInfo &info) {
   return o;
 }
 
+Napi::Value ParsePosition(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1 || !info[0].IsBuffer()) {
+    Napi::TypeError::New(env, "parsePosition(buffer)").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  lc_position parsed;
+  lc_status st = lc_parse_position(buf.Data(), buf.Length(), &parsed);
+  if (st != LC_OK) return env.Null();
+
+  Napi::Object o = Napi::Object::New(env);
+  o.Set("teleportId", Napi::Number::New(env, parsed.teleport_id));
+  o.Set("x", Napi::Number::New(env, parsed.x));
+  o.Set("y", Napi::Number::New(env, parsed.y));
+  o.Set("z", Napi::Number::New(env, parsed.z));
+  o.Set("yaw", Napi::Number::New(env, parsed.yaw));
+  o.Set("pitch", Napi::Number::New(env, parsed.pitch));
+  return o;
+}
+
+Napi::Value ParseUpdateTime(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1 || !info[0].IsBuffer()) {
+    Napi::TypeError::New(env, "parseUpdateTime(buffer)").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  lc_update_time parsed;
+  lc_status st = lc_parse_update_time(buf.Data(), buf.Length(), &parsed);
+  if (st != LC_OK) return env.Null();
+
+  Napi::Object o = Napi::Object::New(env);
+  o.Set("gameTime", Napi::BigInt::New(env, parsed.game_time));
+  o.Set("dayTime", Napi::BigInt::New(env, parsed.day_time));
+  o.Set("tickDayTime", Napi::Boolean::New(env, parsed.tick_day_time != 0));
+  return o;
+}
+
+Napi::Value ParseGameEvent(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1 || !info[0].IsBuffer()) {
+    Napi::TypeError::New(env, "parseGameEvent(buffer)").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  lc_game_event parsed;
+  lc_status st = lc_parse_game_event(buf.Data(), buf.Length(), &parsed);
+  if (st != LC_OK) return env.Null();
+
+  Napi::Object o = Napi::Object::New(env);
+  o.Set("event", Napi::Number::New(env, parsed.event));
+  o.Set("value", Napi::Number::New(env, parsed.value));
+  return o;
+}
+
+Napi::Value ParseSetTickingState(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1 || !info[0].IsBuffer()) {
+    Napi::TypeError::New(env, "parseSetTickingState(buffer)").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  lc_set_ticking_state parsed;
+  lc_status st = lc_parse_set_ticking_state(buf.Data(), buf.Length(), &parsed);
+  if (st != LC_OK) return env.Null();
+
+  Napi::Object o = Napi::Object::New(env);
+  o.Set("tickRate", Napi::Number::New(env, parsed.tick_rate));
+  o.Set("isFrozen", Napi::Boolean::New(env, parsed.is_frozen != 0));
+  return o;
+}
+
+Napi::Value ParseUpdateHealth(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1 || !info[0].IsBuffer()) {
+    Napi::TypeError::New(env, "parseUpdateHealth(buffer)").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  lc_update_health parsed;
+  lc_status st = lc_parse_update_health(buf.Data(), buf.Length(), &parsed);
+  if (st != LC_OK) return env.Null();
+
+  Napi::Object o = Napi::Object::New(env);
+  o.Set("health", Napi::Number::New(env, parsed.health));
+  o.Set("food", Napi::Number::New(env, parsed.food));
+  o.Set("saturation", Napi::Number::New(env, parsed.saturation));
+  return o;
+}
+
+Napi::Value ParseUpdateViewPosition(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1 || !info[0].IsBuffer()) {
+    Napi::TypeError::New(env, "parseUpdateViewPosition(buffer)").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  lc_update_view_position parsed;
+  lc_status st = lc_parse_update_view_position(buf.Data(), buf.Length(), &parsed);
+  if (st != LC_OK) return env.Null();
+
+  Napi::Object o = Napi::Object::New(env);
+  o.Set("chunkX", Napi::Number::New(env, parsed.chunk_x));
+  o.Set("chunkZ", Napi::Number::New(env, parsed.chunk_z));
+  return o;
+}
+
 Napi::Value ParsePlayLogin(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
   if (info.Length() < 1 || !info[0].IsBuffer()) {
@@ -497,6 +605,12 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("readVarIntAt", Napi::Function::New(env, ReadVarIntAt));
   exports.Set("peekMapChunkCoords", Napi::Function::New(env, PeekMapChunkCoords));
   exports.Set("parsePlayLogin", Napi::Function::New(env, ParsePlayLogin));
+  exports.Set("parsePosition", Napi::Function::New(env, ParsePosition));
+  exports.Set("parseUpdateTime", Napi::Function::New(env, ParseUpdateTime));
+  exports.Set("parseGameEvent", Napi::Function::New(env, ParseGameEvent));
+  exports.Set("parseSetTickingState", Napi::Function::New(env, ParseSetTickingState));
+  exports.Set("parseUpdateHealth", Napi::Function::New(env, ParseUpdateHealth));
+  exports.Set("parseUpdateViewPosition", Napi::Function::New(env, ParseUpdateViewPosition));
   exports.Set("isPacketSupported", Napi::Function::New(env, [](const Napi::CallbackInfo &info) {
     Napi::Env env = info.Env();
     if (!info[0].IsString()) return Napi::Boolean::New(env, false);
@@ -505,6 +619,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   }));
   return exports;
 }
+
 
 }  // namespace
 

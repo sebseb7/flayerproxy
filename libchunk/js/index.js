@@ -145,4 +145,28 @@ module.exports = {
     if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
     return native.parsePlayLogin(buffer);
   },
+  parsePosition: (buffer) => {
+    if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+    return native.parsePosition(buffer);
+  },
+  parseUpdateTime: (buffer) => {
+    if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+    return native.parseUpdateTime(buffer);
+  },
+  parseGameEvent: (buffer) => {
+    if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+    return native.parseGameEvent(buffer);
+  },
+  parseSetTickingState: (buffer) => {
+    if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+    return native.parseSetTickingState(buffer);
+  },
+  parseUpdateHealth: (buffer) => {
+    if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+    return native.parseUpdateHealth(buffer);
+  },
+  parseUpdateViewPosition: (buffer) => {
+    if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+    return native.parseUpdateViewPosition(buffer);
+  },
 };

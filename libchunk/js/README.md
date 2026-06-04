@@ -38,7 +38,14 @@ lc.decodeMapChunkJson('x12416_z35296.wire', buf);
 lc.packetNameFromPath(filePath);
 lc.parseWirePath(filePath);  // { packet, category?, worldX?, entityId?, ... }
 lc.archiveCategoryFromPath(filePath);  // 'player' | 'config' | 'misc' | null
-lc.pngPathForWire(mapChunkWirePath);
+// Optimized structured packet decoders (returns object or null on failure)
+lc.parsePlayLogin(loginBuffer);       // { entityId, viewDistance, simulationDistance, hasDeath }
+lc.parsePosition(posBuffer);         // { teleportId, x, y, z, yaw, pitch }
+lc.parseUpdateTime(timeBuffer);       // { gameTime, dayTime, tickDayTime }
+lc.parseGameEvent(eventBuffer);       // { event, value }
+lc.parseSetTickingState(tickBuffer);  // { tickRate, isFrozen }
+lc.parseUpdateHealth(healthBuffer);   // { health, food, saturation }
+lc.parseUpdateViewPosition(vpBuffer); // { chunkX, chunkZ }
 ```
 
 ## VS Code extension

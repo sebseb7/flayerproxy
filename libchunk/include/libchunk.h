@@ -424,6 +424,34 @@ typedef struct lc_update_tags {
   size_t group_count;
 } lc_update_tags;
 
+typedef struct lc_update_time {
+  int64_t game_time;
+  int64_t day_time;
+  uint8_t tick_day_time;
+} lc_update_time;
+
+typedef struct lc_game_event {
+  uint8_t event;
+  float value;
+} lc_game_event;
+
+typedef struct lc_set_ticking_state {
+  float tick_rate;
+  uint8_t is_frozen;
+} lc_set_ticking_state;
+
+typedef struct lc_update_health {
+  float health;
+  int32_t food;
+  float saturation;
+} lc_update_health;
+
+typedef struct lc_update_view_position {
+  int32_t chunk_x;
+  int32_t chunk_z;
+} lc_update_view_position;
+
+
 /* --- merged chunk column --- */
 
 #define LC_BLOCK_VOLUME 4096
@@ -546,6 +574,11 @@ lc_status lc_parse_step_tick(const uint8_t *data, size_t len, lc_step_tick *out)
 lc_status lc_parse_success(const uint8_t *data, size_t len, lc_login_success *out);
 lc_status lc_parse_registry_data(const uint8_t *data, size_t len, lc_registry_data *out);
 lc_status lc_parse_update_tags(const uint8_t *data, size_t len, lc_update_tags *out);
+lc_status lc_parse_update_time(const uint8_t *data, size_t len, lc_update_time *out);
+lc_status lc_parse_game_event(const uint8_t *data, size_t len, lc_game_event *out);
+lc_status lc_parse_set_ticking_state(const uint8_t *data, size_t len, lc_set_ticking_state *out);
+lc_status lc_parse_update_health(const uint8_t *data, size_t len, lc_update_health *out);
+lc_status lc_parse_update_view_position(const uint8_t *data, size_t len, lc_update_view_position *out);
 
 /**
  * Write human-readable debug summary into buf (NUL-terminated if buflen > 0).

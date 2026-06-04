@@ -45,9 +45,9 @@ lc_status lc_parse_sound_effect(const uint8_t *data, size_t len, lc_sound_effect
   lc_buf_init(&b, data, len);
   if (lc_buf_read_sound_event_ref(&b, &out->sound) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_varint(&b, &out->source) != LC_OK) goto fail;
-  if (lc_buf_read_i32_le(&b, &out->x) != LC_OK) goto fail;
-  if (lc_buf_read_i32_le(&b, &out->y) != LC_OK) goto fail;
-  if (lc_buf_read_i32_le(&b, &out->z) != LC_OK) goto fail;
+  if (lc_buf_read_i32_be(&b, &out->x) != LC_OK) goto fail;
+  if (lc_buf_read_i32_be(&b, &out->y) != LC_OK) goto fail;
+  if (lc_buf_read_i32_be(&b, &out->z) != LC_OK) goto fail;
   if (lc_buf_read_f32_le(&b, &out->volume) != LC_OK) goto fail;
   if (lc_buf_read_f32_le(&b, &out->pitch) != LC_OK) goto fail;
   if (lc_buf_read_i64_le(&b, &out->seed) != LC_OK) goto fail;

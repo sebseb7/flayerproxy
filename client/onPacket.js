@@ -4,17 +4,20 @@ import { writeVarInt, readVarInt, readString } from './wire.js';
 import { getDownstreamClient, recordPlayJoinS2c } from './captureStore.js';
 import {
   readI64BE,
+} from './protocol.js';
+import { getLocationFromChunkPayload, mapChunkWirePath, getChunkDataLen } from './chunk.js';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const {
+  parsePlayLogin,
   parsePosition,
   parseUpdateTime,
   parseGameEvent,
   parseSetTickingState,
   parseUpdateHealth,
   parseUpdateViewPosition,
-} from './protocol.js';
-import { getLocationFromChunkPayload, mapChunkWirePath, getChunkDataLen } from './chunk.js';
-import { createRequire } from 'node:module';
-const require = createRequire(import.meta.url);
-const { parsePlayLogin } = require('../libchunk/js/index.js');
+} = require('../libchunk/js/index.js');
+
 
 
 /** @param {object} ctx session callbacks + mutable `state` for play-join flags */

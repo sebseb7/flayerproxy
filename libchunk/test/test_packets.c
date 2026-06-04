@@ -95,15 +95,8 @@ int main(void) {
 
   {
     const char *sign_hex =
-        "0a000a66726f6e745f7465787401001006861735f676c6f77696e675f746578740800"
-        "05636f6c6f720005626c61636b0900086d657373616765730a000000040a000474657874"
-        "0009000565787472610800000001000274740a000474657874000900056578747261080000"
-        "000100000a000474657874000900056578747261080000000100000a000474657874000900"
-        "05657874726108000000010000000100086261636b5f746578740100106861735f676c6f77"
-        "696e675f74657874080005636f6c6f720005626c61636b0900086d657373616765730a0000"
-        "00040a000474657874000900056578747261080000000100000a00047465787400090005"
-        "6578747261080000000100000a000474657874000900056578747261080000000100000a"
-        "00047465787400090005657874726108000000010000";
+        "0a00000a000a66726f6e745f746578740900086d657373616765730a0000000408000474"
+        "65787400027474000000000000";
     uint8_t *bytes = NULL;
     size_t blen = 0;
     if (hex_to_bytes(sign_hex, &bytes, &blen) != 0) {
@@ -125,5 +118,78 @@ int main(void) {
     }
   }
 
+  {
+    /* Test new parsers */
+    uint8_t *p = NULL;
+    size_t n = 0;
+    
+    // update_time
+    if (hex_to_bytes("00000000001234560000000000abcdef01", &p, &n) == 0) {
+      lc_update_time ut;
+      if (lc_parse_update_time(p, n, &ut) != LC_OK) {
+        fprintf(stderr, "lc_parse_update_time failed\n");
+        failures++;
+      } else if (ut.game_time != 0x123456 || ut.day_time != 0xabcdef || ut.tick_day_time != 1) {
+        fprintf(stderr, "lc_parse_update_time wrong values: %lld %lld %d\n", (long long)ut.game_time, (long long)ut.day_time, ut.tick_day_time);
+        failures++;
+      }
+      free(p);
+    }
+
+
+    // game_event
+    if (hex_to_bytes("0340a00000", &p, &n) == 0) {
+      lc_game_event ge;
+      if (lc_parse_game_event(p, n, &ge) != LC_OK) {
+        fprintf(stderr, "lc_parse_game_event failed\n");
+        failures++;
+      } else if (ge.event != 3 || ge.value != 5.0f) {
+        fprintf(stderr, "lc_parse_game_event wrong values: %d %f\n", ge.event, ge.value);
+        failures++;
+      }
+      free(p);
+    }
+
+    // set_ticking_state
+    if (hex_to_bytes("41a0000000", &p, &n) == 0) {
+      lc_set_ticking_state ts;
+      if (lc_parse_set_ticking_state(p, n, &ts) != LC_OK) {
+        fprintf(stderr, "lc_parse_set_ticking_state failed\n");
+        failures++;
+      } else if (ts.tick_rate != 20.0f || ts.is_frozen != 0) {
+        fprintf(stderr, "lc_parse_set_ticking_state wrong values: %f %d\n", ts.tick_rate, ts.is_frozen);
+        failures++;
+      }
+      free(p);
+    }
+
+    // update_health
+    if (hex_to_bytes("41a000001440a00000", &p, &n) == 0) {
+      lc_update_health uh;
+      if (lc_parse_update_health(p, n, &uh) != LC_OK) {
+        fprintf(stderr, "lc_parse_update_health failed\n");
+        failures++;
+      } else if (uh.health != 20.0f || uh.food != 20 || uh.saturation != 5.0f) {
+        fprintf(stderr, "lc_parse_update_health wrong values: %f %d %f\n", uh.health, uh.food, uh.saturation);
+        failures++;
+      }
+      free(p);
+    }
+
+    // update_view_position
+    if (hex_to_bytes("0b16", &p, &n) == 0) {
+      lc_update_view_position vp;
+      if (lc_parse_update_view_position(p, n, &vp) != LC_OK) {
+        fprintf(stderr, "lc_parse_update_view_position failed\n");
+        failures++;
+      } else if (vp.chunk_x != 11 || vp.chunk_z != 22) {
+        fprintf(stderr, "lc_parse_update_view_position wrong values: %d %d\n", vp.chunk_x, vp.chunk_z);
+        failures++;
+      }
+      free(p);
+    }
+  }
+
   return failures ? 1 : 0;
 }
+

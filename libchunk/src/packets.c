@@ -711,3 +711,46 @@ void lc_registry_data_free(lc_registry_data *p) {
   lc_registry_entry_arr_free(&p->entries);
   memset(p, 0, sizeof(*p));
 }
+
+lc_status lc_parse_update_time(const uint8_t *data, size_t len, lc_update_time *out) {
+  lc_buf b;
+  lc_buf_init(&b, data, len);
+  if (lc_buf_read_i64_be(&b, &out->game_time) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_i64_be(&b, &out->day_time) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_bool(&b, &out->tick_day_time) != LC_OK) return LC_ERR_TRUNCATED;
+  return LC_OK;
+}
+
+lc_status lc_parse_game_event(const uint8_t *data, size_t len, lc_game_event *out) {
+  lc_buf b;
+  lc_buf_init(&b, data, len);
+  if (lc_buf_read_u8(&b, &out->event) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f32_le(&b, &out->value) != LC_OK) return LC_ERR_TRUNCATED;
+  return LC_OK;
+}
+
+lc_status lc_parse_set_ticking_state(const uint8_t *data, size_t len, lc_set_ticking_state *out) {
+  lc_buf b;
+  lc_buf_init(&b, data, len);
+  if (lc_buf_read_f32_le(&b, &out->tick_rate) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_bool(&b, &out->is_frozen) != LC_OK) return LC_ERR_TRUNCATED;
+  return LC_OK;
+}
+
+lc_status lc_parse_update_health(const uint8_t *data, size_t len, lc_update_health *out) {
+  lc_buf b;
+  lc_buf_init(&b, data, len);
+  if (lc_buf_read_f32_le(&b, &out->health) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_varint(&b, &out->food) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f32_le(&b, &out->saturation) != LC_OK) return LC_ERR_TRUNCATED;
+  return LC_OK;
+}
+
+lc_status lc_parse_update_view_position(const uint8_t *data, size_t len, lc_update_view_position *out) {
+  lc_buf b;
+  lc_buf_init(&b, data, len);
+  if (lc_buf_read_varint(&b, &out->chunk_x) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_varint(&b, &out->chunk_z) != LC_OK) return LC_ERR_TRUNCATED;
+  return LC_OK;
+}
+
