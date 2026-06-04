@@ -71,6 +71,37 @@ lc_status lc_parse_c2s_teleport_confirm(const uint8_t *data, size_t len, lc_c2s_
   if (lc_buf_read_varint(&b, &out->teleport_id) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
+
+lc_status lc_parse_c2s_block_dig(const uint8_t *data, size_t len, lc_c2s_block_dig *out) {
+  lc_buf b;
+  lc_buf_init(&b, data, len);
+  if (lc_buf_read_varint(&b, &out->status) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_position(&b, &out->location) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_i8(&b, &out->face) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_varint(&b, &out->sequence) != LC_OK) return LC_ERR_TRUNCATED;
+  return LC_OK;
+}
+
+lc_status lc_parse_c2s_player_input(const uint8_t *data, size_t len, lc_c2s_player_input *out) {
+  lc_buf b;
+  lc_buf_init(&b, data, len);
+  if (lc_buf_read_u8(&b, &out->raw) != LC_OK) return LC_ERR_TRUNCATED;
+  out->forward = (out->raw & 1) ? 1 : 0;
+  out->backward = (out->raw & 2) ? 1 : 0;
+  out->left = (out->raw & 4) ? 1 : 0;
+  out->right = (out->raw & 8) ? 1 : 0;
+  out->jump = (out->raw & 16) ? 1 : 0;
+  out->shift = (out->raw & 32) ? 1 : 0;
+  out->sprint = (out->raw & 64) ? 1 : 0;
+  return LC_OK;
+}
+
+lc_status lc_parse_c2s_arm_animation(const uint8_t *data, size_t len, lc_c2s_arm_animation *out) {
+  lc_buf b;
+  lc_buf_init(&b, data, len);
+  if (lc_buf_read_varint(&b, &out->hand) != LC_OK) return LC_ERR_TRUNCATED;
+  return LC_OK;
+}
 /* Good for: One-line debug summary of lc_c2s position (sniffer / decode tools).
  * Callers: decode_wire.c, mc_c2s_log.c.
  */
@@ -117,4 +148,49 @@ int lc_c2s_flying_to_string(const lc_c2s_flying *p, char *buf, size_t buflen) {
 int lc_c2s_teleport_confirm_to_string(const lc_c2s_teleport_confirm *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;
   return lc_snprintf(buf, buflen, "c2s_teleport_confirm{id=%d}", p->teleport_id);
+}
+
+static const char *c2s_block_dig_status_name(int32_t status) {
+  static const char *names[] = {
+      "start_destroy_block",
+      "abort_destroy_block",
+      "stop_destroy_block",
+      "drop_all_items",
+      "drop_item",
+      "release_use_item",
+      "swap_item_with_offhand",
+  };
+  if (status < 0 || (size_t)status >= sizeof names / sizeof names[0]) return "?";
+  return names[status];
+}
+
+static const char *c2s_direction_name(int8_t face) {
+  static const char *names[] = {"down", "up", "north", "south", "west", "east"};
+  if (face < 0 || (size_t)face >= sizeof names / sizeof names[0]) return "?";
+  return names[face];
+}
+
+static const char *c2s_hand_name(int32_t hand) {
+  return hand == 0 ? "main_hand" : hand == 1 ? "off_hand" : "?";
+}
+
+int lc_c2s_block_dig_to_string(const lc_c2s_block_dig *p, char *buf, size_t buflen) {
+  if (!p || !buf || buflen == 0) return 0;
+  return lc_snprintf(buf, buflen,
+                     "c2s_block_dig{status=%s,loc=(%d,%d,%d),face=%s,seq=%d}",
+                     c2s_block_dig_status_name(p->status), p->location.x, p->location.y,
+                     p->location.z, c2s_direction_name(p->face), p->sequence);
+}
+
+int lc_c2s_player_input_to_string(const lc_c2s_player_input *p, char *buf, size_t buflen) {
+  if (!p || !buf || buflen == 0) return 0;
+  return lc_snprintf(buf, buflen,
+                     "c2s_player_input{fwd=%d,back=%d,left=%d,right=%d,jump=%d,shift=%d,sprint=%d,raw=0x%02x}",
+                     p->forward, p->backward, p->left, p->right, p->jump, p->shift, p->sprint,
+                     p->raw);
+}
+
+int lc_c2s_arm_animation_to_string(const lc_c2s_arm_animation *p, char *buf, size_t buflen) {
+  if (!p || !buf || buflen == 0) return 0;
+  return lc_snprintf(buf, buflen, "c2s_arm_animation{hand=%s}", c2s_hand_name(p->hand));
 }

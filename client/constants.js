@@ -54,6 +54,13 @@ export const PLAY = {
   C2S_MOVE_ROT: 0x1f,
   C2S_POSITION_LOOK: 0x1e,
   C2S_MOVE_STATUS: 0x20,
+  C2S_BLOCK_DIG: 0x28,
+  C2S_ENTITY_ACTION: 0x29,
+  C2S_PLAYER_INPUT: 0x2a,
+  C2S_HELD_ITEM_SLOT: 0x34,
+  C2S_ARM_ANIMATION: 0x3c,
+  C2S_BLOCK_PLACE: 0x3f,
+  C2S_USE_ITEM: 0x40,
 };
 
 /** Vanilla client tick period (20 TPS). */

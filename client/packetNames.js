@@ -72,6 +72,13 @@ export function c2sPacketName(ph, id) {
     if (id === PLAY.C2S_POSITION_LOOK) return 'position_look';
     if (id === PLAY.C2S_MOVE_ROT) return 'move_rot';
     if (id === PLAY.C2S_MOVE_STATUS) return 'move_status';
+    if (id === PLAY.C2S_BLOCK_DIG) return 'block_dig';
+    if (id === PLAY.C2S_ENTITY_ACTION) return 'entity_action';
+    if (id === PLAY.C2S_PLAYER_INPUT) return 'player_input';
+    if (id === PLAY.C2S_HELD_ITEM_SLOT) return 'held_item_slot';
+    if (id === PLAY.C2S_ARM_ANIMATION) return 'arm_animation';
+    if (id === PLAY.C2S_BLOCK_PLACE) return 'block_place';
+    if (id === PLAY.C2S_USE_ITEM) return 'use_item';
   }
   return null;
 }
@@ -88,6 +95,9 @@ export function c2sDecodeName(ph, id) {
     if (id === PLAY.C2S_POSITION_LOOK) return 'c2s_position_look';
     if (id === PLAY.C2S_MOVE_ROT) return 'c2s_look';
     if (id === PLAY.C2S_MOVE_STATUS) return 'c2s_flying';
+    if (id === PLAY.C2S_BLOCK_DIG) return 'c2s_block_dig';
+    if (id === PLAY.C2S_PLAYER_INPUT) return 'c2s_player_input';
+    if (id === PLAY.C2S_ARM_ANIMATION) return 'c2s_arm_animation';
   }
   return null;
 }

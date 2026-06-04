@@ -387,6 +387,28 @@ typedef struct lc_c2s_teleport_confirm {
   int32_t teleport_id;
 } lc_c2s_teleport_confirm;
 
+typedef struct lc_c2s_block_dig {
+  int32_t status;
+  lc_block_pos location;
+  int8_t face;
+  int32_t sequence;
+} lc_c2s_block_dig;
+
+typedef struct lc_c2s_player_input {
+  uint8_t raw;
+  int forward;
+  int backward;
+  int left;
+  int right;
+  int jump;
+  int shift;
+  int sprint;
+} lc_c2s_player_input;
+
+typedef struct lc_c2s_arm_animation {
+  int32_t hand;
+} lc_c2s_arm_animation;
+
 typedef struct lc_respawn {
   lc_spawn_info world_state;
   uint8_t copy_metadata;
@@ -607,6 +629,9 @@ lc_status lc_parse_c2s_position_look(const uint8_t *data, size_t len, lc_c2s_pos
 lc_status lc_parse_c2s_look(const uint8_t *data, size_t len, lc_c2s_look *out);
 lc_status lc_parse_c2s_flying(const uint8_t *data, size_t len, lc_c2s_flying *out);
 lc_status lc_parse_c2s_teleport_confirm(const uint8_t *data, size_t len, lc_c2s_teleport_confirm *out);
+lc_status lc_parse_c2s_block_dig(const uint8_t *data, size_t len, lc_c2s_block_dig *out);
+lc_status lc_parse_c2s_player_input(const uint8_t *data, size_t len, lc_c2s_player_input *out);
+lc_status lc_parse_c2s_arm_animation(const uint8_t *data, size_t len, lc_c2s_arm_animation *out);
 lc_status lc_parse_respawn(const uint8_t *data, size_t len, lc_respawn *out);
 lc_status lc_parse_initialize_world_border(const uint8_t *data, size_t len, lc_initialize_world_border *out);
 lc_status lc_parse_custom_payload(const uint8_t *data, size_t len, lc_custom_payload *out);
@@ -704,6 +729,9 @@ int lc_c2s_position_look_to_string(const lc_c2s_position_look *p, char *buf, siz
 int lc_c2s_look_to_string(const lc_c2s_look *p, char *buf, size_t buflen);
 int lc_c2s_flying_to_string(const lc_c2s_flying *p, char *buf, size_t buflen);
 int lc_c2s_teleport_confirm_to_string(const lc_c2s_teleport_confirm *p, char *buf, size_t buflen);
+int lc_c2s_block_dig_to_string(const lc_c2s_block_dig *p, char *buf, size_t buflen);
+int lc_c2s_player_input_to_string(const lc_c2s_player_input *p, char *buf, size_t buflen);
+int lc_c2s_arm_animation_to_string(const lc_c2s_arm_animation *p, char *buf, size_t buflen);
 int lc_respawn_to_string(const lc_respawn *p, char *buf, size_t buflen);
 int lc_initialize_world_border_to_string(const lc_initialize_world_border *p, char *buf, size_t buflen);
 int lc_custom_payload_to_string(const lc_custom_payload *p, char *buf, size_t buflen);

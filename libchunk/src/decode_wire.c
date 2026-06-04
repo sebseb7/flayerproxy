@@ -33,6 +33,9 @@ int lc_packet_name_supported(const char *name) {
       "c2s_look",
       "c2s_flying",
       "c2s_teleport_confirm",
+      "c2s_block_dig",
+      "c2s_player_input",
+      "c2s_arm_animation",
       "respawn",
       "initialize_world_border",
       "registry_data",
@@ -202,6 +205,18 @@ int lc_decode_payload_to_string(const char *name, const uint8_t *payload, size_t
     lc_c2s_teleport_confirm p;
     st = lc_parse_c2s_teleport_confirm(payload, payload_len, &p);
     if (st == LC_OK) lc_c2s_teleport_confirm_to_string(&p, out, out_sz);
+  } else if (strcmp(name, "c2s_block_dig") == 0) {
+    lc_c2s_block_dig p;
+    st = lc_parse_c2s_block_dig(payload, payload_len, &p);
+    if (st == LC_OK) lc_c2s_block_dig_to_string(&p, out, out_sz);
+  } else if (strcmp(name, "c2s_player_input") == 0) {
+    lc_c2s_player_input p;
+    st = lc_parse_c2s_player_input(payload, payload_len, &p);
+    if (st == LC_OK) lc_c2s_player_input_to_string(&p, out, out_sz);
+  } else if (strcmp(name, "c2s_arm_animation") == 0) {
+    lc_c2s_arm_animation p;
+    st = lc_parse_c2s_arm_animation(payload, payload_len, &p);
+    if (st == LC_OK) lc_c2s_arm_animation_to_string(&p, out, out_sz);
   } else if (strcmp(name, "respawn") == 0) {
     lc_respawn p;
     memset(&p, 0, sizeof p);

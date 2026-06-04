@@ -14,4 +14,4 @@ cacheCruiseSpectatorPort
 livemapGenerator
 liveMapPlugins (find shulker, find elytra)
 entityRadar (find items on ground)
-
+move spectator to prefill it's DH/XMM/JM cache
