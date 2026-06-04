@@ -1,17 +1,19 @@
 import chalk from 'chalk';
 import { LOGIN, CFG, PLAY, GAME_EVENT_LEVEL_CHUNKS_LOAD_START } from './constants.js';
 import { writeVarInt, readVarInt, readString } from './wire.js';
-import { getDownstreamClient } from './captureStore.js';
+import { getDownstreamClient, recordPlayJoinS2c } from './captureStore.js';
 import {
   readI64BE,
   parsePosition,
   parseUpdateTime,
   parseGameEvent,
   parseSetTickingState,
-  parseLoginViewDistance,
+  parsePlayLogin,
+  parseUpdateHealth,
   parseUpdateViewPosition,
 } from './protocol.js';
-import { getLocationFromChunkPayload, mapChunkWirePath } from './chunk.js';
+import { getLocationFromChunkPayload, mapChunkWirePath, getChunkDataLen } from './chunk.js';
+
 
 /** @param {object} ctx session callbacks + mutable `state` for play-join flags */
 export function createOnPacket(ctx) {
@@ -21,6 +23,8 @@ export function createOnPacket(ctx) {
     send,
     sendSilent,
     setPhase,
+    enterDeath,
+    beginRespawnJoin,
     tryFinishPlayJoin,
     finishPlayJoin,
     notePlayJoinPacket,
@@ -36,7 +40,7 @@ export function createOnPacket(ctx) {
       if (p) sendSilent(sock, CFG.C2S_PONG, writeVarInt(p.value));
       return;
     }
-    if ((phase === 'play_join' || phase === 'play') && id === PLAY.PING) {
+    if ((phase === 'play_join' || phase === 'death' || phase === 'play') && id === PLAY.PING) {
       if (payload.length >= 4) {
         sendSilent(sock, PLAY.C2S_PONG, payload.subarray(0, 4));
       }
@@ -54,6 +58,8 @@ export function createOnPacket(ctx) {
         send(sock, LOGIN.C2S_ACK, Buffer.alloc(0));
         setPhase('config');
         logger.event('login ok', chalk.dim('→ configuration'));
+        const clientInfo = Buffer.from([5, 0x65, 0x6e, 0x5f, 0x55, 0x53, 10, 0, 1, 127, 1, 0, 1, 0]);
+        send(sock, CFG.C2S_SETTINGS, clientInfo, chalk.dim('client_information'));
         return;
       }
       return;
@@ -87,9 +93,15 @@ export function createOnPacket(ctx) {
       return;
     }
 
-    if (phase === 'play_join' || phase === 'play') {
+    if (phase === 'play_join' || phase === 'death' || phase === 'play') {
       if (phase === 'play_join') {
         notePlayJoinPacket();
+      }
+
+      if (phase === 'death' && id === PLAY.RESPAWN) {
+        beginRespawnJoin(sock);
+        recordPlayJoinS2c(id, payload);
+        return;
       }
 
       // --- Packets handled only by the proxy (never forwarded) ---
@@ -107,7 +119,9 @@ export function createOnPacket(ctx) {
         const batch = Buffer.alloc(4);
         batch.writeFloatBE(6.0);
         send(sock, PLAY.C2S_CHUNK_BATCH_RECEIVED, batch, chalk.dim('perSec=6'));
-        tryFinishPlayJoin(sock, 'chunk_batch_finished');
+        if (phase !== 'death') {
+          tryFinishPlayJoin(sock, 'chunk_batch_finished');
+        }
         return;
       }
 
@@ -122,17 +136,43 @@ export function createOnPacket(ctx) {
         const ts = parseSetTickingState(payload);
         if (ts) {
           state.tickingRunsNormally = !ts.isFrozen;
-          tryFinishPlayJoin(sock, 'set_ticking_state unfrozen');
+          if (phase !== 'death') {
+            tryFinishPlayJoin(sock, 'set_ticking_state unfrozen');
+          }
         }
       } else if (id === PLAY.UPDATE_TIME) {
         const t = parseUpdateTime(payload);
         if (t?.tickDayTime) {
           state.daylightTicking = true;
-          tryFinishPlayJoin(sock, 'update_time tickDayTime=true');
+          if (phase !== 'death') {
+            tryFinishPlayJoin(sock, 'update_time tickDayTime=true');
+          }
         }
       } else if (id === PLAY.LOGIN) {
-        const vd = parseLoginViewDistance(payload);
-        if (vd != null) state.viewDistance = vd;
+        const login = parsePlayLogin(payload);
+        if (login) {
+          state.entityId = login.entityId;
+          state.viewDistance = login.viewDistance;
+          if (login.hasDeath) {
+            logger.debug(
+              'login',
+              chalk.dim('world_state.hasDeath=true (saved death location only)'),
+            );
+          }
+        }
+      } else if (id === PLAY.UPDATE_HEALTH) {
+        const h = parseUpdateHealth(payload);
+        if (h) {
+          const wasDead = state.playerDead;
+          state.playerDead = h.health <= 0;
+          if (phase === 'death' && h.health > 0) {
+            state.playerDead = false;
+          }
+          if (phase === 'play_join' && state.playerDead && !wasDead) {
+            enterDeath(sock, `update_health health=${h.health}`);
+            return;
+          }
+        }
       } else if (id === PLAY.UPDATE_VIEW_POSITION) {
         const vp = parseUpdateViewPosition(payload);
         if (vp) {
@@ -142,19 +182,55 @@ export function createOnPacket(ctx) {
       } else if (id === PLAY.MAP_CHUNK) {
         state.mapChunksSeen++;
         const loc = getLocationFromChunkPayload(payload);
-        if (loc) state.chunkCoords.add(`${loc.chunkX},${loc.chunkZ}`);
-        tryFinishPlayJoin(
-          sock,
-          loc ? `map_chunk @ ${loc.chunkX},${loc.chunkZ}` : 'map_chunk received',
-        );
+        if (loc && phase === 'play_join' && state.playerDead) {
+          enterDeath(sock, `playerDead map_chunk @ ${loc.chunkX},${loc.chunkZ}`);
+          return;
+        }
         if (loc) {
-          const file = mapChunkWirePath(loc);
-          writeMapChunk(file, payload);
-          logger.debug(
-            'map_chunk',
-            chalk.dim(
-              `chunk(${loc.chunkX},${loc.chunkZ}) block(${loc.blockX},${loc.blockZ}) → ${file}`,
-            ),
+          const chunkDataLen = getChunkDataLen(payload);
+          const isPlaceholder = chunkDataLen < 500;
+
+          if (!isPlaceholder) {
+            state.chunkCoords.add(`${loc.chunkX},${loc.chunkZ}`);
+            state.sessionChunkCoords.add(`${loc.chunkX},${loc.chunkZ}`);
+            const file = mapChunkWirePath(loc);
+            writeMapChunk(file, payload);
+            logger.debug(
+              'map_chunk',
+              chalk.dim(
+                `chunk(${loc.chunkX},${loc.chunkZ}) block(${loc.blockX},${loc.blockZ}) → ${file} (data=${chunkDataLen}B)`,
+              ),
+            );
+          } else {
+            if (state.chunkCoords.has(`${loc.chunkX},${loc.chunkZ}`)) {
+              state.sessionChunkCoords.add(`${loc.chunkX},${loc.chunkZ}`);
+              logger.info(
+                'map_chunk_placeholder',
+                chalk.dim(
+                  `chunk(${loc.chunkX},${loc.chunkZ}) using existing disk cache (placeholder ignored)`,
+                ),
+              );
+            } else {
+              logger.warn(
+                'map_chunk_placeholder',
+                chalk.yellow(
+                  `chunk(${loc.chunkX},${loc.chunkZ}) NOT cached. Triggering view-distance toggle...`,
+                ),
+              );
+              const clientInfoLow = Buffer.from([5, 0x65, 0x6e, 0x5f, 0x55, 0x53, 2, 0, 1, 127, 1, 0, 1, 0]);
+              send(sock, 0x0d, clientInfoLow, chalk.dim('client_information (toggle view distance 2)'));
+              
+              setTimeout(() => {
+                const clientInfoHigh = Buffer.from([5, 0x65, 0x6e, 0x5f, 0x55, 0x53, 10, 0, 1, 127, 1, 0, 1, 0]);
+                send(sock, 0x0d, clientInfoHigh, chalk.dim('client_information (toggle view distance 10)'));
+              }, 200);
+            }
+          }
+        }
+        if (phase !== 'death') {
+          tryFinishPlayJoin(
+            sock,
+            loc ? `map_chunk @ ${loc.chunkX},${loc.chunkZ}` : 'map_chunk received',
           );
         }
       } else if (id === PLAY.POSITION) {
@@ -184,15 +260,21 @@ export function createOnPacket(ctx) {
               plBuf.writeUInt8(1, 32); // onGround = true
               send(sock, PLAY.C2S_POSITION_LOOK, plBuf, chalk.dim(`x=${pos.x.toFixed(2)},y=${pos.y.toFixed(2)},z=${pos.z.toFixed(2)},yaw=${pos.yaw.toFixed(1)},pitch=${pos.pitch.toFixed(1)}`));
             }
-          } else {
-            state.pendingTeleport = {
-              id: pos.teleportId,
-              x: pos.x,
-              y: pos.y,
-              z: pos.z,
-              yaw: pos.yaw,
-              pitch: pos.pitch,
-            };
+          } else if (phase !== 'death') {
+            const posDetail = chalk.dim(
+              `tp=${pos.teleportId} (${pos.x.toFixed(2)},${pos.y.toFixed(2)},${pos.z.toFixed(2)})`
+            );
+            send(sock, PLAY.C2S_TELEPORT_CONFIRM, writeVarInt(pos.teleportId), posDetail);
+
+            const plBuf = Buffer.alloc(8 + 8 + 8 + 4 + 4 + 1);
+            plBuf.writeDoubleBE(pos.x, 0);
+            plBuf.writeDoubleBE(pos.y, 8);
+            plBuf.writeDoubleBE(pos.z, 16);
+            plBuf.writeFloatBE(pos.yaw, 24);
+            plBuf.writeFloatBE(pos.pitch, 28);
+            plBuf.writeUInt8(1, 32); // onGround = true
+            send(sock, PLAY.C2S_POSITION_LOOK, plBuf, chalk.dim(`x=${pos.x.toFixed(2)},y=${pos.y.toFixed(2)},z=${pos.z.toFixed(2)},yaw=${pos.yaw.toFixed(1)},pitch=${pos.pitch.toFixed(1)}`));
+
             state.chunkCenterX = Math.floor(pos.x / 16);
             state.chunkCenterZ = Math.floor(pos.z / 16);
             tryFinishPlayJoin(sock, 'position received');
@@ -204,7 +286,11 @@ export function createOnPacket(ctx) {
       // --- Forward all S2C play packets to the downstream client ---
       if (phase === 'play') {
         const downstream = getDownstreamClient();
-        if (downstream.sock && downstream.getPhase() === 'play' && downstream.send) {
+        if (
+          downstream.sock &&
+          (downstream.getPhase() === 'play' || downstream.getPhase() === 'play_join') &&
+          downstream.send
+        ) {
           downstream.send(id, payload);
         }
       }

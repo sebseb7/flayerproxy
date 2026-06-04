@@ -1,4 +1,4 @@
-import fs from 'node:fs/promises';
+import fs from 'node:fs';
 import path from 'node:path';
 import chalk from 'chalk';
 import { HS_LOGIN, LOGIN, CFG, PLAY, LOG_LEVELS } from '../client/constants.js';
@@ -16,14 +16,14 @@ import { createServerLogger } from './logger.js';
 import { logPingTickFromEnv } from '../client/logNoise.js';
 import { createOnPacket } from './onPacket.js';
 
-async function getChunkFiles(dir) {
+function getChunkFilesSync(dir) {
   let results = [];
   try {
-    const list = await fs.readdir(dir, { withFileTypes: true });
+    const list = fs.readdirSync(dir, { withFileTypes: true });
     for (const file of list) {
       const res = path.resolve(dir, file.name);
       if (file.isDirectory()) {
-        results = results.concat(await getChunkFiles(res));
+        results = results.concat(getChunkFilesSync(res));
       } else if (file.name.endsWith('.chunk')) {
         results.push(res);
       }
@@ -116,7 +116,7 @@ export function handleClient(sock, opts = {}) {
     return sent;
   }
 
-  async function replayPlayJoin(sock) {
+  function replayPlayJoin(sock) {
     const snap = getCapture();
     let sent = 0;
     let mapChunksSkipped = 0;
@@ -130,11 +130,11 @@ export function handleClient(sock, opts = {}) {
       sent++;
     }
 
-    const chunkFiles = await getChunkFiles(path.resolve('chunks'));
+    const chunkFiles = getChunkFilesSync(path.resolve('chunks'));
     let fsChunksSent = 0;
     for (const file of chunkFiles) {
       try {
-        const payload = await fs.readFile(file);
+        const payload = fs.readFileSync(file);
         send(sock, PLAY.MAP_CHUNK, payload);
         fsChunksSent++;
       } catch (err) {
@@ -175,7 +175,13 @@ export function handleClient(sock, opts = {}) {
   function handleConfigC2s(sock, id, payload) {
     logger.c2s(id, payload);
 
-    if (id === CFG.C2S_SETTINGS || id === CFG.C2S_CUSTOM_PAYLOAD) return true;
+    if (id === CFG.C2S_CUSTOM_PAYLOAD) {
+      const upstream = getUpstreamClient();
+      if (upstream.sock && upstream.getPhase() === 'play' && upstream.send) {
+        upstream.send(PLAY.C2S_CUSTOM_PAYLOAD, payload); // custom_payload in play phase is 0x15
+      }
+      return true;
+    }
     if (id === CFG.C2S_SELECT_KNOWN_PACKS && configAwait === CFG.FINISH) {
       continueConfigAfterPacks(sock);
       return true;

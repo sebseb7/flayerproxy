@@ -5,6 +5,7 @@ logs/
 versions/
 tools/
 .cursor/
+.agents/
 libchunk/build/
 libchunk/js/node_modules/
 libchunk/js/build/

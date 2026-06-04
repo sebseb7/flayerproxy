@@ -44,6 +44,21 @@ static lc_status parse_spawn_position(const uint8_t *data, size_t len, char *dim
  * Callers: play_stream.c (same file).
  */
 
+static const char *login_gamemode_name(int g) {
+  switch (g) {
+    case 0:
+      return "survival";
+    case 1:
+      return "creative";
+    case 2:
+      return "adventure";
+    case 3:
+      return "spectator";
+    default:
+      return "?";
+  }
+}
+
 static int decode_login(const uint8_t *payload, size_t payload_len, char *out, size_t out_sz) {
   lc_buf b;
   lc_buf_init(&b, payload, payload_len);
@@ -73,11 +88,26 @@ static int decode_login(const uint8_t *payload, size_t payload_len, char *out, s
   }
   int w = lc_snprintf(out, out_sz,
                       "login{entityId=%d,hardcore=%s,maxPlayers=%d,viewDistance=%d,"
-                      "simulationDistance=%d,dimension=%d,name=%s,gamemode=%d,seaLevel=%d,"
-                      "enforcesSecureChat=%s}",
+                      "simulationDistance=%d,reducedDebug=%s,showDeathScreen=%s,limitedCrafting=%s,"
+                      "dimension=%d,dimensionName=%s,hashedSeed=%lld,gamemode=%s(%d),"
+                      "previousGamemode=0x%02x,isDebug=%s,isFlat=%s,hasDeath=%s",
                       entity_id, hardcore ? "true" : "false", max_players, view_dist, sim_dist,
-                      ws.dimension, ws.name ? ws.name : "", ws.gamemode, ws.sea_level,
-                      secure ? "true" : "false");
+                      reduced ? "true" : "false", respawn_screen ? "true" : "false",
+                      limited ? "true" : "false", ws.dimension, ws.name ? ws.name : "",
+                      (long long)ws.hashed_seed, login_gamemode_name(ws.gamemode), (int)ws.gamemode,
+                      (unsigned)ws.previous_gamemode, ws.is_debug ? "true" : "false",
+                      ws.is_flat ? "true" : "false", ws.has_death ? "true" : "false");
+  if (w <= 0 || (size_t)w >= out_sz) {
+    lc_spawn_info_free(&ws);
+    return -1;
+  }
+  if (ws.has_death) {
+    w = lc_appendf(out, out_sz, w, ",deathDimension=%s,deathPos=(%d,%d,%d)",
+                   ws.death_dimension_name ? ws.death_dimension_name : "?", ws.death_pos.x,
+                   ws.death_pos.y, ws.death_pos.z);
+  }
+  w = lc_appendf(out, out_sz, w, ",portalCooldown=%d,seaLevel=%d,enforcesSecureChat=%s}",
+                 ws.portal_cooldown, ws.sea_level, secure ? "true" : "false");
   lc_spawn_info_free(&ws);
   return w > 0 && (size_t)w < out_sz ? 1 : -1;
 }

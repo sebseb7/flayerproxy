@@ -69,6 +69,12 @@ export function recordPlayJoinS2c(id, payload) {
   playJoin.push({ id, payload: Buffer.from(payload) });
 }
 
+/** Drop pre-death join burst; post-respawn play_join is recorded fresh. */
+export function clearPlayJoinCapture() {
+  if (ready) return;
+  playJoin = [];
+}
+
 export function markCaptureReady() {
   if (ready) return;
   ready = true;

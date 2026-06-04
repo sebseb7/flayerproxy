@@ -15,7 +15,7 @@ lc_status lc_parse_position(const uint8_t *data, size_t len, lc_position *out) {
   if (lc_buf_read_f64_le(&b, &out->dz) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_f32_le(&b, &out->yaw) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_f32_le(&b, &out->pitch) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_u32_le(&b, &out->flags) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_u32_be(&b, &out->flags) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
 /* Good for: One-line debug summary of lc_position (sniffer / decode tools).
@@ -24,9 +24,11 @@ lc_status lc_parse_position(const uint8_t *data, size_t len, lc_position *out) {
 
 int lc_position_to_string(const lc_position *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;
+  char rel[128];
+  if (!lc_position_relatives_to_string(p->flags, rel, sizeof rel)) rel[0] = '\0';
   return lc_snprintf(buf, buflen,
                      "position{teleportId=%d,pos=(%.3f,%.3f,%.3f),delta=(%.3f,%.3f,%.3f),"
-                     "rot=(%.2f,%.2f),flags=0x%x}",
-                     p->teleport_id, p->x, p->y, p->z, p->dx, p->dy, p->dz, p->yaw, p->pitch,
+                     "rot=(%.2f,%.2f),%s,mask=0x%x}",
+                     p->teleport_id, p->x, p->y, p->z, p->dx, p->dy, p->dz, p->yaw, p->pitch, rel,
                      p->flags);
 }

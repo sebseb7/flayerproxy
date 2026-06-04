@@ -933,9 +933,6 @@ static const uint8_t LC_STATE_MAP_PROTOCOL[LC_STATE_MAP_MAX + 1] = {
   162, 162, 162, 162, 162, 162, 162, 162, 162, 162, 162, 162, 162, 162, 162, 162, 162, 162, 162, 162, 162, 162, 162, 162, 162, 162, 162, 162, 162, 162, 162, 162,
   46, 46, 46, 46, 46, 46, 18
 };
-/* Good for: Map protocol id for block state.
- * Callers: map_png.c.
- */
 
 uint8_t lc_state_id_map_protocol(int32_t state_id) {
   if (state_id < 0 || state_id > LC_STATE_MAP_MAX) return 255;

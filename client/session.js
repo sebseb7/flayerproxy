@@ -1,3 +1,4 @@
+import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import chalk from 'chalk';
@@ -9,14 +10,48 @@ import { createOnPacket } from './onPacket.js';
 import {
   recordConfigS2c,
   recordPlayJoinS2c,
+  clearPlayJoinCapture,
   markCaptureReady,
   getCapture,
   setUpstreamClient,
   getDownstreamClient,
 } from './captureStore.js';
 
+import { getChunkDataLen } from './chunk.js';
+
+function loadSavedChunkCoordsSync() {
+  const coords = new Set();
+  const getFiles = (dir) => {
+    try {
+      const list = fsSync.readdirSync(dir, { withFileTypes: true });
+      for (const file of list) {
+        const res = path.resolve(dir, file.name);
+        if (file.isDirectory()) {
+          getFiles(res);
+        } else if (file.name.endsWith('_map.chunk')) {
+          const parts = file.name.split('_');
+          if (parts.length >= 2) {
+            try {
+              const payload = fsSync.readFileSync(res);
+              const dataLen = getChunkDataLen(payload);
+              if (dataLen >= 500) {
+                coords.add(`${parts[0]},${parts[1]}`);
+              } else {
+                fsSync.unlinkSync(res); // delete placeholder from disk
+              }
+            } catch (err) {}
+          }
+        }
+      }
+    } catch (e) {}
+  };
+  getFiles(path.resolve('chunks'));
+  return coords;
+}
+
+
 export function createSession(config) {
-  const { host, port, username, debug, logLevel, logPingTick } = config;
+  const { host, port, username, debug, logLevel, logPingTick, autoRespawn = false } = config;
 
   let phase = 'connect';
   let tickTimer = null;
@@ -26,16 +61,20 @@ export function createSession(config) {
   const chunkDirsReady = new Set();
 
   const state = {
+    entityId: null,
     playerLoadedSent: false,
     chunksLoadStarted: false,
     mapChunksSeen: 0,
-    chunkCoords: new Set(),
+    chunkCoords: loadSavedChunkCoordsSync(),
+    sessionChunkCoords: new Set(),
     viewDistance: 3,
     chunkCenterX: 0,
     chunkCenterZ: 0,
     daylightTicking: false,
     tickingRunsNormally: false,
     pendingTeleport: null,
+    playerDead: false,
+    respawnRequested: false,
   };
 
   const logger = createLogger({
@@ -60,6 +99,47 @@ export function createSession(config) {
 
   function sendSilent(sock, id, payload) {
     sock.write(buildFrame(id, payload));
+  }
+
+  function resetPlayJoinState() {
+    state.playerLoadedSent = false;
+    state.chunksLoadStarted = false;
+    state.mapChunksSeen = 0;
+    state.sessionChunkCoords.clear();
+    state.daylightTicking = false;
+    state.tickingRunsNormally = false;
+    state.pendingTeleport = null;
+    joinBurstLogged = false;
+  }
+
+  function requestRespawn(sock) {
+    if (state.respawnRequested) return;
+    state.respawnRequested = true;
+    send(sock, PLAY.C2S_CLIENT_COMMAND, writeVarInt(0), chalk.dim('PERFORM_RESPAWN'));
+  }
+
+  function enterDeath(sock, reason) {
+    if (phase !== 'play_join') return;
+    setPhase('death');
+    logger.event('dead on join', chalk.dim(reason));
+    if (autoRespawn) {
+      requestRespawn(sock);
+    } else {
+      logger.info(
+        'death',
+        chalk.dim('auto respawn disabled; use --auto-respawn or MC_CLIENT_AUTO_RESPAWN=1'),
+      );
+    }
+  }
+
+  function beginRespawnJoin(sock) {
+    if (phase !== 'death') return;
+    state.playerDead = false;
+    state.respawnRequested = false;
+    clearPlayJoinCapture();
+    resetPlayJoinState();
+    setPhase('play_join');
+    logger.event('respawn', chalk.dim('→ play_join (reload chunks)'));
   }
 
   function enterPlay(sock, reason) {
@@ -87,7 +167,7 @@ export function createSession(config) {
   }
 
   function playJoinChunksReady() {
-    return chunksInViewGrid() >= expectedChunkGridCount(state.viewDistance);
+    return state.sessionChunkCoords.has(`${state.chunkCenterX},${state.chunkCenterZ}`);
   }
 
   /** Vanilla: player_loaded after LevelLoadTracker; capture seals after view-distance chunk grid. */
@@ -126,6 +206,7 @@ export function createSession(config) {
 
   function tryFinishPlayJoin(sock, reason) {
     if (phase !== 'play_join') return;
+    if (state.playerDead) return;
     if (!state.chunksLoadStarted || !playJoinChunksReady()) return;
     if (!state.daylightTicking) return;
     if (!state.tickingRunsNormally) return;
@@ -156,6 +237,8 @@ export function createSession(config) {
     sendSilent,
     setPhase,
     enterPlay,
+    enterDeath,
+    beginRespawnJoin,
     tryFinishPlayJoin,
     finishPlayJoin,
     notePlayJoinPacket,

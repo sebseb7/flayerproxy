@@ -10,6 +10,7 @@ const PHASE_STYLE = {
   login: chalk.yellow,
   config: chalk.cyan,
   play_join: chalk.magenta,
+  death: chalk.red.bold,
   play: chalk.green.bold,
 };
 

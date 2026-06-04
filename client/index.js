@@ -4,7 +4,9 @@
  * flayerproxy capture app (protocol 773): upstream client records config + play_join;
  * replay server starts listening only after play_join → play (capture complete).
  *
- * Usage: node client/index.js [upstreamHost] [upstreamPort] [username]
+ * Usage: node client/index.js [--auto-respawn] [upstreamHost] [upstreamPort] [username]
+ *   --auto-respawn           send PERFORM_RESPAWN on join death (default: off)
+ *   MC_CLIENT_AUTO_RESPAWN=1 same as --auto-respawn
  *   MC_SERVER_PORT=25569
  *   MC_CLIENT_DEBUG=1        debug log level; log file defaults to logout (plain text)
  *   MC_CLIENT_LOG_FILE=path  log file path (plain, no ANSI); empty disables file logging
@@ -28,7 +30,6 @@ const serverPort = Number(process.env.MC_SERVER_PORT || 25569);
 const config = loadConfig();
 
 try {
-  fs.rmSync('chunks', { recursive: true, force: true });
   fs.mkdirSync('chunks', { recursive: true });
 } catch (e) {}
 
@@ -52,7 +53,8 @@ session.logger.info(
     (config.debug ? chalk.yellow(' MC_CLIENT_DEBUG=1') : '') +
     (config.logPingTick ? chalk.yellow(' MC_LOG_PING_TICK=1') : '') +
     (config.logFile ? chalk.dim(` logFile=${config.logFile}`) : '') +
-    (isLibchunkLoaded() ? chalk.green(' libchunk=ok') : chalk.yellow(' libchunk=off')),
+    (isLibchunkLoaded() ? chalk.green(' libchunk=ok') : chalk.yellow(' libchunk=off')) +
+    (config.autoRespawn ? chalk.yellow(' --auto-respawn') : ''),
 );
 session.logger.info('upstream', chalk.white(`${config.host}:${config.port}`));
 

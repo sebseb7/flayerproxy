@@ -20,6 +20,11 @@ const S2C_NAMES = {
   [PLAY.PING]: 'ping',
 };
 
+/** Same protocol state as play (join burst, death screen, or steady play). */
+function isPlayPhase(ph) {
+  return ph === 'play' || ph === 'play_join' || ph === 'death';
+}
+
 export function s2cPacketName(ph, id) {
   if (ph === 'status') {
     if (id === 0x00) return 'status_response';
@@ -27,7 +32,7 @@ export function s2cPacketName(ph, id) {
   }
   if (ph === 'login' && id === LOGIN.SUCCESS) return 'success';
   if (ph === 'config' && id === CFG.DISCONNECT) return 'configuration_disconnect';
-  if (ph === 'play' || ph === 'play_join') {
+  if (isPlayPhase(ph)) {
     const n = playS2cById[id];
     if (n) return n;
   }
@@ -54,9 +59,10 @@ export function c2sPacketName(ph, id) {
     if (id === CFG.C2S_SELECT_KNOWN_PACKS) return 'select_known_packs';
     return null;
   }
-  if (ph === 'play' || ph === 'play_join') {
+  if (isPlayPhase(ph)) {
     if (id === PLAY.C2S_TELEPORT_CONFIRM) return 'teleport_confirm';
     if (id === PLAY.C2S_CHUNK_BATCH_RECEIVED) return 'chunk_batch_received';
+    if (id === PLAY.C2S_CLIENT_COMMAND) return 'client_command';
     if (id === PLAY.C2S_TICK_END) return 'tick_end';
     if (id === PLAY.C2S_KEEP_ALIVE) return 'keep_alive';
     if (id === PLAY.C2S_PLAYER_LOADED) return 'player_loaded';
@@ -76,7 +82,7 @@ export function c2sDecodeName(ph, id) {
     if (id === 0x01) return 'ping';
   }
   if (ph === 'config' && id === CFG.C2S_SELECT_KNOWN_PACKS) return 'select_known_packs';
-  if (ph === 'play' || ph === 'play_join') {
+  if (isPlayPhase(ph)) {
     if (id === PLAY.C2S_TELEPORT_CONFIRM) return 'c2s_teleport_confirm';
     if (id === PLAY.C2S_POSITION) return 'c2s_position';
     if (id === PLAY.C2S_POSITION_LOOK) return 'c2s_position_look';

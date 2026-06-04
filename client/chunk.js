@@ -58,3 +58,27 @@ export function mapChunkWirePath(loc) {
   );
   return path.join(dir, `${loc.chunkX}_${loc.chunkZ}_map.chunk`);
 }
+
+/**
+ * Parses the chunkData length from map_chunk payload.
+ * @param {Buffer} payload
+ * @returns {number}
+ */
+export function getChunkDataLen(payload) {
+  let offset = 8;
+  const hc = lc.readVarIntAt(payload, offset);
+  if (!hc) return 0;
+  offset = hc.next;
+  for (let i = 0; i < hc.value; i++) {
+    const typeId = lc.readVarIntAt(payload, offset);
+    if (!typeId) return 0;
+    offset = typeId.next;
+    const arrLen = lc.readVarIntAt(payload, offset);
+    if (!arrLen) return 0;
+    offset = arrLen.next;
+    offset += arrLen.value * 8;
+  }
+  const chunkDataLen = lc.readVarIntAt(payload, offset);
+  return chunkDataLen ? chunkDataLen.value : 0;
+}
+

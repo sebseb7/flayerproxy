@@ -589,6 +589,7 @@ int lc_entity_update_attributes_to_string(const lc_entity_update_attributes *p, 
                                             size_t buflen);
 int lc_entity_update_attributes_fprint(FILE *f, const lc_entity_update_attributes *p);
 int lc_position_to_string(const lc_position *p, char *buf, size_t buflen);
+int lc_position_relatives_to_string(uint32_t flags, char *buf, size_t buflen);
 int lc_c2s_position_to_string(const lc_c2s_position *p, char *buf, size_t buflen);
 int lc_c2s_position_look_to_string(const lc_c2s_position_look *p, char *buf, size_t buflen);
 int lc_c2s_look_to_string(const lc_c2s_look *p, char *buf, size_t buflen);

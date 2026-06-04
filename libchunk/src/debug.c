@@ -395,10 +395,12 @@ int lc_entity_update_attributes_fprint(FILE *f, const lc_entity_update_attribute
 
 int lc_position_to_string(const lc_position *p, char *buf, size_t buflen) {
   if (!p || !buf || buflen == 0) return 0;
+  char rel[128];
+  if (!lc_position_relatives_to_string(p->flags, rel, sizeof rel)) rel[0] = '\0';
   return lc_snprintf(buf, buflen,
                      "position{teleportId=%d,pos=(%.3f,%.3f,%.3f),delta=(%.3f,%.3f,%.3f),"
-                     "rot=(%.2f,%.2f),flags=0x%x}",
-                     p->teleport_id, p->x, p->y, p->z, p->dx, p->dy, p->dz, p->yaw, p->pitch,
+                     "rot=(%.2f,%.2f),%s,mask=0x%x}",
+                     p->teleport_id, p->x, p->y, p->z, p->dx, p->dy, p->dz, p->yaw, p->pitch, rel,
                      p->flags);
 }
 

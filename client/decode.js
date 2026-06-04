@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import chalk from 'chalk';
-import { DECODE_MAX } from './constants.js';
+import { DECODE_MAX, DECODE_MAX_LOGIN } from './constants.js';
 import { writeLogLine, isLogSinkOpen } from './logSink.js';
 import { readString } from './wire.js';
 
@@ -63,5 +63,6 @@ export function decodePayload(packetName, payload) {
   }
   const oneLine = (r.text || '').replace(/\s+/g, ' ').trim();
   if (!oneLine) return null;
-  return oneLine.length > DECODE_MAX ? `${oneLine.slice(0, DECODE_MAX)}…` : oneLine;
+  const maxLen = packetName === 'login' ? DECODE_MAX_LOGIN : DECODE_MAX;
+  return oneLine.length > maxLen ? `${oneLine.slice(0, maxLen)}…` : oneLine;
 }

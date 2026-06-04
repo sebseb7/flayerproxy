@@ -612,7 +612,7 @@ lc_status lc_parse_position(const uint8_t *data, size_t len, lc_position *out) {
   if (lc_buf_read_f64_le(&b, &out->dz) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_f32_le(&b, &out->yaw) != LC_OK) return LC_ERR_TRUNCATED;
   if (lc_buf_read_f32_le(&b, &out->pitch) != LC_OK) return LC_ERR_TRUNCATED;
-  if (lc_buf_read_u32_le(&b, &out->flags) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_u32_be(&b, &out->flags) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
 /* Good for: Decode Minecraft wire payload for respawn into a struct.

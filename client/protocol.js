@@ -48,12 +48,13 @@ export function parseSetTickingState(payload) {
   };
 }
 
-/** ClientboundLoginPacket: viewDistance is the 2nd varint after maxPlayers. */
-export function parseLoginViewDistance(payload) {
+/** ClientboundLoginPacket fields needed for join / death handling. */
+export function parsePlayLogin(payload) {
   let o = 0;
   if (o + 5 > payload.length) return null;
-  o += 4; // entityId i32 BE
-  o += 1; // hardcore bool
+  const entityId = payload.readInt32BE(o);
+  o += 4;
+  o += 1; // hardcore
   const dimCount = readVarInt(payload, o);
   if (!dimCount) return null;
   o = dimCount.next;
@@ -64,15 +65,58 @@ export function parseLoginViewDistance(payload) {
   }
   const maxPlayers = readVarInt(payload, o);
   if (!maxPlayers) return null;
-  const viewDistance = readVarInt(payload, maxPlayers.next);
+  o = maxPlayers.next;
+  const viewDistance = readVarInt(payload, o);
   if (!viewDistance) return null;
-  return viewDistance.value;
+  o = viewDistance.next;
+  const simulationDistance = readVarInt(payload, o);
+  if (!simulationDistance) return null;
+  o = simulationDistance.next;
+  o += 3; // reducedDebug, showDeathScreen, limitedCrafting
+  const dimension = readVarInt(payload, o);
+  if (!dimension) return null;
+  o = dimension.next;
+  const dimensionName = readString(payload, o);
+  if (!dimensionName) return null;
+  o = dimensionName.next;
+  if (o + 8 + 2 + 2 + 1 > payload.length) return null;
+  o += 8; // hashedSeed i64 BE
+  o += 2; // gamemode i8, previousGamemode u8
+  o += 2; // isDebug, isFlat
+  const hasDeath = payload[o] !== 0;
+  return {
+    entityId,
+    viewDistance: viewDistance.value,
+    simulationDistance: simulationDistance.value,
+    hasDeath,
+  };
+}
+
+/** @deprecated use parsePlayLogin */
+export function parseLoginViewDistance(payload) {
+  const login = parsePlayLogin(payload);
+  return login?.viewDistance ?? null;
+}
+
+/** ClientboundSetHealthPacket: f32 health LE, varint food, f32 saturation LE. */
+export function parseUpdateHealth(payload) {
+  if (payload.length < 5) return null;
+  const health = payload.readFloatLE(0);
+  const food = readVarInt(payload, 4);
+  if (!food) return null;
+  if (food.next + 4 > payload.length) return null;
+  const saturation = payload.readFloatLE(food.next);
+  return { health, food: food.value, saturation };
 }
 
 /** ClientboundSetChunkCacheCenter: chunkX i32 BE, chunkZ i32 BE. */
+/** ClientboundSetChunkCacheCenterPacket: chunkX, chunkZ as VarInts. */
 export function parseUpdateViewPosition(payload) {
-  if (payload.length < 8) return null;
-  return { chunkX: payload.readInt32BE(0), chunkZ: payload.readInt32BE(4) };
+  const x = readVarInt(payload, 0);
+  if (!x) return null;
+  const z = readVarInt(payload, x.next);
+  if (!z) return null;
+  return { chunkX: x.value, chunkZ: z.value };
 }
 
 /** Matches libchunk mc_static_chunk_radius_from_view. */

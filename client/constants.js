@@ -30,6 +30,8 @@ export const PLAY = {
   LIGHT_UPDATE: 0x2f,
   GAME_EVENT: 0x26,
   MAP_CHUNK: 0x2c,
+  RESPAWN: 0x50,
+  UPDATE_HEALTH: 0x66,
   UPDATE_VIEW_POSITION: 0x5c,
   UPDATE_TIME: 0x6f,
   SET_TICKING_STATE: 0x7d,
@@ -40,6 +42,8 @@ export const PLAY = {
   ENTITY_VELOCITY: 0x63,
   C2S_TELEPORT_CONFIRM: 0x00,
   C2S_CHUNK_BATCH_RECEIVED: 0x0a,
+  /** ServerboundClientCommandPacket.Action.PERFORM_RESPAWN */
+  C2S_CLIENT_COMMAND: 0x0b,
   C2S_TICK_END: 0x0c,
   C2S_KEEP_ALIVE: 0x1b,
   C2S_PLAYER_LOADED: 0x2b,
@@ -57,3 +61,6 @@ export const CLIENT_TICK_MS = 50;
 export const LOG_LEVELS = { error: 0, warn: 1, info: 2, debug: 3 };
 
 export const DECODE_MAX = Number(process.env.MC_CLIENT_DECODE_MAX) || 160;
+
+/** Login (0x30) includes world_state + death; default cap is higher than DECODE_MAX. */
+export const DECODE_MAX_LOGIN = Number(process.env.MC_CLIENT_DECODE_MAX_LOGIN) || 2048;
