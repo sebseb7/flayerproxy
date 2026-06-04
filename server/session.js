@@ -21,6 +21,9 @@ import {
   getUpstreamClient,
   setDownstreamClient,
   getEntityTracker,
+  getDimensionName,
+  getLoginData,
+  getCapturedPosition,
 } from '../client/captureStore.js';
 import { createServerLogger } from './logger.js';
 import { logPingTickFromEnv } from '../client/logNoise.js';
@@ -179,15 +182,48 @@ export function handleClient(sock, opts = {}) {
       sent++;
     }
 
-    const chunkFiles = getChunkFilesSync(path.resolve('chunks'));
-    let fsChunksSent = 0;
+    const dim = getDimensionName();
+    let chunkDir = path.resolve('chunks');
+    if (dim && fs.existsSync(path.join(chunkDir, dim))) {
+      chunkDir = path.join(chunkDir, dim);
+    }
+    const chunkFiles = getChunkFilesSync(chunkDir);
+
+    const pos = getCapturedPosition();
+    const cx = pos ? Math.floor(pos.x / 16) : 0;
+    const cz = pos ? Math.floor(pos.z / 16) : 0;
+
+    const loginData = getLoginData();
+    const viewDistance = loginData ? loginData.viewDistance : 3;
+    const maxDistance = viewDistance + 1;
+
+    const sortedChunks = [];
     for (const file of chunkFiles) {
+      const filename = path.basename(file);
+      const parts = filename.split('_');
+      if (parts.length >= 2) {
+        const chunkX = parseInt(parts[0], 10);
+        const chunkZ = parseInt(parts[1], 10);
+        if (!isNaN(chunkX) && !isNaN(chunkZ)) {
+          const dist = Math.max(Math.abs(chunkX - cx), Math.abs(chunkZ - cz));
+          if (dist <= maxDistance) {
+            sortedChunks.push({ file, chunkX, chunkZ, dist });
+          }
+        }
+      }
+    }
+
+    sortedChunks.sort((a, b) => a.dist - b.dist);
+    logger.info('chunks_replay', chalk.dim(`Sorted ${sortedChunks.length} chunks concentrically around center (${cx},${cz}) with maxDistance ${maxDistance}`));
+
+    let fsChunksSent = 0;
+    for (const item of sortedChunks) {
       try {
-        const payload = fs.readFileSync(file);
+        const payload = fs.readFileSync(item.file);
         send(sock, PLAY.MAP_CHUNK, payload);
         fsChunksSent++;
       } catch (err) {
-        logger.error(`Failed to read chunk file ${file}: ${err.message}`);
+        logger.error(`Failed to read chunk file ${item.file}: ${err.message}`);
       }
     }
 

@@ -18,6 +18,7 @@ import {
   setUpstreamClient,
   getDownstreamClient,
   setEntityTracker,
+  getDimensionName,
 } from './captureStore.js';
 
 import { getChunkDataLen } from './chunk.js';
@@ -65,6 +66,7 @@ export function createSession(config) {
 
   const state = {
     entityId: null,
+    dimension: null,
     playerLoadedSent: false,
     chunksLoadStarted: false,
     mapChunksSeen: 0,
@@ -228,13 +230,21 @@ export function createSession(config) {
   }
 
   function writeMapChunk(file, payload) {
+    const dim = getDimensionName() || state.dimension || 'unknown';
     const dir = path.dirname(file);
+    // Insert dimension as the first section of the path (under the chunks root).
+    // Current layout is <chunksRoot>/d1/d2/d3/d4/file; we want
+    // <chunksRoot>/<dimension>/d1/d2/d3/d4/file.
+    const chunksRoot = path.dirname(path.dirname(path.dirname(path.dirname(dir))));
+    const newDir = path.join(chunksRoot, dim, path.relative(chunksRoot, dir));
+    const newFile = path.join(newDir, path.basename(file));
+    logger.debug('map_chunk_write', chalk.dim(`dim="${dim}" ${file} → ${newFile}`));
     void (async () => {
-      if (!chunkDirsReady.has(dir)) {
-        await fs.mkdir(dir, { recursive: true });
-        chunkDirsReady.add(dir);
+      if (!chunkDirsReady.has(newDir)) {
+        await fs.mkdir(newDir, { recursive: true });
+        chunkDirsReady.add(newDir);
       }
-      await fs.writeFile(file, payload);
+      await fs.writeFile(newFile, payload);
     })().catch((e) => logger.error('map_chunk write', chalk.red(e.message)));
   }
 

@@ -393,6 +393,8 @@ lc_status lc_parse_play_login(const uint8_t *data, size_t len, lc_play_login *ou
   if (lc_buf_read_u8(&b, &out->do_limited_crafting) != LC_OK) goto fail;
   if (lc_parse_spawn_info(&b, &out->world_state) != LC_OK) goto fail;
   if (lc_buf_read_u8(&b, &out->enforces_secure_chat) != LC_OK) goto fail;
+  /* Extract dimension_name from world_state for convenience */
+  out->dimension_name = out->world_state.name;
   return LC_OK;
 fail:
   for (size_t i = 0; i < *world_name_count_out; i++) free((*world_names_out)[i]);

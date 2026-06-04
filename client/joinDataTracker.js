@@ -58,6 +58,8 @@ function serializePositionPacket(teleportId, x, y, z, yaw, pitch, flags = 0) {
 export function createJoinDataTracker() {
   let ownEntityId = null;
   let teleportId = 1;
+  let dimensionName = null;
+  let loginData = null; // Store full login data for reconnection
   const currentPos = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };
   // Map of key -> { id, payload }
   const tracked = new Map();
@@ -107,12 +109,16 @@ export function createJoinDataTracker() {
       return;
     }
 
-    // 2. Check if it's login to extract own entityId
+    // 2. Check if it's login to extract own entityId and dimension
     if (packetName === 'login') {
       try {
         const login = lc.parsePlayLogin(payload);
         if (login) {
           ownEntityId = login.entityId;
+          if (login.dimensionName) {
+            dimensionName = login.dimensionName;
+          }
+          loginData = login; // Store full login data for reconnection
         }
       } catch (e) {
         // ignore parsing error
@@ -287,6 +293,26 @@ export function createJoinDataTracker() {
     return result;
   }
 
+  function getDimensionName() {
+    return dimensionName;
+  }
+
+  function setDimensionName(name) {
+    dimensionName = name;
+  }
+
+  function getLoginData() {
+    return loginData;
+  }
+
+  function setLoginData(data) {
+    loginData = data;
+    if (data) {
+      if (data.entityId) ownEntityId = data.entityId;
+      if (data.dimensionName) dimensionName = data.dimensionName;
+    }
+  }
+
   return {
     noteS2c,
     noteC2s,
@@ -294,6 +320,10 @@ export function createJoinDataTracker() {
     reset,
     getOwnEntityId,
     setOwnEntityId,
+    getDimensionName,
+    setDimensionName,
+    getLoginData,
+    setLoginData,
     tracked,
     currentPos,
   };

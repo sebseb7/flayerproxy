@@ -940,6 +940,10 @@ Napi::Value ParsePlayLogin(const Napi::CallbackInfo &info) {
   o.Set("viewDistance", Napi::Number::New(env, parsed.view_distance));
   o.Set("simulationDistance", Napi::Number::New(env, parsed.simulation_distance));
   o.Set("hasDeath", Napi::Boolean::New(env, parsed.world_state.has_death != 0));
+  // Extract dimension name before freeing (dimension_name points to world_state.name)
+  if (parsed.world_state.name) {
+    o.Set("dimensionName", Napi::String::New(env, parsed.world_state.name));
+  }
   lc_play_login_free(&parsed);
   return o;
 }

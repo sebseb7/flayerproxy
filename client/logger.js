@@ -3,7 +3,7 @@ import { PLAY, CFG, LOG_LEVELS } from './constants.js';
 import { s2cPacketName, c2sPacketName, c2sDecodeName } from './packetNames.js';
 import { decodePayload } from './decode.js';
 import { writeLogLine, closeLogSink } from './logSink.js';
-import { isNoisyC2sPacket, isNoisyS2cPacket } from './logNoise.js';
+import { isNoisyC2sPacket, isNoisyS2cPacket, isBlockedPacket } from './logNoise.js';
 import { createEntityTracker } from './entityTracker.js';
 import { formatEntityType } from './entityTypeNames.js';
 
@@ -108,6 +108,7 @@ export function createLogger({ getPhase, logLevel, debug, logPingTick = false })
       const ph = getPhase();
       const len = payload.length;
       const name = s2cPacketName(ph, id);
+      if (isBlockedPacket(name, id)) return;
       if (!logPingTick && isNoisyS2cPacket(id)) return;
       if (id !== PLAY.KEEP_ALIVE && id !== CFG.KEEP_ALIVE && !name && len > 4096 && !debug) return;
       const nameStr = name ? chalk.white(name) : chalk.dim('?');
@@ -131,10 +132,11 @@ export function createLogger({ getPhase, logLevel, debug, logPingTick = false })
 
     c2s(id, payload, detail) {
       if (!this._can('debug')) return;
-      if (!logPingTick && isNoisyC2sPacket(id)) return;
       const ph = getPhase();
-      const len = payload.length;
       const name = c2sPacketName(ph, id);
+      if (isBlockedPacket(name, id)) return;
+      if (!logPingTick && isNoisyC2sPacket(id)) return;
+      const len = payload.length;
       const decodeName = c2sDecodeName(ph, id);
       const nameStr = name ? chalk.white(name) : chalk.dim('?');
       const summary = decodeName ? decodePayload(decodeName, payload) : null;

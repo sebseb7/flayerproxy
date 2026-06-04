@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import { LOGIN, CFG, PLAY, GAME_EVENT_LEVEL_CHUNKS_LOAD_START } from './constants.js';
 import { writeVarInt, readVarInt, readString } from './wire.js';
-import { getDownstreamClient, recordPlayJoinS2c } from './captureStore.js';
+import { getDownstreamClient, recordPlayJoinS2c, trackPlayPacket } from './captureStore.js';
 import {
   readI64BE,
 } from './protocol.js';
@@ -157,13 +157,18 @@ export function createOnPacket(ctx) {
         if (login) {
           state.entityId = login.entityId;
           state.viewDistance = login.viewDistance;
+          state.dimension = login.dimensionName || null;
+          logger.debug('login', chalk.dim(`dimension set to "${state.dimension}", login keys=${Object.keys(login).join(',')}`));
           if (login.hasDeath) {
             logger.debug(
               'login',
               chalk.dim('world_state.hasDeath=true (saved death location only)'),
             );
           }
+        } else {
+          logger.debug('login', chalk.dim('parsePlayLogin returned null/undefined'));
         }
+        trackPlayPacket(id, payload);
       } else if (id === PLAY.UPDATE_HEALTH) {
         const h = parseUpdateHealth(payload);
         if (h) {

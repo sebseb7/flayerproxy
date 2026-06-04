@@ -2,12 +2,12 @@ entityTracker
 - complete and verify current pure js impl
 - move to libchunk
 playerDataTracker
--complete and verify current pure js impl
+- complete and verify current pure js impl
 - move to libchunk
 chunkTracker
 - implement
 - move to libchunk
-idleBehaviour plugins (anti afk, auto travel, farm)
+idleBehaviour plugins (anti afk, auto travel, farm, autologout on damage, freefall, monster aggro)
 bridgeBehaviour plugins (filter noise (unwanted sounds, particles, etc), apply hacks (fly, esp, etc))
 liveSpectatorPort (with offset)
 cacheCruiseSpectatorPort
@@ -15,3 +15,4 @@ livemapGenerator
 liveMapPlugins (find shulker, find elytra)
 entityRadar (find items on ground)
 move spectator to prefill it's DH/XMM/JM cache
+per packet type / link type log filter

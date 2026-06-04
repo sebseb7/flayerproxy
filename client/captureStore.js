@@ -124,3 +124,23 @@ export function setEntityTracker(tracker) {
 export function getEntityTracker() {
   return entityTracker;
 }
+
+export function getCapturedPosition() {
+  return joinDataTracker.currentPos;
+}
+
+export function getDimensionName() {
+  return joinDataTracker.getDimensionName();
+}
+
+export function setDimensionName(name) {
+  joinDataTracker.setDimensionName(name);
+}
+
+export function getLoginData() {
+  return joinDataTracker.getLoginData();
+}
+
+export function setLoginData(data) {
+  joinDataTracker.setLoginData(data);
+}

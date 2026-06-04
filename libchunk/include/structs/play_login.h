@@ -16,6 +16,8 @@ typedef struct lc_play_login {
   uint8_t do_limited_crafting;
   lc_spawn_info world_state;
   uint8_t enforces_secure_chat;
+  /* Dimension name extracted from world_state for convenience */
+  const char *dimension_name;
 } lc_play_login;
 
 #endif /* LIBCHUNK_STRUCT_PLAY_LOGIN_H */
