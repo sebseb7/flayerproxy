@@ -60,7 +60,10 @@ session.logger.info('upstream', chalk.white(`${config.host}:${config.port}`));
 
 const sock = net.createConnection(
   { host: config.host, port: config.port },
-  () => session.onConnect(sock),
+  () => {
+    sock.setNoDelay(true);
+    session.onConnect(sock);
+  },
 );
 
 session.attach(sock);

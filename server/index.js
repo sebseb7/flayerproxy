@@ -22,6 +22,7 @@ export function startCaptureServer(options = {}) {
     createServerLogger({ getPhase: () => 'listen', logLevel, debug, logPingTick });
 
   const server = net.createServer((sock) => {
+    sock.setNoDelay(true);
     logger.info('client connected', chalk.dim(sock.remoteAddress));
     handleClient(sock, { logLevel, debug, logPingTick });
   });

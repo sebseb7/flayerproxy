@@ -287,7 +287,6 @@ export function handleClient(sock, opts = {}) {
   function isLocalOnlyC2s(id) {
     return (
       id === PLAY.C2S_KEEP_ALIVE ||
-      id === PLAY.C2S_PONG ||
       id === PLAY.C2S_CHUNK_BATCH_RECEIVED ||
       id === PLAY.C2S_PLAYER_LOADED
     );

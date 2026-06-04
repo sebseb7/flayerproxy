@@ -45,8 +45,13 @@ export function createOnPacket(ctx) {
       return;
     }
     if ((phase === 'play_join' || phase === 'death' || phase === 'play') && id === PLAY.PING) {
-      if (payload.length >= 4) {
-        sendSilent(sock, PLAY.C2S_PONG, payload.subarray(0, 4));
+      const downstream = getDownstreamClient();
+      if (downstream.sock && downstream.getPhase() === 'play' && downstream.send) {
+        downstream.send(PLAY.PING, payload);
+      } else {
+        if (payload.length >= 4) {
+          sendSilent(sock, PLAY.C2S_PONG, payload.subarray(0, 4));
+        }
       }
       return;
     }
