@@ -201,4 +201,41 @@ module.exports = {
     if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
     return native.parseEntityEquipment(buffer);
   },
+  parseSpawnEntity: (buffer) => {
+    if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+    return native.parseSpawnEntity(buffer);
+  },
+  parseEntityTeleport: (buffer) => {
+    if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+    return native.parseEntityTeleport(buffer);
+  },
+  parseEntityDestroy: (buffer) => {
+    if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+    return native.parseEntityDestroy(buffer);
+  },
+  parseSetPassengers: (buffer) => {
+    if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+    return native.parseSetPassengers(buffer);
+  },
+  parseEntityUpdateAttributes: (buffer) => {
+    if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+    return native.parseEntityUpdateAttributes(buffer);
+  },
+  parseEntityStatus: (buffer) => {
+    if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+    return native.parseEntityStatus(buffer);
+  },
+  parseEntityEffect: (buffer) => {
+    if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+    return native.parseEntityEffect(buffer);
+  },
+  parseRemoveEntityEffect: (buffer) => {
+    if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+    return native.parseRemoveEntityEffect(buffer);
+  },
+  parseAttachEntity: (buffer) => {
+    if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+    return native.parseAttachEntity(buffer);
+  },
 };
+

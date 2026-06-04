@@ -298,6 +298,13 @@ typedef struct lc_entity_look {
   uint8_t on_ground;
 } lc_entity_look;
 
+typedef struct lc_entity_teleport {
+  int32_t entity_id;
+  double x, y, z;
+  int8_t yaw, pitch;
+  uint8_t on_ground;
+} lc_entity_teleport;
+
 typedef struct lc_entity_attribute_modifier {
   char *uuid;
   double amount;
@@ -316,6 +323,30 @@ typedef struct lc_entity_update_attributes {
   lc_entity_attribute_property *properties;
   size_t property_count;
 } lc_entity_update_attributes;
+
+typedef struct lc_entity_status {
+  int32_t entity_id;
+  int8_t status;
+} lc_entity_status;
+
+typedef struct lc_entity_effect {
+  int32_t entity_id;
+  int32_t effect_id;
+  int32_t amplifier;
+  int32_t duration;
+  uint8_t flags;
+} lc_entity_effect;
+
+typedef struct lc_remove_entity_effect {
+  int32_t entity_id;
+  int32_t effect_id;
+} lc_remove_entity_effect;
+
+typedef struct lc_attach_entity {
+  int32_t attached_id;
+  int32_t holding_id;
+} lc_attach_entity;
+
 
 typedef struct lc_position {
   int32_t teleport_id;
@@ -562,8 +593,14 @@ lc_status lc_parse_sound_effect(const uint8_t *data, size_t len, lc_sound_effect
 lc_status lc_parse_entity_sound_effect(const uint8_t *data, size_t len, lc_entity_sound_effect *out);
 lc_status lc_parse_entity_head_rotation(const uint8_t *data, size_t len, lc_entity_head_rotation *out);
 lc_status lc_parse_entity_look(const uint8_t *data, size_t len, lc_entity_look *out);
+lc_status lc_parse_entity_teleport(const uint8_t *data, size_t len, lc_entity_teleport *out);
 lc_status lc_parse_entity_update_attributes(const uint8_t *data, size_t len,
                                             lc_entity_update_attributes *out);
+lc_status lc_parse_entity_status(const uint8_t *data, size_t len, lc_entity_status *out);
+lc_status lc_parse_entity_effect(const uint8_t *data, size_t len, lc_entity_effect *out);
+lc_status lc_parse_remove_entity_effect(const uint8_t *data, size_t len, lc_remove_entity_effect *out);
+lc_status lc_parse_attach_entity(const uint8_t *data, size_t len, lc_attach_entity *out);
+
 lc_status lc_parse_position(const uint8_t *data, size_t len, lc_position *out);
 lc_status lc_parse_c2s_position(const uint8_t *data, size_t len, lc_c2s_position *out);
 lc_status lc_parse_c2s_position_look(const uint8_t *data, size_t len, lc_c2s_position_look *out);

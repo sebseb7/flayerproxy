@@ -188,6 +188,59 @@ int main(void) {
       }
       free(p);
     }
+
+    // entity_status
+    if (hex_to_bytes("7b00000005", &p, &n) == 0) {
+      lc_entity_status es;
+      if (lc_parse_entity_status(p, n, &es) != LC_OK) {
+        fprintf(stderr, "lc_parse_entity_status failed\n");
+        failures++;
+      } else if (es.entity_id != 123 || es.status != 5) {
+        fprintf(stderr, "lc_parse_entity_status wrong values: %d %d\n", es.entity_id, es.status);
+        failures++;
+      }
+      free(p);
+    }
+
+    // entity_effect
+    if (hex_to_bytes("370a01d80403", &p, &n) == 0) {
+      lc_entity_effect ee;
+      if (lc_parse_entity_effect(p, n, &ee) != LC_OK) {
+        fprintf(stderr, "lc_parse_entity_effect failed\n");
+        failures++;
+      } else if (ee.entity_id != 55 || ee.effect_id != 10 || ee.amplifier != 1 || ee.duration != 600 || ee.flags != 3) {
+        fprintf(stderr, "lc_parse_entity_effect wrong values: %d %d %d %d %d\n",
+                ee.entity_id, ee.effect_id, ee.amplifier, ee.duration, ee.flags);
+        failures++;
+      }
+      free(p);
+    }
+
+    // remove_entity_effect
+    if (hex_to_bytes("370a", &p, &n) == 0) {
+      lc_remove_entity_effect re;
+      if (lc_parse_remove_entity_effect(p, n, &re) != LC_OK) {
+        fprintf(stderr, "lc_parse_remove_entity_effect failed\n");
+        failures++;
+      } else if (re.entity_id != 55 || re.effect_id != 10) {
+        fprintf(stderr, "lc_parse_remove_entity_effect wrong values: %d %d\n", re.entity_id, re.effect_id);
+        failures++;
+      }
+      free(p);
+    }
+
+    // attach_entity
+    if (hex_to_bytes("3700000063000000", &p, &n) == 0) {
+      lc_attach_entity ae;
+      if (lc_parse_attach_entity(p, n, &ae) != LC_OK) {
+        fprintf(stderr, "lc_parse_attach_entity failed\n");
+        failures++;
+      } else if (ae.attached_id != 55 || ae.holding_id != 99) {
+        fprintf(stderr, "lc_parse_attach_entity wrong values: %d %d\n", ae.attached_id, ae.holding_id);
+        failures++;
+      }
+      free(p);
+    }
   }
 
   return failures ? 1 : 0;

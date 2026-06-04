@@ -1,68 +1,11 @@
 import chalk from 'chalk';
 import { createRequire } from 'node:module';
-import { readVarInt } from './wire.js';
 import { formatEntityType } from './entityTypeNames.js';
 
 const require = createRequire(import.meta.url);
 const lc = require('../libchunk/js/index.js');
 
-/** @typedef {{ id: number, type: number, uuid: string, x: number, y: number, z: number, posKnown: boolean, vel: { x: number, y: number, z: number }, rot: { pitch: number, yaw: number, headPitch: number, headYaw?: number }, data: number, spawnTime: number, metadata?: Record<number, any>, equipment?: Record<number, any> }} TrackedEntity */
-
-const SPAWN_RE =
-  /^spawn_entity\{id=(-?\d+),uuid=([^,]+),type=(-?\d+),pos=\(([-\d.]+),([-\d.]+),([-\d.]+)\),vel=\(([-\d.]+),([-\d.]+),([-\d.]+)\),rot=\((-?\d+),(-?\d+),(-?\d+)\),data=(-?\d+)\}$/;
-
-const SYNC_POS_RE =
-  /^sync_entity_position\{id=(-?\d+),pos=\(([-\d.]+),([-\d.]+),([-\d.]+)\),/;
-
-class Buf {
-  /** @param {Buffer} buf */
-  constructor(buf) {
-    this.buf = buf;
-    this.off = 0;
-  }
-
-  need(n) {
-    return this.off + n <= this.buf.length;
-  }
-
-  readVarInt() {
-    const r = readVarInt(this.buf, this.off);
-    if (!r) return null;
-    this.off = r.next;
-    return r.value;
-  }
-
-  readI16LE() {
-    if (!this.need(2)) return null;
-    const v = this.buf.readInt16LE(this.off);
-    this.off += 2;
-    return v;
-  }
-
-  readI8() {
-    if (!this.need(1)) return null;
-    return this.buf.readInt8(this.off++);
-  }
-
-  readF64LE() {
-    if (!this.need(8)) return null;
-    const v = this.buf.readDoubleLE(this.off);
-    this.off += 8;
-    return v;
-  }
-
-  readBool() {
-    if (!this.need(1)) return null;
-    return this.buf.readUInt8(this.off++) !== 0;
-  }
-
-  readI32LE() {
-    if (!this.need(4)) return null;
-    const v = this.buf.readInt32LE(this.off);
-    this.off += 4;
-    return v;
-  }
-}
+/** @typedef {{ id: number, type: number, uuid: string, x: number, y: number, z: number, posKnown: boolean, vel: { x: number, y: number, z: number }, rot: { pitch: number, yaw: number, headPitch: number, headYaw?: number }, data: number, spawnTime: number, metadata?: Record<number, any>, equipment?: Record<number, any>, attributes?: Record<number, any>, effects?: Record<number, any>, passengers?: number[], attachedTo?: number, status?: number }} TrackedEntity */
 
 /** @param {number} x @param {number} y @param {number} z */
 function isValidCoord(x, y, z) {
@@ -124,47 +67,31 @@ export function createEntityTracker() {
     return chalk.dim(` entity[${parts.join('; ')}]`);
   }
 
-  function touchIds(payload) {
-    const id = readFirstEntityId(payload);
-    return id != null ? suffixForIds([id]) : null;
-  }
-
-  function readFirstEntityId(payload) {
-    const id = new Buf(payload).readVarInt();
-    return id == null ? null : id;
-  }
-
   function handleSpawn(payload) {
-    const r = lc.decodePayload('spawn_entity', payload);
-    if (!r.ok || !r.text) return null;
-    const m = r.text.match(SPAWN_RE);
-    if (!m) return null;
-    const id = Number(m[1]);
+    const p = lc.parseSpawnEntity(payload);
+    if (!p) return null;
     const ent = {
-      id,
-      type: Number(m[3]),
-      uuid: m[2],
+      id: p.entityId,
+      type: p.type,
+      uuid: p.uuid,
       x: 0,
       y: 0,
       z: 0,
       posKnown: false,
-      vel: { x: Number(m[7]), y: Number(m[8]), z: Number(m[9]) },
-      rot: { pitch: Number(m[10]), yaw: Number(m[11]), headPitch: Number(m[12]) },
-      data: Number(m[13]),
+      vel: p.velocity,
+      rot: { pitch: p.pitch, yaw: p.yaw, headPitch: p.headPitch },
+      data: p.objectData,
       spawnTime: Date.now(),
     };
-    updatePos(ent, Number(m[4]), Number(m[5]), Number(m[6]));
-    set(id, ent);
+    updatePos(ent, p.x, p.y, p.z);
+    set(p.entityId, ent);
     return null;
   }
 
   function handleDestroy(payload) {
-    const b = new Buf(payload);
-    const count = b.readVarInt();
-    if (count == null || count < 0) return null;
-    for (let i = 0; i < count; i++) {
-      const id = b.readVarInt();
-      if (id == null) break;
+    const p = lc.parseEntityDestroy(payload);
+    if (!p) return null;
+    for (const id of p.entityIds) {
       remove(id);
     }
     return null;
@@ -208,27 +135,15 @@ export function createEntityTracker() {
   }
 
   function handleTeleport(payload) {
-    const r = lc.decodePayload('entity_teleport', payload);
-    if (r.ok && r.text) {
-      const m = r.text.match(
-        /^entity_teleport\{entityId=(-?\d+),pos=\(([-\d.]+),([-\d.]+),([-\d.]+)\)/,
-      );
-      if (m) {
-        const id = Number(m[1]);
-        const e = get(id);
-        if (e) updatePos(e, Number(m[2]), Number(m[3]), Number(m[4]));
-        return suffixForIds([id]);
-      }
+    const p = lc.parseEntityTeleport(payload);
+    if (!p) return null;
+    const e = get(p.entityId);
+    if (e) {
+      updatePos(e, p.x, p.y, p.z);
+      e.rot.yaw = p.yaw;
+      e.rot.pitch = p.pitch;
     }
-    const b = new Buf(payload);
-    const id = b.readVarInt();
-    const x = b.readF64LE();
-    const y = b.readF64LE();
-    const z = b.readF64LE();
-    if (id == null || x == null || y == null || z == null) return null;
-    const e = get(id);
-    if (e) updatePos(e, x, y, z);
-    return suffixForIds([id]);
+    return suffixForIds([p.entityId]);
   }
 
   function handleVelocity(payload) {
@@ -289,32 +204,76 @@ export function createEntityTracker() {
   }
 
   function handleEntityStatus(payload) {
-    const b = new Buf(payload);
-    const id = b.readI32LE();
-    if (id == null) return null;
-    return suffixForIds([id]);
+    const p = lc.parseEntityStatus(payload);
+    if (!p) return null;
+    const e = get(p.entityId);
+    if (e) {
+      e.status = p.status;
+    }
+    return suffixForIds([p.entityId]);
   }
 
   function handleSetPassengers(payload) {
-    const b = new Buf(payload);
-    const vehicle = b.readVarInt();
-    const count = b.readVarInt();
-    if (vehicle == null || count == null || count < 0) return null;
-    const ids = [vehicle];
-    for (let i = 0; i < count; i++) {
-      const p = b.readVarInt();
-      if (p == null) break;
-      ids.push(p);
+    const p = lc.parseSetPassengers(payload);
+    if (!p) return null;
+    const vehicle = get(p.entityId);
+    if (vehicle) {
+      vehicle.passengers = p.passengers;
     }
+    const ids = [p.entityId, ...p.passengers];
     return suffixForIds(ids);
   }
 
   function handleAttachEntity(payload) {
-    const b = new Buf(payload);
-    const attached = b.readI32LE();
-    const holding = b.readI32LE();
-    if (attached == null || holding == null) return null;
-    return suffixForIds([attached, holding]);
+    const p = lc.parseAttachEntity(payload);
+    if (!p) return null;
+    const attached = get(p.attachedId);
+    if (attached) {
+      attached.attachedTo = p.holdingId;
+    }
+    return suffixForIds([p.attachedId, p.holdingId]);
+  }
+
+  function handleUpdateAttributes(payload) {
+    const p = lc.parseEntityUpdateAttributes(payload);
+    if (!p) return null;
+    const e = get(p.entityId);
+    if (e) {
+      if (!e.attributes) e.attributes = {};
+      for (const prop of p.properties) {
+        e.attributes[prop.key] = {
+          keyName: prop.keyName,
+          value: prop.value,
+          modifiers: prop.modifiers
+        };
+      }
+    }
+    return suffixForIds([p.entityId]);
+  }
+
+  function handleEntityEffect(payload) {
+    const p = lc.parseEntityEffect(payload);
+    if (!p) return null;
+    const e = get(p.entityId);
+    if (e) {
+      if (!e.effects) e.effects = {};
+      e.effects[p.effectId] = {
+        amplifier: p.amplifier,
+        duration: p.duration,
+        flags: p.flags
+      };
+    }
+    return suffixForIds([p.entityId]);
+  }
+
+  function handleRemoveEntityEffect(payload) {
+    const p = lc.parseRemoveEntityEffect(payload);
+    if (!p) return null;
+    const e = get(p.entityId);
+    if (e && e.effects) {
+      delete e.effects[p.effectId];
+    }
+    return suffixForIds([p.entityId]);
   }
 
   /** @type {Record<string, (payload: Buffer) => string | null>} */
@@ -327,12 +286,12 @@ export function createEntityTracker() {
     entity_teleport: handleTeleport,
     entity_velocity: handleVelocity,
     entity_metadata: handleMetadata,
-    entity_update_attributes: touchIds,
+    entity_update_attributes: handleUpdateAttributes,
     entity_equipment: handleEquipment,
     entity_head_rotation: handleHeadRotation,
     entity_look: handleLook,
-    entity_effect: touchIds,
-    remove_entity_effect: touchIds,
+    entity_effect: handleEntityEffect,
+    remove_entity_effect: handleRemoveEntityEffect,
     entity_status: handleEntityStatus,
     set_passengers: handleSetPassengers,
     attach_entity: handleAttachEntity,

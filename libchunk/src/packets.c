@@ -493,6 +493,19 @@ lc_status lc_parse_entity_look(const uint8_t *data, size_t len, lc_entity_look *
   return LC_OK;
 }
 
+lc_status lc_parse_entity_teleport(const uint8_t *data, size_t len, lc_entity_teleport *out) {
+  lc_buf b;
+  lc_buf_init(&b, data, len);
+  if (lc_buf_read_varint(&b, &out->entity_id) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_le(&b, &out->x) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_le(&b, &out->y) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_f64_le(&b, &out->z) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_i8(&b, &out->yaw) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_i8(&b, &out->pitch) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_bool(&b, &out->on_ground) != LC_OK) return LC_ERR_TRUNCATED;
+  return LC_OK;
+}
+
 const char *lc_entity_attribute_key_name(int32_t key) {
   static const char *keys[] = {
       "generic.armor",
@@ -763,4 +776,44 @@ lc_status lc_parse_update_view_position(const uint8_t *data, size_t len, lc_upda
   if (lc_buf_read_varint(&b, &out->chunk_z) != LC_OK) return LC_ERR_TRUNCATED;
   return LC_OK;
 }
+
+lc_status lc_parse_entity_status(const uint8_t *data, size_t len, lc_entity_status *out) {
+  memset(out, 0, sizeof(*out));
+  lc_buf b;
+  lc_buf_init(&b, data, len);
+  if (lc_buf_read_i32_le(&b, &out->entity_id) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_i8(&b, &out->status) != LC_OK) return LC_ERR_TRUNCATED;
+  return LC_OK;
+}
+
+lc_status lc_parse_entity_effect(const uint8_t *data, size_t len, lc_entity_effect *out) {
+  memset(out, 0, sizeof(*out));
+  lc_buf b;
+  lc_buf_init(&b, data, len);
+  if (lc_buf_read_varint(&b, &out->entity_id) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_varint(&b, &out->effect_id) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_varint(&b, &out->amplifier) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_varint(&b, &out->duration) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_u8(&b, &out->flags) != LC_OK) return LC_ERR_TRUNCATED;
+  return LC_OK;
+}
+
+lc_status lc_parse_remove_entity_effect(const uint8_t *data, size_t len, lc_remove_entity_effect *out) {
+  memset(out, 0, sizeof(*out));
+  lc_buf b;
+  lc_buf_init(&b, data, len);
+  if (lc_buf_read_varint(&b, &out->entity_id) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_varint(&b, &out->effect_id) != LC_OK) return LC_ERR_TRUNCATED;
+  return LC_OK;
+}
+
+lc_status lc_parse_attach_entity(const uint8_t *data, size_t len, lc_attach_entity *out) {
+  memset(out, 0, sizeof(*out));
+  lc_buf b;
+  lc_buf_init(&b, data, len);
+  if (lc_buf_read_i32_le(&b, &out->attached_id) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_i32_le(&b, &out->holding_id) != LC_OK) return LC_ERR_TRUNCATED;
+  return LC_OK;
+}
+
 

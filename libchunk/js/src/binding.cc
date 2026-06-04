@@ -49,6 +49,7 @@ Napi::Value SupportedPackets(const Napi::CallbackInfo &info) {
       "login",               "update_health",
       "experience",          "abilities",
       "entity_status",       "spawn_position",
+      "attach_entity",
       "difficulty",          "game_state_change",
       "window_items",        "set_slot",
       "held_item_slot",      "set_player_inventory",
@@ -637,6 +638,57 @@ Napi::Value ParseEntityLook(const Napi::CallbackInfo &info) {
   return o;
 }
 
+Napi::Value ParseSpawnEntity(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  CHECK_BUFFER_ARG(info, "parseSpawnEntity");
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  lc_spawn_entity parsed;
+  lc_status st = lc_parse_spawn_entity(buf.Data(), buf.Length(), &parsed);
+  if (st != LC_OK) return env.Null();
+
+  Napi::Object o = Napi::Object::New(env);
+  o.Set("entityId", Napi::Number::New(env, parsed.entity_id));
+  
+  char uuid_str[40];
+  lc_uuid_to_string(&parsed.object_uuid, uuid_str, sizeof uuid_str);
+  o.Set("uuid", Napi::String::New(env, uuid_str));
+  o.Set("type", Napi::Number::New(env, parsed.type));
+  o.Set("x", Napi::Number::New(env, parsed.x));
+  o.Set("y", Napi::Number::New(env, parsed.y));
+  o.Set("z", Napi::Number::New(env, parsed.z));
+  
+  Napi::Object vel = Napi::Object::New(env);
+  vel.Set("x", Napi::Number::New(env, parsed.velocity.x));
+  vel.Set("y", Napi::Number::New(env, parsed.velocity.y));
+  vel.Set("z", Napi::Number::New(env, parsed.velocity.z));
+  o.Set("velocity", vel);
+  
+  o.Set("pitch", Napi::Number::New(env, parsed.pitch));
+  o.Set("yaw", Napi::Number::New(env, parsed.yaw));
+  o.Set("headPitch", Napi::Number::New(env, parsed.head_pitch));
+  o.Set("objectData", Napi::Number::New(env, parsed.object_data));
+  return o;
+}
+
+Napi::Value ParseEntityTeleport(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  CHECK_BUFFER_ARG(info, "parseEntityTeleport");
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  lc_entity_teleport parsed;
+  lc_status st = lc_parse_entity_teleport(buf.Data(), buf.Length(), &parsed);
+  if (st != LC_OK) return env.Null();
+
+  Napi::Object o = Napi::Object::New(env);
+  o.Set("entityId", Napi::Number::New(env, parsed.entity_id));
+  o.Set("x", Napi::Number::New(env, parsed.x));
+  o.Set("y", Napi::Number::New(env, parsed.y));
+  o.Set("z", Napi::Number::New(env, parsed.z));
+  o.Set("yaw", Napi::Number::New(env, parsed.yaw));
+  o.Set("pitch", Napi::Number::New(env, parsed.pitch));
+  o.Set("onGround", Napi::Boolean::New(env, parsed.on_ground != 0));
+  return o;
+}
+
 Napi::Value ParseEntityMetadata(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
   CHECK_BUFFER_ARG(info, "parseEntityMetadata");
@@ -724,6 +776,151 @@ Napi::Value ParseEntityEquipment(const Napi::CallbackInfo &info) {
   lc_entity_equipment_free(&parsed);
   return o;
 }
+
+Napi::Value ParseEntityDestroy(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  CHECK_BUFFER_ARG(info, "parseEntityDestroy");
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  lc_entity_destroy parsed;
+  lc_status st = lc_parse_entity_destroy(buf.Data(), buf.Length(), &parsed);
+  if (st != LC_OK) return env.Null();
+
+  Napi::Object o = Napi::Object::New(env);
+  Napi::Array ids = Napi::Array::New(env, parsed.count);
+  for (size_t i = 0; i < parsed.count; i++) {
+    ids.Set(i, Napi::Number::New(env, parsed.entity_ids[i]));
+  }
+  o.Set("entityIds", ids);
+  lc_entity_destroy_free(&parsed);
+  return o;
+}
+
+Napi::Value ParseSetPassengers(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  CHECK_BUFFER_ARG(info, "parseSetPassengers");
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  lc_set_passengers parsed;
+  lc_status st = lc_parse_set_passengers(buf.Data(), buf.Length(), &parsed);
+  if (st != LC_OK) return env.Null();
+
+  Napi::Object o = Napi::Object::New(env);
+  o.Set("entityId", Napi::Number::New(env, parsed.entity_id));
+  Napi::Array passengers = Napi::Array::New(env, parsed.passenger_count);
+  for (size_t i = 0; i < parsed.passenger_count; i++) {
+    passengers.Set(i, Napi::Number::New(env, parsed.passengers[i]));
+  }
+  o.Set("passengers", passengers);
+  lc_set_passengers_free(&parsed);
+  return o;
+}
+
+Napi::Value ParseEntityUpdateAttributes(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  CHECK_BUFFER_ARG(info, "parseEntityUpdateAttributes");
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  lc_entity_update_attributes parsed;
+  lc_status st = lc_parse_entity_update_attributes(buf.Data(), buf.Length(), &parsed);
+  if (st != LC_OK) return env.Null();
+
+  Napi::Object o = Napi::Object::New(env);
+  o.Set("entityId", Napi::Number::New(env, parsed.entity_id));
+  Napi::Array properties = Napi::Array::New(env, parsed.property_count);
+  for (size_t i = 0; i < parsed.property_count; i++) {
+    const lc_entity_attribute_property &p = parsed.properties[i];
+    Napi::Object prop = Napi::Object::New(env);
+    prop.Set("key", Napi::Number::New(env, p.key));
+    const char *key_name = lc_entity_attribute_key_name(p.key);
+    if (key_name) {
+      prop.Set("keyName", Napi::String::New(env, key_name));
+    }
+    prop.Set("value", Napi::Number::New(env, p.value));
+
+    Napi::Array modifiers = Napi::Array::New(env, p.modifier_count);
+    for (size_t j = 0; j < p.modifier_count; j++) {
+      const lc_entity_attribute_modifier &m = p.modifiers[j];
+      Napi::Object mod = Napi::Object::New(env);
+      if (m.uuid) {
+        mod.Set("uuid", Napi::String::New(env, m.uuid));
+      }
+      mod.Set("amount", Napi::Number::New(env, m.amount));
+      mod.Set("operation", Napi::Number::New(env, m.operation));
+      
+      const char *op_name = "unknown";
+      switch (m.operation) {
+        case 0: op_name = "add"; break;
+        case 1: op_name = "multiply_base"; break;
+        case 2: op_name = "multiply_total"; break;
+      }
+      mod.Set("operationName", Napi::String::New(env, op_name));
+      modifiers.Set(j, mod);
+    }
+    prop.Set("modifiers", modifiers);
+    properties.Set(i, prop);
+  }
+  o.Set("properties", properties);
+  lc_entity_update_attributes_free(&parsed);
+  return o;
+}
+
+Napi::Value ParseEntityStatus(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  CHECK_BUFFER_ARG(info, "parseEntityStatus");
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  lc_entity_status parsed;
+  lc_status st = lc_parse_entity_status(buf.Data(), buf.Length(), &parsed);
+  if (st != LC_OK) return env.Null();
+
+  Napi::Object o = Napi::Object::New(env);
+  o.Set("entityId", Napi::Number::New(env, parsed.entity_id));
+  o.Set("status", Napi::Number::New(env, parsed.status));
+  return o;
+}
+
+Napi::Value ParseEntityEffect(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  CHECK_BUFFER_ARG(info, "parseEntityEffect");
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  lc_entity_effect parsed;
+  lc_status st = lc_parse_entity_effect(buf.Data(), buf.Length(), &parsed);
+  if (st != LC_OK) return env.Null();
+
+  Napi::Object o = Napi::Object::New(env);
+  o.Set("entityId", Napi::Number::New(env, parsed.entity_id));
+  o.Set("effectId", Napi::Number::New(env, parsed.effect_id));
+  o.Set("amplifier", Napi::Number::New(env, parsed.amplifier));
+  o.Set("duration", Napi::Number::New(env, parsed.duration));
+  o.Set("flags", Napi::Number::New(env, parsed.flags));
+  return o;
+}
+
+Napi::Value ParseRemoveEntityEffect(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  CHECK_BUFFER_ARG(info, "parseRemoveEntityEffect");
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  lc_remove_entity_effect parsed;
+  lc_status st = lc_parse_remove_entity_effect(buf.Data(), buf.Length(), &parsed);
+  if (st != LC_OK) return env.Null();
+
+  Napi::Object o = Napi::Object::New(env);
+  o.Set("entityId", Napi::Number::New(env, parsed.entity_id));
+  o.Set("effectId", Napi::Number::New(env, parsed.effect_id));
+  return o;
+}
+
+Napi::Value ParseAttachEntity(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  CHECK_BUFFER_ARG(info, "parseAttachEntity");
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  lc_attach_entity parsed;
+  lc_status st = lc_parse_attach_entity(buf.Data(), buf.Length(), &parsed);
+  if (st != LC_OK) return env.Null();
+
+  Napi::Object o = Napi::Object::New(env);
+  o.Set("attachedId", Napi::Number::New(env, parsed.attached_id));
+  o.Set("holdingId", Napi::Number::New(env, parsed.holding_id));
+  return o;
+}
+
 
 Napi::Value ParsePlayLogin(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
@@ -819,6 +1016,15 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("parseEntityLook", Napi::Function::New(env, ParseEntityLook));
   exports.Set("parseEntityMetadata", Napi::Function::New(env, ParseEntityMetadata));
   exports.Set("parseEntityEquipment", Napi::Function::New(env, ParseEntityEquipment));
+  exports.Set("parseSpawnEntity", Napi::Function::New(env, ParseSpawnEntity));
+  exports.Set("parseEntityTeleport", Napi::Function::New(env, ParseEntityTeleport));
+  exports.Set("parseEntityDestroy", Napi::Function::New(env, ParseEntityDestroy));
+  exports.Set("parseSetPassengers", Napi::Function::New(env, ParseSetPassengers));
+  exports.Set("parseEntityUpdateAttributes", Napi::Function::New(env, ParseEntityUpdateAttributes));
+  exports.Set("parseEntityStatus", Napi::Function::New(env, ParseEntityStatus));
+  exports.Set("parseEntityEffect", Napi::Function::New(env, ParseEntityEffect));
+  exports.Set("parseRemoveEntityEffect", Napi::Function::New(env, ParseRemoveEntityEffect));
+  exports.Set("parseAttachEntity", Napi::Function::New(env, ParseAttachEntity));
   exports.Set("isPacketSupported", Napi::Function::New(env, [](const Napi::CallbackInfo &info) {
     Napi::Env env = info.Env();
     if (!info[0].IsString()) return Napi::Boolean::New(env, false);

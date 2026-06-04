@@ -198,8 +198,28 @@ export function createLogger({ getPhase, logLevel, debug, logPingTick = false })
       if (ent.equipment && Object.keys(ent.equipment).length > 0) {
         eqStr = ` equipment=${JSON.stringify(ent.equipment)}`;
       }
+      let statusStr = '';
+      if (ent.status !== undefined) {
+        statusStr = ` status=${ent.status}`;
+      }
+      let passStr = '';
+      if (ent.passengers && ent.passengers.length > 0) {
+        passStr = ` passengers=${JSON.stringify(ent.passengers)}`;
+      }
+      let attachedStr = '';
+      if (ent.attachedTo !== undefined) {
+        attachedStr = ` attachedTo=${ent.attachedTo}`;
+      }
+      let effectsStr = '';
+      if (ent.effects && Object.keys(ent.effects).length > 0) {
+        effectsStr = ` effects=${JSON.stringify(ent.effects)}`;
+      }
+      let attrStr = '';
+      if (ent.attributes && Object.keys(ent.attributes).length > 0) {
+        attrStr = ` attributes=${JSON.stringify(ent.attributes)}`;
+      }
       
-      loggerObj.info(`  - ID ${ent.id}: type=${typeName} ${posStr} ${velStr} ${rotStr} age=${ageSec}s uuid=${ent.uuid}${metaStr}${eqStr}`);
+      loggerObj.info(`  - ID ${ent.id}: type=${typeName} ${posStr} ${velStr} ${rotStr} age=${ageSec}s uuid=${ent.uuid}${metaStr}${eqStr}${statusStr}${passStr}${attachedStr}${effectsStr}${attrStr}`);
     }
     loggerObj.info('============================');
   }, 60000);

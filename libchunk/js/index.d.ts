@@ -86,3 +86,63 @@ export function parseSetTickingState(buffer: Buffer): SetTickingStateResult | nu
 export function parseUpdateHealth(buffer: Buffer): UpdateHealthResult | null;
 export function parseUpdateViewPosition(buffer: Buffer): UpdateViewPositionResult | null;
 
+export interface EntityDestroyResult {
+  entityIds: number[];
+}
+
+export interface SetPassengersResult {
+  entityId: number;
+  passengers: number[];
+}
+
+export interface EntityAttributeModifier {
+  uuid?: string;
+  amount: number;
+  operation: number;
+  operationName: string;
+}
+
+export interface EntityAttributeProperty {
+  key: number;
+  keyName?: string;
+  value: number;
+  modifiers: EntityAttributeModifier[];
+}
+
+export interface EntityUpdateAttributesResult {
+  entityId: number;
+  properties: EntityAttributeProperty[];
+}
+
+export interface EntityStatusResult {
+  entityId: number;
+  status: number;
+}
+
+export interface EntityEffectResult {
+  entityId: number;
+  effectId: number;
+  amplifier: number;
+  duration: number;
+  flags: number;
+}
+
+export interface RemoveEntityEffectResult {
+  entityId: number;
+  effectId: number;
+}
+
+export interface AttachEntityResult {
+  attachedId: number;
+  holdingId: number;
+}
+
+export function parseEntityDestroy(buffer: Buffer): EntityDestroyResult | null;
+export function parseSetPassengers(buffer: Buffer): SetPassengersResult | null;
+export function parseEntityUpdateAttributes(buffer: Buffer): EntityUpdateAttributesResult | null;
+export function parseEntityStatus(buffer: Buffer): EntityStatusResult | null;
+export function parseEntityEffect(buffer: Buffer): EntityEffectResult | null;
+export function parseRemoveEntityEffect(buffer: Buffer): RemoveEntityEffectResult | null;
+export function parseAttachEntity(buffer: Buffer): AttachEntityResult | null;
+
+
