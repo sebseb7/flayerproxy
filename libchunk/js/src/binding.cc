@@ -525,6 +525,206 @@ Napi::Value ParseUpdateViewPosition(const Napi::CallbackInfo &info) {
   return o;
 }
 
+#define CHECK_BUFFER_ARG(info, name) \
+  if (info.Length() < 1 || !info[0].IsBuffer()) { \
+    Napi::TypeError::New(info.Env(), name "(buffer) expects a buffer").ThrowAsJavaScriptException(); \
+    return info.Env().Null(); \
+  }
+
+Napi::Value ParseEntityVelocity(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  CHECK_BUFFER_ARG(info, "parseEntityVelocity");
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  lc_entity_velocity parsed;
+  lc_status st = lc_parse_entity_velocity(buf.Data(), buf.Length(), &parsed);
+  if (st != LC_OK) return env.Null();
+
+  Napi::Object o = Napi::Object::New(env);
+  o.Set("entityId", Napi::Number::New(env, parsed.entity_id));
+  Napi::Object vel = Napi::Object::New(env);
+  vel.Set("x", Napi::Number::New(env, parsed.velocity.x));
+  vel.Set("y", Napi::Number::New(env, parsed.velocity.y));
+  vel.Set("z", Napi::Number::New(env, parsed.velocity.z));
+  o.Set("velocity", vel);
+  return o;
+}
+
+Napi::Value ParseRelEntityMove(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  CHECK_BUFFER_ARG(info, "parseRelEntityMove");
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  lc_rel_entity_move parsed;
+  lc_status st = lc_parse_rel_entity_move(buf.Data(), buf.Length(), &parsed);
+  if (st != LC_OK) return env.Null();
+
+  Napi::Object o = Napi::Object::New(env);
+  o.Set("entityId", Napi::Number::New(env, parsed.entity_id));
+  o.Set("dx", Napi::Number::New(env, parsed.dx));
+  o.Set("dy", Napi::Number::New(env, parsed.dy));
+  o.Set("dz", Napi::Number::New(env, parsed.dz));
+  o.Set("onGround", Napi::Boolean::New(env, parsed.on_ground != 0));
+  return o;
+}
+
+Napi::Value ParseSyncEntityPosition(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  CHECK_BUFFER_ARG(info, "parseSyncEntityPosition");
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  lc_sync_entity_position parsed;
+  lc_status st = lc_parse_sync_entity_position(buf.Data(), buf.Length(), &parsed);
+  if (st != LC_OK) return env.Null();
+
+  Napi::Object o = Napi::Object::New(env);
+  o.Set("entityId", Napi::Number::New(env, parsed.entity_id));
+  o.Set("x", Napi::Number::New(env, parsed.x));
+  o.Set("y", Napi::Number::New(env, parsed.y));
+  o.Set("z", Napi::Number::New(env, parsed.z));
+  o.Set("dx", Napi::Number::New(env, parsed.dx));
+  o.Set("dy", Napi::Number::New(env, parsed.dy));
+  o.Set("dz", Napi::Number::New(env, parsed.dz));
+  o.Set("yaw", Napi::Number::New(env, parsed.yaw));
+  o.Set("pitch", Napi::Number::New(env, parsed.pitch));
+  o.Set("onGround", Napi::Boolean::New(env, parsed.on_ground != 0));
+  return o;
+}
+
+Napi::Value ParseEntityHeadRotation(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  CHECK_BUFFER_ARG(info, "parseEntityHeadRotation");
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  lc_entity_head_rotation parsed;
+  lc_status st = lc_parse_entity_head_rotation(buf.Data(), buf.Length(), &parsed);
+  if (st != LC_OK) return env.Null();
+
+  Napi::Object o = Napi::Object::New(env);
+  o.Set("entityId", Napi::Number::New(env, parsed.entity_id));
+  o.Set("headYaw", Napi::Number::New(env, parsed.head_yaw));
+  return o;
+}
+
+Napi::Value ParseEntityMoveLook(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  CHECK_BUFFER_ARG(info, "parseEntityMoveLook");
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  lc_entity_move_look parsed;
+  lc_status st = lc_parse_entity_move_look(buf.Data(), buf.Length(), &parsed);
+  if (st != LC_OK) return env.Null();
+
+  Napi::Object o = Napi::Object::New(env);
+  o.Set("entityId", Napi::Number::New(env, parsed.entity_id));
+  o.Set("dx", Napi::Number::New(env, parsed.dx));
+  o.Set("dy", Napi::Number::New(env, parsed.dy));
+  o.Set("dz", Napi::Number::New(env, parsed.dz));
+  o.Set("yaw", Napi::Number::New(env, parsed.yaw));
+  o.Set("pitch", Napi::Number::New(env, parsed.pitch));
+  o.Set("onGround", Napi::Boolean::New(env, parsed.on_ground != 0));
+  return o;
+}
+
+Napi::Value ParseEntityLook(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  CHECK_BUFFER_ARG(info, "parseEntityLook");
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  lc_entity_look parsed;
+  lc_status st = lc_parse_entity_look(buf.Data(), buf.Length(), &parsed);
+  if (st != LC_OK) return env.Null();
+
+  Napi::Object o = Napi::Object::New(env);
+  o.Set("entityId", Napi::Number::New(env, parsed.entity_id));
+  o.Set("yaw", Napi::Number::New(env, parsed.yaw));
+  o.Set("pitch", Napi::Number::New(env, parsed.pitch));
+  o.Set("onGround", Napi::Boolean::New(env, parsed.on_ground != 0));
+  return o;
+}
+
+Napi::Value ParseEntityMetadata(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  CHECK_BUFFER_ARG(info, "parseEntityMetadata");
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  lc_entity_metadata parsed;
+  lc_status st = lc_parse_entity_metadata(buf.Data(), buf.Length(), &parsed);
+  if (st != LC_OK) return env.Null();
+
+  Napi::Object o = Napi::Object::New(env);
+  o.Set("entityId", Napi::Number::New(env, parsed.entity_id));
+  Napi::Array meta = Napi::Array::New(env, parsed.metadata.count);
+  for (size_t i = 0; i < parsed.metadata.count; i++) {
+    const lc_metadata_entry &e = parsed.metadata.items[i];
+    Napi::Object entry = Napi::Object::New(env);
+    entry.Set("key", Napi::Number::New(env, e.key));
+    entry.Set("typeId", Napi::Number::New(env, e.type_id));
+    if (e.type_name) {
+      entry.Set("typeName", Napi::String::New(env, e.type_name));
+    }
+    Napi::Value val = env.Null();
+    switch (e.kind) {
+      case LC_META_BYTE:
+        val = Napi::Number::New(env, e.v.i8);
+        break;
+      case LC_META_INT:
+      case LC_META_VARINT:
+        val = Napi::Number::New(env, e.v.i32);
+        break;
+      case LC_META_LONG:
+        val = Napi::Number::New(env, (double)e.v.i64);
+        break;
+      case LC_META_FLOAT:
+        val = Napi::Number::New(env, e.v.f32);
+        break;
+      case LC_META_DOUBLE:
+        val = Napi::Number::New(env, e.v.f64);
+        break;
+      case LC_META_BOOL:
+        val = Napi::Boolean::New(env, e.v.boolean != 0);
+        break;
+      case LC_META_STRING:
+        if (e.v.string) {
+          val = Napi::String::New(env, e.v.string);
+        }
+        break;
+      case LC_META_RAW:
+        if (e.v.raw.data && e.v.raw.len > 0) {
+          val = Napi::Buffer<uint8_t>::Copy(env, e.v.raw.data, e.v.raw.len);
+        }
+        break;
+      default:
+        break;
+    }
+    entry.Set("value", val);
+    meta.Set(i, entry);
+  }
+  o.Set("metadata", meta);
+  lc_entity_metadata_free(&parsed);
+  return o;
+}
+
+Napi::Value ParseEntityEquipment(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  CHECK_BUFFER_ARG(info, "parseEntityEquipment");
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  lc_entity_equipment parsed;
+  lc_status st = lc_parse_entity_equipment(buf.Data(), buf.Length(), &parsed);
+  if (st != LC_OK) return env.Null();
+
+  Napi::Object o = Napi::Object::New(env);
+  o.Set("entityId", Napi::Number::New(env, parsed.entity_id));
+  Napi::Array eq_arr = Napi::Array::New(env, parsed.equipments.count);
+  for (size_t i = 0; i < parsed.equipments.count; i++) {
+    const lc_equipment &eq = parsed.equipments.items[i];
+    Napi::Object entry = Napi::Object::New(env);
+    entry.Set("slot", Napi::Number::New(env, eq.slot));
+    entry.Set("itemCount", Napi::Number::New(env, eq.item_count));
+    entry.Set("itemId", Napi::Number::New(env, eq.item_id));
+    if (eq.item_extra.data && eq.item_extra.len > 0) {
+      entry.Set("itemExtra", Napi::Buffer<uint8_t>::Copy(env, eq.item_extra.data, eq.item_extra.len));
+    }
+    eq_arr.Set(i, entry);
+  }
+  o.Set("equipments", eq_arr);
+  lc_entity_equipment_free(&parsed);
+  return o;
+}
+
 Napi::Value ParsePlayLogin(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
   if (info.Length() < 1 || !info[0].IsBuffer()) {
@@ -611,6 +811,14 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("parseSetTickingState", Napi::Function::New(env, ParseSetTickingState));
   exports.Set("parseUpdateHealth", Napi::Function::New(env, ParseUpdateHealth));
   exports.Set("parseUpdateViewPosition", Napi::Function::New(env, ParseUpdateViewPosition));
+  exports.Set("parseEntityVelocity", Napi::Function::New(env, ParseEntityVelocity));
+  exports.Set("parseRelEntityMove", Napi::Function::New(env, ParseRelEntityMove));
+  exports.Set("parseSyncEntityPosition", Napi::Function::New(env, ParseSyncEntityPosition));
+  exports.Set("parseEntityHeadRotation", Napi::Function::New(env, ParseEntityHeadRotation));
+  exports.Set("parseEntityMoveLook", Napi::Function::New(env, ParseEntityMoveLook));
+  exports.Set("parseEntityLook", Napi::Function::New(env, ParseEntityLook));
+  exports.Set("parseEntityMetadata", Napi::Function::New(env, ParseEntityMetadata));
+  exports.Set("parseEntityEquipment", Napi::Function::New(env, ParseEntityEquipment));
   exports.Set("isPacketSupported", Napi::Function::New(env, [](const Napi::CallbackInfo &info) {
     Napi::Env env = info.Env();
     if (!info[0].IsString()) return Napi::Boolean::New(env, false);

@@ -483,6 +483,16 @@ lc_status lc_parse_entity_head_rotation(const uint8_t *data, size_t len, lc_enti
   return LC_OK;
 }
 
+lc_status lc_parse_entity_look(const uint8_t *data, size_t len, lc_entity_look *out) {
+  lc_buf b;
+  lc_buf_init(&b, data, len);
+  if (lc_buf_read_varint(&b, &out->entity_id) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_i8(&b, &out->yaw) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_i8(&b, &out->pitch) != LC_OK) return LC_ERR_TRUNCATED;
+  if (lc_buf_read_bool(&b, &out->on_ground) != LC_OK) return LC_ERR_TRUNCATED;
+  return LC_OK;
+}
+
 const char *lc_entity_attribute_key_name(int32_t key) {
   static const char *keys[] = {
       "generic.armor",

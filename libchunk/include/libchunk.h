@@ -292,6 +292,12 @@ typedef struct lc_entity_head_rotation {
   int8_t head_yaw;
 } lc_entity_head_rotation;
 
+typedef struct lc_entity_look {
+  int32_t entity_id;
+  int8_t yaw, pitch;
+  uint8_t on_ground;
+} lc_entity_look;
+
 typedef struct lc_entity_attribute_modifier {
   char *uuid;
   double amount;
@@ -555,6 +561,7 @@ lc_status lc_parse_entity_velocity(const uint8_t *data, size_t len, lc_entity_ve
 lc_status lc_parse_sound_effect(const uint8_t *data, size_t len, lc_sound_effect *out);
 lc_status lc_parse_entity_sound_effect(const uint8_t *data, size_t len, lc_entity_sound_effect *out);
 lc_status lc_parse_entity_head_rotation(const uint8_t *data, size_t len, lc_entity_head_rotation *out);
+lc_status lc_parse_entity_look(const uint8_t *data, size_t len, lc_entity_look *out);
 lc_status lc_parse_entity_update_attributes(const uint8_t *data, size_t len,
                                             lc_entity_update_attributes *out);
 lc_status lc_parse_position(const uint8_t *data, size_t len, lc_position *out);

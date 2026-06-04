@@ -6,7 +6,7 @@ import { formatEntityType } from './entityTypeNames.js';
 const require = createRequire(import.meta.url);
 const lc = require('../libchunk/js/index.js');
 
-/** @typedef {{ type: number, uuid: string, x: number, y: number, z: number, posKnown: boolean, vel: { x: number, y: number, z: number }, rot: { pitch: number, yaw: number, headPitch: number }, data: number }} TrackedEntity */
+/** @typedef {{ id: number, type: number, uuid: string, x: number, y: number, z: number, posKnown: boolean, vel: { x: number, y: number, z: number }, rot: { pitch: number, yaw: number, headPitch: number, headYaw?: number }, data: number, spawnTime: number, metadata?: Record<number, any>, equipment?: Record<number, any> }} TrackedEntity */
 
 const SPAWN_RE =
   /^spawn_entity\{id=(-?\d+),uuid=([^,]+),type=(-?\d+),pos=\(([-\d.]+),([-\d.]+),([-\d.]+)\),vel=\(([-\d.]+),([-\d.]+),([-\d.]+)\),rot=\((-?\d+),(-?\d+),(-?\d+)\),data=(-?\d+)\}$/;
@@ -141,6 +141,7 @@ export function createEntityTracker() {
     if (!m) return null;
     const id = Number(m[1]);
     const ent = {
+      id,
       type: Number(m[3]),
       uuid: m[2],
       x: 0,
@@ -150,6 +151,7 @@ export function createEntityTracker() {
       vel: { x: Number(m[7]), y: Number(m[8]), z: Number(m[9]) },
       rot: { pitch: Number(m[10]), yaw: Number(m[11]), headPitch: Number(m[12]) },
       data: Number(m[13]),
+      spawnTime: Date.now(),
     };
     updatePos(ent, Number(m[4]), Number(m[5]), Number(m[6]));
     set(id, ent);
@@ -175,37 +177,34 @@ export function createEntityTracker() {
   }
 
   function handleRelMove(payload) {
-    const b = new Buf(payload);
-    const id = b.readVarInt();
-    const dx = b.readI16LE();
-    const dy = b.readI16LE();
-    const dz = b.readI16LE();
-    if (id == null || dx == null || dy == null || dz == null) return null;
-    applyDelta(id, dx, dy, dz);
-    return suffixForIds([id]);
+    const p = lc.parseRelEntityMove(payload);
+    if (!p) return null;
+    applyDelta(p.entityId, p.dx, p.dy, p.dz);
+    return suffixForIds([p.entityId]);
   }
 
   function handleMoveLook(payload) {
-    const b = new Buf(payload);
-    const id = b.readVarInt();
-    const dx = b.readI16LE();
-    const dy = b.readI16LE();
-    const dz = b.readI16LE();
-    if (id == null || dx == null || dy == null || dz == null) return null;
-    applyDelta(id, dx, dy, dz);
-    return suffixForIds([id]);
+    const p = lc.parseEntityMoveLook(payload);
+    if (!p) return null;
+    applyDelta(p.entityId, p.dx, p.dy, p.dz);
+    const e = get(p.entityId);
+    if (e) {
+      e.rot.yaw = p.yaw;
+      e.rot.pitch = p.pitch;
+    }
+    return suffixForIds([p.entityId]);
   }
 
-  /** Use libchunk decode (same as log line) — wire layout matches decode output. */
   function handleSyncPosition(payload) {
-    const r = lc.decodePayload('sync_entity_position', payload);
-    if (!r.ok || !r.text) return touchIds(payload);
-    const m = r.text.match(SYNC_POS_RE);
-    if (!m) return touchIds(payload);
-    const id = Number(m[1]);
-    const e = get(id);
-    if (e) updatePos(e, Number(m[2]), Number(m[3]), Number(m[4]));
-    return suffixForIds([id]);
+    const p = lc.parseSyncEntityPosition(payload);
+    if (!p) return null;
+    const e = get(p.entityId);
+    if (e) {
+      updatePos(e, p.x, p.y, p.z);
+      e.rot.yaw = p.yaw;
+      e.rot.pitch = p.pitch;
+    }
+    return suffixForIds([p.entityId]);
   }
 
   function handleTeleport(payload) {
@@ -233,17 +232,60 @@ export function createEntityTracker() {
   }
 
   function handleVelocity(payload) {
-    const id = readFirstEntityId(payload);
-    if (id == null) return null;
-    const r = lc.decodePayload('entity_velocity', payload);
-    if (r.ok && r.text) {
-      const m = r.text.match(/vel=\(([-\d.]+),([-\d.]+),([-\d.]+)\)/);
-      const e = get(id);
-      if (m && e) {
-        e.vel = { x: Number(m[1]), y: Number(m[2]), z: Number(m[3]) };
+    const p = lc.parseEntityVelocity(payload);
+    if (!p) return null;
+    const e = get(p.entityId);
+    if (e) {
+      e.vel = p.velocity;
+    }
+    return suffixForIds([p.entityId]);
+  }
+
+  function handleHeadRotation(payload) {
+    const p = lc.parseEntityHeadRotation(payload);
+    if (!p) return null;
+    const e = get(p.entityId);
+    if (e) {
+      e.rot.headYaw = p.headYaw;
+    }
+    return suffixForIds([p.entityId]);
+  }
+
+  function handleLook(payload) {
+    const p = lc.parseEntityLook(payload);
+    if (!p) return null;
+    const e = get(p.entityId);
+    if (e) {
+      e.rot.yaw = p.yaw;
+      e.rot.pitch = p.pitch;
+    }
+    return suffixForIds([p.entityId]);
+  }
+
+  function handleMetadata(payload) {
+    const p = lc.parseEntityMetadata(payload);
+    if (!p) return null;
+    const e = get(p.entityId);
+    if (e) {
+      if (!e.metadata) e.metadata = {};
+      for (const entry of p.metadata) {
+        e.metadata[entry.key] = entry.value;
       }
     }
-    return suffixForIds([id]);
+    return suffixForIds([p.entityId]);
+  }
+
+  function handleEquipment(payload) {
+    const p = lc.parseEntityEquipment(payload);
+    if (!p) return null;
+    const e = get(p.entityId);
+    if (e) {
+      if (!e.equipment) e.equipment = {};
+      for (const eq of p.equipments) {
+        e.equipment[eq.slot] = { itemId: eq.itemId, itemCount: eq.itemCount };
+      }
+    }
+    return suffixForIds([p.entityId]);
   }
 
   function handleEntityStatus(payload) {
@@ -284,11 +326,11 @@ export function createEntityTracker() {
     sync_entity_position: handleSyncPosition,
     entity_teleport: handleTeleport,
     entity_velocity: handleVelocity,
-    entity_metadata: touchIds,
+    entity_metadata: handleMetadata,
     entity_update_attributes: touchIds,
-    entity_equipment: touchIds,
-    entity_head_rotation: touchIds,
-    entity_look: touchIds,
+    entity_equipment: handleEquipment,
+    entity_head_rotation: handleHeadRotation,
+    entity_look: handleLook,
     entity_effect: touchIds,
     remove_entity_effect: touchIds,
     entity_status: handleEntityStatus,

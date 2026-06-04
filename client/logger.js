@@ -5,6 +5,7 @@ import { decodePayload } from './decode.js';
 import { writeLogLine, closeLogSink } from './logSink.js';
 import { isNoisyC2sPacket, isNoisyS2cPacket } from './logNoise.js';
 import { createEntityTracker } from './entityTracker.js';
+import { formatEntityType } from './entityTypeNames.js';
 
 const PHASE_STYLE = {
   connect: chalk.gray,
@@ -37,7 +38,7 @@ export function createLogger({ getPhase, logLevel, debug, logPingTick = false })
     return fn ? fn() : null;
   }
 
-  return {
+  const loggerObj = {
     _line(parts) {
       writeLogLine(parts.filter(Boolean).join(' '));
     },
@@ -153,7 +154,55 @@ export function createLogger({ getPhase, logLevel, debug, logPingTick = false })
     },
 
     close() {
+      clearInterval(statsInterval);
       closeLogSink();
     },
   };
+
+  const statsInterval = setInterval(() => {
+    const activeEntities = Array.from(entityTracker.entities.values());
+    if (activeEntities.length === 0) {
+      loggerObj.info('Entity Tracker Stats: 0 active entities');
+      return;
+    }
+
+    const typeCounts = {};
+    for (const ent of activeEntities) {
+      const typeName = formatEntityType(ent.type);
+      typeCounts[typeName] = (typeCounts[typeName] || 0) + 1;
+    }
+
+    const countStrings = Object.entries(typeCounts)
+      .map(([type, count]) => `${type}: ${count}`)
+      .join(', ');
+
+    loggerObj.info('=== Entity Tracker Stats ===');
+    loggerObj.info(`Active Entities: ${activeEntities.length} (${countStrings})`);
+
+    // Sort active entities by ID for consistent output
+    activeEntities.sort((a, b) => a.id - b.id);
+
+    for (const ent of activeEntities) {
+      const typeName = formatEntityType(ent.type);
+      const posStr = ent.posKnown
+        ? `pos=(${ent.x.toFixed(3)},${ent.y.toFixed(3)},${ent.z.toFixed(3)})`
+        : 'pos=unknown';
+      const velStr = `vel=(${ent.vel.x.toFixed(3)},${ent.vel.y.toFixed(3)},${ent.vel.z.toFixed(3)})`;
+      const rotStr = `rot=(yaw=${ent.rot.yaw},pitch=${ent.rot.pitch}${ent.rot.headYaw !== undefined ? `,headYaw=${ent.rot.headYaw}` : ''})`;
+      const ageSec = Math.round((Date.now() - (ent.spawnTime || Date.now())) / 1000);
+      let metaStr = '';
+      if (ent.metadata && Object.keys(ent.metadata).length > 0) {
+        metaStr = ` metadata=${JSON.stringify(ent.metadata)}`;
+      }
+      let eqStr = '';
+      if (ent.equipment && Object.keys(ent.equipment).length > 0) {
+        eqStr = ` equipment=${JSON.stringify(ent.equipment)}`;
+      }
+      
+      loggerObj.info(`  - ID ${ent.id}: type=${typeName} ${posStr} ${velStr} ${rotStr} age=${ageSec}s uuid=${ent.uuid}${metaStr}${eqStr}`);
+    }
+    loggerObj.info('============================');
+  }, 60000);
+
+  return loggerObj;
 }

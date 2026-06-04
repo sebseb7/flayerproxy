@@ -169,4 +169,36 @@ module.exports = {
     if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
     return native.parseUpdateViewPosition(buffer);
   },
+  parseEntityVelocity: (buffer) => {
+    if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+    return native.parseEntityVelocity(buffer);
+  },
+  parseRelEntityMove: (buffer) => {
+    if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+    return native.parseRelEntityMove(buffer);
+  },
+  parseSyncEntityPosition: (buffer) => {
+    if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+    return native.parseSyncEntityPosition(buffer);
+  },
+  parseEntityHeadRotation: (buffer) => {
+    if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+    return native.parseEntityHeadRotation(buffer);
+  },
+  parseEntityMoveLook: (buffer) => {
+    if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+    return native.parseEntityMoveLook(buffer);
+  },
+  parseEntityLook: (buffer) => {
+    if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+    return native.parseEntityLook(buffer);
+  },
+  parseEntityMetadata: (buffer) => {
+    if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+    return native.parseEntityMetadata(buffer);
+  },
+  parseEntityEquipment: (buffer) => {
+    if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+    return native.parseEntityEquipment(buffer);
+  },
 };
