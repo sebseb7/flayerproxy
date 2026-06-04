@@ -1,7 +1,8 @@
 {
   "name": "flayerproxy",
   "version": "1.0.0",
-  "main": "src/index.js",
+  "main": "client/index.js",
+  "type": "module",
   "scripts": {
     "test-client": "MC_CLIENT_LOG_FILE=chunks/client.txt MC_CLIENT_DEBUG=1 node client/index.js 127.0.0.1 25571 sebgreenbus2"
   },

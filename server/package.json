@@ -1,6 +1,0 @@
-{
-  "name": "@flayerproxy/mc-capture-server",
-  "private": true,
-  "type": "module",
-  "description": "Replay server using upstream config + play_join capture"
-}
