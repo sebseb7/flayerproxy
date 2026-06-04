@@ -11,11 +11,13 @@ import {
   recordConfigS2c,
   recordPlayJoinS2c,
   trackPlayPacket,
+  trackC2sPacket,
   clearPlayJoinCapture,
   markCaptureReady,
   getCapture,
   setUpstreamClient,
   getDownstreamClient,
+  setEntityTracker,
 } from './captureStore.js';
 
 import { getChunkDataLen } from './chunk.js';
@@ -86,6 +88,8 @@ export function createSession(config) {
     logPingTick,
   });
 
+  setEntityTracker(logger.entityTracker);
+
   function setPhase(next) {
     if (phase === next) return;
     const prev = phase;
@@ -96,6 +100,9 @@ export function createSession(config) {
 
   function send(sock, id, payload, detail) {
     sock.write(buildFrame(id, payload));
+    if (phase === 'play_join' || phase === 'play') {
+      trackC2sPacket(id, payload);
+    }
     logger.c2s(id, payload, detail);
   }
 

@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 import { s2cPacketName } from './packetNames.js';
+import { PLAY } from './constants.js';
 
 const require = createRequire(import.meta.url);
 const lc = require('../libchunk/js/index.js');
@@ -25,13 +26,50 @@ const ENTITY_PARSERS = {
   remove_entity_effect: (payload) => lc.parseRemoveEntityEffect(payload),
 };
 
+function writeVarInt(value) {
+  const buf = [];
+  let temp = value;
+  while (true) {
+    if ((temp & ~0x7F) === 0) {
+      buf.push(temp);
+      break;
+    }
+    buf.push((temp & 0x7F) | 0x80);
+    temp >>>= 7;
+  }
+  return Buffer.from(buf);
+}
+
+function serializePositionPacket(teleportId, x, y, z, yaw, pitch, flags = 0) {
+  const varintBuf = writeVarInt(teleportId);
+  const fieldsBuf = Buffer.alloc(8 * 6 + 4 * 2 + 4);
+  fieldsBuf.writeDoubleBE(x, 0);
+  fieldsBuf.writeDoubleBE(y, 8);
+  fieldsBuf.writeDoubleBE(z, 16);
+  fieldsBuf.writeDoubleBE(0.0, 24); // dx
+  fieldsBuf.writeDoubleBE(0.0, 32); // dy
+  fieldsBuf.writeDoubleBE(0.0, 40); // dz
+  fieldsBuf.writeFloatBE(yaw, 48);
+  fieldsBuf.writeFloatBE(pitch, 52);
+  fieldsBuf.writeInt32BE(flags, 56);
+  return Buffer.concat([varintBuf, fieldsBuf]);
+}
+
 export function createJoinDataTracker() {
   let ownEntityId = null;
+  let teleportId = 1;
+  const currentPos = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };
   // Map of key -> { id, payload }
   const tracked = new Map();
 
   function reset() {
     ownEntityId = null;
+    teleportId = 1;
+    currentPos.x = 0;
+    currentPos.y = 0;
+    currentPos.z = 0;
+    currentPos.yaw = 0;
+    currentPos.pitch = 0;
     tracked.clear();
   }
 
@@ -41,6 +79,19 @@ export function createJoinDataTracker() {
 
   function setOwnEntityId(id) {
     ownEntityId = id;
+  }
+
+  function updateCapturedPosition() {
+    const newPayload = serializePositionPacket(
+      teleportId,
+      currentPos.x,
+      currentPos.y,
+      currentPos.z,
+      currentPos.yaw,
+      currentPos.pitch,
+      0
+    );
+    tracked.set('position', { id: PLAY.POSITION, payload: newPayload });
   }
 
   function noteS2c(id, payload) {
@@ -82,7 +133,37 @@ export function createJoinDataTracker() {
       return;
     }
 
-    // 4. Check if it's an entity packet for our own entityId
+    // 4. Check if it's position S2C
+    if (packetName === 'position') {
+      try {
+        const pos = lc.parsePosition(payload);
+        if (pos) {
+          teleportId = pos.teleportId;
+          const flags = pos.flags || 0;
+          if ((flags & 0x01) === 0) currentPos.x = pos.x;
+          else currentPos.x += pos.x;
+
+          if ((flags & 0x02) === 0) currentPos.y = pos.y;
+          else currentPos.y += pos.y;
+
+          if ((flags & 0x04) === 0) currentPos.z = pos.z;
+          else currentPos.z += pos.z;
+
+          if ((flags & 0x08) === 0) currentPos.yaw = pos.yaw;
+          else currentPos.yaw += pos.yaw;
+
+          if ((flags & 0x10) === 0) currentPos.pitch = pos.pitch;
+          else currentPos.pitch += pos.pitch;
+
+          updateCapturedPosition();
+        }
+      } catch (e) {
+        // ignore parsing error
+      }
+      return;
+    }
+
+    // 5. Check if it's an entity packet for our own entityId
     if (ownEntityId !== null && ENTITY_PARSERS[packetName]) {
       try {
         const parser = ENTITY_PARSERS[packetName];
@@ -106,6 +187,34 @@ export function createJoinDataTracker() {
     }
   }
 
+  function noteC2s(id, payload) {
+    if (!Buffer.isBuffer(payload)) return;
+
+    if (id === PLAY.C2S_POSITION) {
+      if (payload.length >= 24) {
+        currentPos.x = payload.readDoubleBE(0);
+        currentPos.y = payload.readDoubleBE(8);
+        currentPos.z = payload.readDoubleBE(16);
+        updateCapturedPosition();
+      }
+    } else if (id === PLAY.C2S_POSITION_LOOK) {
+      if (payload.length >= 32) {
+        currentPos.x = payload.readDoubleBE(0);
+        currentPos.y = payload.readDoubleBE(8);
+        currentPos.z = payload.readDoubleBE(16);
+        currentPos.yaw = payload.readFloatBE(24);
+        currentPos.pitch = payload.readFloatBE(28);
+        updateCapturedPosition();
+      }
+    } else if (id === PLAY.C2S_MOVE_ROT) {
+      if (payload.length >= 8) {
+        currentPos.yaw = payload.readFloatBE(0);
+        currentPos.pitch = payload.readFloatBE(4);
+        updateCapturedPosition();
+      }
+    }
+  }
+
   /**
    * Helper to determine the tracking key for a given packet from the original playJoin array.
    * This is used to replace the correct packet in-place during merge.
@@ -123,6 +232,10 @@ export function createJoinDataTracker() {
         const ev = lc.parseGameEvent(payload);
         if (ev) return `game_state_change_${ev.event}`;
       } catch {}
+    }
+
+    if (packetName === 'position') {
+      return 'position';
     }
 
     if (ownEntityId !== null && ENTITY_PARSERS[packetName]) {
@@ -176,10 +289,12 @@ export function createJoinDataTracker() {
 
   return {
     noteS2c,
+    noteC2s,
     mergeWith,
     reset,
     getOwnEntityId,
     setOwnEntityId,
     tracked,
+    currentPos,
   };
 }

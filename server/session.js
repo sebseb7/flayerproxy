@@ -2,6 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import chalk from 'chalk';
 import { HS_LOGIN, LOGIN, CFG, PLAY, LOG_LEVELS } from '../client/constants.js';
+const BUNDLE_DELIMITER = Buffer.alloc(0); // packet id 0x00, empty payload
+import { createRequire } from 'node:module';
+const _require = createRequire(import.meta.url);
+const _playS2cById = _require('../libchunk/js/playS2cById.js');
+const ENTITY_METADATA_ID = _playS2cById.indexOf('entity_metadata'); // 0x61
 import {
   buildFrame,
   createFrameProcessor,
@@ -9,7 +14,14 @@ import {
   writeString,
 } from '../client/wire.js';
 import { offlineUUID } from '../client/protocol.js';
-import { onCaptureReady, getCapture, isCaptureReady, getUpstreamClient, setDownstreamClient } from '../client/captureStore.js';
+import {
+  onCaptureReady,
+  getCapture,
+  isCaptureReady,
+  getUpstreamClient,
+  setDownstreamClient,
+  getEntityTracker,
+} from '../client/captureStore.js';
 import { createServerLogger } from './logger.js';
 import { logPingTickFromEnv } from '../client/logNoise.js';
 import { createOnPacket } from './onPacket.js';
@@ -30,6 +42,44 @@ function getChunkFilesSync(dir) {
     // ignore
   }
   return results;
+}
+
+function packLpVec3(x, y, z) {
+  const scale = 1;
+  const maxQ = 32766;
+  const clamp = (val) => Math.max(-1.0, Math.min(1.0, val));
+  const vx = Math.round(((clamp(x) + 1.0) * maxQ) / 2.0) & 0x7fff;
+  const vy = Math.round(((clamp(y) + 1.0) * maxQ) / 2.0) & 0x7fff;
+  const vz = Math.round(((clamp(z) + 1.0) * maxQ) / 2.0) & 0x7fff;
+  const packedBig = (BigInt(vz) << 33n) | (BigInt(vy) << 18n) | (BigInt(vx) << 3n) | BigInt(scale);
+  const buf = Buffer.alloc(6);
+  buf.writeUInt8(Number(packedBig & 0xffn), 0);
+  buf.writeUInt8(Number((packedBig >> 8n) & 0xffn), 1);
+  buf.writeUInt32BE(Number((packedBig >> 16n) & 0xffffffffn), 2);
+  return buf;
+}
+
+function serializeSpawnEntityPacket(ent) {
+  const idBuf = writeVarInt(ent.id);
+  const uuidClean = (ent.uuid || '').replace(/-/g, '');
+  const uuidBuf = uuidClean.length === 32 ? Buffer.from(uuidClean, 'hex') : Buffer.alloc(16);
+  const typeBuf = writeVarInt(ent.type);
+  
+  const coordsBuf = Buffer.alloc(24);
+  coordsBuf.writeDoubleBE(ent.x, 0);
+  coordsBuf.writeDoubleBE(ent.y, 8);
+  coordsBuf.writeDoubleBE(ent.z, 16);
+  
+  const vel = ent.vel || { x: 0, y: 0, z: 0 };
+  const velBuf = packLpVec3(vel.x, vel.y, vel.z);
+  
+  const rotBuf = Buffer.alloc(3);
+  rotBuf.writeInt8(ent.rot.pitch || 0, 0);
+  rotBuf.writeInt8(ent.rot.yaw || 0, 1);
+  rotBuf.writeInt8(ent.rot.headPitch || 0, 2);
+  
+  const dataBuf = writeVarInt(ent.data || 0);
+  return Buffer.concat([idBuf, uuidBuf, typeBuf, coordsBuf, velBuf, rotBuf, dataBuf]);
 }
 
 function serverLogOptions() {
@@ -226,6 +276,28 @@ export function handleClient(sock, opts = {}) {
       return true;
     }
     if (id === PLAY.C2S_PLAYER_LOADED) {
+      const tracker = getEntityTracker();
+      if (tracker && tracker.entities && tracker.entities.size > 0) {
+        logger.info('spawning tracked entities for downstream client', chalk.dim(`${tracker.entities.size} entities`));
+        for (const ent of tracker.entities.values()) {
+          const metadataId = ENTITY_METADATA_ID;
+          const metaPkts = ent.statePackets ? ent.statePackets.filter(p => p.id === metadataId) : [];
+          const otherPkts = ent.statePackets ? ent.statePackets.filter(p => p.id !== metadataId) : [];
+
+          // Bundle: spawn_entity + entity_metadata only (mirrors real server pattern)
+          send(sock, PLAY.BUNDLE_DELIMITER, BUNDLE_DELIMITER);
+          send(sock, 0x01, serializeSpawnEntityPacket(ent));
+          for (const pkt of metaPkts) {
+            send(sock, pkt.id, pkt.payload);
+          }
+          send(sock, PLAY.BUNDLE_DELIMITER, BUNDLE_DELIMITER);
+
+          // Remaining state packets (equipment, attributes, etc.) sent outside bundle
+          for (const pkt of otherPkts) {
+            send(sock, pkt.id, pkt.payload);
+          }
+        }
+      }
       setPhase('play');
       logger.event('play ready', chalk.dim(username));
       return true;

@@ -4,6 +4,19 @@ import { formatEntityType } from './entityTypeNames.js';
 
 const require = createRequire(import.meta.url);
 const lc = require('../libchunk/js/index.js');
+const playS2cById = require('../libchunk/js/playS2cById.js');
+
+const PKT_IDS = {
+  entity_metadata: playS2cById.indexOf('entity_metadata'),
+  entity_equipment: playS2cById.indexOf('entity_equipment'),
+  entity_update_attributes: playS2cById.indexOf('entity_update_attributes'),
+  entity_head_rotation: playS2cById.indexOf('entity_head_rotation'),
+  entity_effect: playS2cById.indexOf('entity_effect'),
+  remove_entity_effect: playS2cById.indexOf('remove_entity_effect'),
+  entity_status: playS2cById.indexOf('entity_status'),
+  set_passengers: playS2cById.indexOf('set_passengers'),
+  attach_entity: playS2cById.indexOf('attach_entity'),
+};
 
 /** @typedef {{ id: number, type: number, uuid: string, x: number, y: number, z: number, posKnown: boolean, vel: { x: number, y: number, z: number }, rot: { pitch: number, yaw: number, headPitch: number, headYaw?: number }, data: number, spawnTime: number, metadata?: Record<number, any>, equipment?: Record<number, any>, attributes?: Record<number, any>, effects?: Record<number, any>, passengers?: number[], attachedTo?: number, status?: number }} TrackedEntity */
 
@@ -82,6 +95,7 @@ export function createEntityTracker() {
       rot: { pitch: p.pitch, yaw: p.yaw, headPitch: p.headPitch },
       data: p.objectData,
       spawnTime: Date.now(),
+      statePackets: [],
     };
     updatePos(ent, p.x, p.y, p.z);
     set(p.entityId, ent);
@@ -128,8 +142,12 @@ export function createEntityTracker() {
     const e = get(p.entityId);
     if (e) {
       updatePos(e, p.x, p.y, p.z);
-      e.rot.yaw = p.yaw;
-      e.rot.pitch = p.pitch;
+      const toByte = (deg) => {
+        let b = Math.round((deg * 256) / 360) & 0xff;
+        return b >= 128 ? b - 256 : b;
+      };
+      e.rot.yaw = toByte(p.yaw);
+      e.rot.pitch = toByte(p.pitch);
     }
     return suffixForIds([p.entityId]);
   }
@@ -162,6 +180,10 @@ export function createEntityTracker() {
     const e = get(p.entityId);
     if (e) {
       e.rot.headYaw = p.headYaw;
+      e.statePackets.push({
+        id: PKT_IDS.entity_head_rotation,
+        payload: Buffer.from(payload),
+      });
     }
     return suffixForIds([p.entityId]);
   }
@@ -186,6 +208,10 @@ export function createEntityTracker() {
       for (const entry of p.metadata) {
         e.metadata[entry.key] = entry.value;
       }
+      e.statePackets.push({
+        id: PKT_IDS.entity_metadata,
+        payload: Buffer.from(payload),
+      });
     }
     return suffixForIds([p.entityId]);
   }
@@ -199,6 +225,10 @@ export function createEntityTracker() {
       for (const eq of p.equipments) {
         e.equipment[eq.slot] = { itemId: eq.itemId, itemCount: eq.itemCount };
       }
+      e.statePackets.push({
+        id: PKT_IDS.entity_equipment,
+        payload: Buffer.from(payload),
+      });
     }
     return suffixForIds([p.entityId]);
   }
@@ -209,6 +239,10 @@ export function createEntityTracker() {
     const e = get(p.entityId);
     if (e) {
       e.status = p.status;
+      e.statePackets.push({
+        id: PKT_IDS.entity_status,
+        payload: Buffer.from(payload),
+      });
     }
     return suffixForIds([p.entityId]);
   }
@@ -219,6 +253,10 @@ export function createEntityTracker() {
     const vehicle = get(p.entityId);
     if (vehicle) {
       vehicle.passengers = p.passengers;
+      vehicle.statePackets.push({
+        id: PKT_IDS.set_passengers,
+        payload: Buffer.from(payload),
+      });
     }
     const ids = [p.entityId, ...p.passengers];
     return suffixForIds(ids);
@@ -230,6 +268,10 @@ export function createEntityTracker() {
     const attached = get(p.attachedId);
     if (attached) {
       attached.attachedTo = p.holdingId;
+      attached.statePackets.push({
+        id: PKT_IDS.attach_entity,
+        payload: Buffer.from(payload),
+      });
     }
     return suffixForIds([p.attachedId, p.holdingId]);
   }
@@ -247,6 +289,10 @@ export function createEntityTracker() {
           modifiers: prop.modifiers
         };
       }
+      e.statePackets.push({
+        id: PKT_IDS.entity_update_attributes,
+        payload: Buffer.from(payload),
+      });
     }
     return suffixForIds([p.entityId]);
   }
@@ -262,6 +308,10 @@ export function createEntityTracker() {
         duration: p.duration,
         flags: p.flags
       };
+      e.statePackets.push({
+        id: PKT_IDS.entity_effect,
+        payload: Buffer.from(payload),
+      });
     }
     return suffixForIds([p.entityId]);
   }
@@ -270,8 +320,14 @@ export function createEntityTracker() {
     const p = lc.parseRemoveEntityEffect(payload);
     if (!p) return null;
     const e = get(p.entityId);
-    if (e && e.effects) {
-      delete e.effects[p.effectId];
+    if (e) {
+      if (e.effects) {
+        delete e.effects[p.effectId];
+      }
+      e.statePackets.push({
+        id: PKT_IDS.remove_entity_effect,
+        payload: Buffer.from(payload),
+      });
     }
     return suffixForIds([p.entityId]);
   }

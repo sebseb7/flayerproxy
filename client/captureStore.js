@@ -77,6 +77,10 @@ export function trackPlayPacket(id, payload) {
   joinDataTracker.noteS2c(id, payload);
 }
 
+export function trackC2sPacket(id, payload) {
+  joinDataTracker.noteC2s(id, payload);
+}
+
 /** Drop pre-death join burst; post-respawn play_join is recorded fresh. */
 export function clearPlayJoinCapture() {
   if (ready) return;
@@ -109,4 +113,14 @@ export function onCaptureReady(fn) {
 export function getCapture() {
   const mergedPlayJoin = joinDataTracker.mergeWith(playJoin);
   return { config, playJoin: mergedPlayJoin, ready };
+}
+
+let entityTracker = null;
+
+export function setEntityTracker(tracker) {
+  entityTracker = tracker;
+}
+
+export function getEntityTracker() {
+  return entityTracker;
 }

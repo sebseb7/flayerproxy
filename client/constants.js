@@ -25,6 +25,7 @@ export const CFG = {
 export const GAME_EVENT_LEVEL_CHUNKS_LOAD_START = 13;
 
 export const PLAY = {
+  BUNDLE_DELIMITER: 0x00,
   LOGIN: 0x30,
   CHUNK_BATCH_FINISHED: 0x0b,
   LIGHT_UPDATE: 0x2f,

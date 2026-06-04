@@ -224,5 +224,6 @@ export function createLogger({ getPhase, logLevel, debug, logPingTick = false })
     loggerObj.info('============================');
   }, 60000);
 
+  loggerObj.entityTracker = entityTracker;
   return loggerObj;
 }
