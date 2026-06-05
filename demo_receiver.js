@@ -4,9 +4,91 @@ import path from 'node:path';
 import chalk from 'chalk';
 import { createRequire } from 'node:module';
 import sharp from 'sharp';
+import { formatEntityType } from './client/entityTypeNames.js';
+import minecraftData from 'minecraft-data';
 
 const require = createRequire(import.meta.url);
 const lc = require('./libchunk/js/index.js');
+const mcData = minecraftData('1.21.10');
+
+function readVarInt(buf, offset) {
+  let value = 0;
+  let size = 0;
+  let b;
+  while (true) {
+    if (offset + size >= buf.length) {
+      return null;
+    }
+    b = buf[offset + size];
+    value |= (b & 0x7f) << (size * 7);
+    size++;
+    if ((b & 0x80) === 0) {
+      break;
+    }
+  }
+  return { value, size };
+}
+
+function parseSlot(buf) {
+  let offset = 0;
+  const countRes = readVarInt(buf, offset);
+  if (!countRes) return null;
+  const count = countRes.value;
+  offset += countRes.size;
+  if (count === 0) return { count: 0 };
+  
+  const itemIdRes = readVarInt(buf, offset);
+  if (!itemIdRes) return null;
+  const itemId = itemIdRes.value;
+  
+  return { count, itemId };
+}
+
+function getSpawnEntityItemName(payload) {
+  try {
+    let rest = payload;
+    let spawn = null;
+    let metadata = null;
+    
+    while (rest && rest.length > 0) {
+      const frame = lc.tryReadFrame(rest);
+      if (!frame) break;
+      
+      const packetName = lc.playS2cById[frame.id];
+      if (packetName === 'spawn_entity') {
+        spawn = lc.parseSpawnEntity(frame.payload);
+      } else if (packetName === 'entity_metadata') {
+        metadata = lc.parseEntityMetadata(frame.payload);
+      }
+      
+      rest = frame.rest;
+    }
+    
+    if (spawn && typeof spawn.type === 'number') {
+      const typeName = formatEntityType(spawn.type);
+      if (typeName === 'item' || typeName === 'item_frame' || typeName === 'glow_item_frame') {
+        let itemName = null;
+        if (metadata && metadata.metadata) {
+          const itemEntry = metadata.metadata.find(e => e.typeName === 'item_stack' || e.typeId === 7);
+          if (itemEntry && itemEntry.value) {
+            const slot = parseSlot(itemEntry.value);
+            if (slot && slot.count > 0 && typeof slot.itemId === 'number') {
+              const item = mcData.items[slot.itemId];
+              if (item) {
+                itemName = item.name;
+              }
+            }
+          }
+        }
+        return { typeName, itemName, spawn, metadata };
+      }
+      return { typeName, spawn, metadata };
+    }
+  } catch (e) {
+    // ignore
+  }
+  return null;
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -25,6 +107,26 @@ const dirtyTiles = new Map();
 
 // SSE clients set
 const sseClients = new Set();
+
+function broadcastPlayerSse(data) {
+  broadcastSse({ kind: 'player', ...data });
+}
+
+function parsePlayerMovementHeaders(req) {
+  const numOrUndef = (v) => {
+    if (v === undefined || v === null || v === '') return undefined;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : undefined;
+  };
+
+  const x = numOrUndef(req.headers['x-player-x']);
+  const y = numOrUndef(req.headers['x-player-y']);
+  const z = numOrUndef(req.headers['x-player-z']);
+  const yaw = numOrUndef(req.headers['x-player-yaw']);
+  const pitch = numOrUndef(req.headers['x-player-pitch']);
+
+  return { x, y, z, yaw, pitch };
+}
 
 // Helper for Java-style modulo
 function mod16(n) {
@@ -94,6 +196,7 @@ app.post('/chunks', async (req, res) => {
   const filePath = req.headers['x-file-path'];
   const fileName = req.headers['x-file-name'];
   const dimension = req.headers['x-dimension'] || 'unknown';
+  const packetDirection = req.headers['x-packet-direction'];
 
   if (!filePath) {
     console.error(chalk.red('[ERROR] Received POST request missing X-File-Path header'));
@@ -104,6 +207,36 @@ app.post('/chunks', async (req, res) => {
   if (!payload || payload.length === 0) {
     console.error(chalk.red(`[ERROR] Received empty body for ${fileName}`));
     return res.status(400).send('Empty request body');
+  }
+
+  // Player movement stream: publish to SSE and do not persist to disk.
+  if (packetDirection === 'C2S' && filePath.includes('/client/')) {
+    const movement = parsePlayerMovementHeaders(req);
+    console.log(
+      chalk.green('[PLAYER]') +
+      chalk.dim(' dim=') + chalk.cyan(dimension) +
+      chalk.dim(' file=') + chalk.white(filePath) +
+      chalk.dim(
+        movement.x !== undefined && movement.y !== undefined && movement.z !== undefined
+          ? ` (${movement.x.toFixed(2)},${movement.y.toFixed(2)},${movement.z.toFixed(2)})`
+          : ''
+      ) +
+      chalk.dim(
+        movement.yaw !== undefined && movement.pitch !== undefined
+          ? ` yaw/pitch=${movement.yaw.toFixed(1)},${movement.pitch.toFixed(1)}`
+          : ''
+      )
+    );
+
+    broadcastPlayerSse({
+      dimension,
+      filePath,
+      fileName,
+      ...movement,
+      timestamp: Date.now(),
+    });
+
+    return res.status(200).send('OK');
   }
 
   // Determine target path and format
@@ -118,7 +251,7 @@ app.post('/chunks', async (req, res) => {
 
     if (isMapChunk) {
       // Decode chunk and save as top-down surface PNG
-      const resPng = lc.writeMapChunkPng(payload, targetPath);
+      const resPng = lc.writeMapChunkPng(payload, targetPath, dimension);
       if (!resPng.ok) {
         throw new Error(resPng.error || 'writeMapChunkPng failed');
       }
@@ -153,10 +286,52 @@ app.post('/chunks', async (req, res) => {
       // Write raw payload to disk
       await fs.writeFile(targetPath, payload);
 
+      let typeDetail = '';
+      if (filePath.endsWith('.spawn_entity.wire')) {
+        const res = getSpawnEntityItemName(payload);
+        if (res) {
+          if (res.typeName === 'item' || res.typeName === 'item_frame' || res.typeName === 'glow_item_frame') {
+            if (res.itemName) {
+              typeDetail = chalk.dim(' type=') + chalk.yellow(`${res.typeName} (${res.itemName})`);
+            } else {
+              if (res.typeName === 'item') {
+                typeDetail = chalk.dim(' type=') + chalk.red('item (UNKNOWN)');
+                console.warn(
+                  chalk.bold.yellow(`[WARNING] Failed to detect item name for spawn_entity in ${relativePath}!`)
+                );
+                if (res.spawn) {
+                  console.warn(
+                    chalk.yellow(`  Entity ID: ${res.spawn.entityId}, Position: (${res.spawn.x.toFixed(2)}, ${res.spawn.y.toFixed(2)}, ${res.spawn.z.toFixed(2)})`)
+                  );
+                }
+                console.warn(
+                  chalk.yellow(`  Has metadata packet: ${!!res.metadata}`)
+                );
+                console.warn(
+                  chalk.yellow(`  Full packet payload (${payload.length} bytes, hex): ${payload.toString('hex')}`)
+                );
+              } else {
+                typeDetail = chalk.dim(' type=') + chalk.yellow(`${res.typeName} (empty)`);
+              }
+            }
+          } else {
+            typeDetail = chalk.dim(' type=') + chalk.yellow(res.typeName);
+          }
+        } else {
+          console.warn(
+            chalk.bold.red(`[WARNING] Failed to parse spawn_entity file: ${relativePath}`)
+          );
+          console.warn(
+            chalk.yellow(`  Full packet payload (${payload.length} bytes, hex): ${payload.toString('hex')}`)
+          );
+        }
+      }
+
       console.log(
         chalk.green('[CHUNK]') +
         chalk.dim(' dim=') + chalk.cyan(dimension) +
         chalk.dim(' file=') + chalk.white(relativePath) +
+        typeDetail +
         chalk.dim(` (${payload.length} bytes)`)
       );
     }
@@ -241,6 +416,8 @@ async function processDirtyBigchunks() {
     for (const key of keysToProcess) {
       const [bigX, bigZ] = key.split(',').map(Number);
       const compositeList = [];
+      const mask = Array(16).fill(0);
+      const grid = Array.from({ length: 16 }, () => Array(16).fill(false));
 
       // Check all 16x16 normal chunks within this bigchunk
       for (let localZ = 0; localZ < BIGCHUNK_CHUNKS_PER_SIDE; localZ++) {
@@ -256,6 +433,8 @@ async function processDirtyBigchunks() {
               top: localZ * CHUNK_PIXELS,
               left: localX * CHUNK_PIXELS
             });
+            grid[localZ][localX] = true;
+            mask[localZ] |= (1 << localX);
           } catch (e) {
             // File does not exist, skip it
           }
@@ -267,6 +446,8 @@ async function processDirtyBigchunks() {
       const targetDir = path.join(bigchunksDir, dimension);
       const targetFileName = `x${bigX * 16}_z${bigZ * 16}.jpg`;
       const targetPath = path.join(targetDir, targetFileName);
+      const jsonFileName = `x${bigX * 16}_z${bigZ * 16}.json`;
+      const jsonPath = path.join(targetDir, jsonFileName);
 
       try {
         await fs.mkdir(targetDir, { recursive: true });
@@ -283,6 +464,18 @@ async function processDirtyBigchunks() {
           .composite(compositeList)
           .jpeg({ quality: 80 })
           .toFile(targetPath);
+
+        // Write bitmask metadata file
+        await fs.writeFile(jsonPath, JSON.stringify({
+          kind: 'bigchunk',
+          dimension,
+          worldX: bigX * 16,
+          worldZ: bigZ * 16,
+          bigX,
+          bigZ,
+          mask,
+          grid
+        }, null, 2));
 
         console.log(
           chalk.blue('[BIGCHUNK]') +
@@ -331,6 +524,8 @@ async function processDirtyTiles() {
     for (const key of keysToProcess) {
       const [tileBigX, tileBigZ] = key.split(',').map(Number);
       const compositeList = [];
+      const mask = Array(16).fill(0);
+      const grid = Array.from({ length: 16 }, () => Array(16).fill(false));
 
       // Build a 16x16 image from already stitched bigchunks. Each input bigchunk is resized
       // down to 32x32 so the resulting bigger tile is still 512x512 for easy map viewing.
@@ -352,6 +547,8 @@ async function processDirtyTiles() {
               top: localZ * CHUNK_PIXELS,
               left: localX * CHUNK_PIXELS
             });
+            grid[localZ][localX] = true;
+            mask[localZ] |= (1 << localX);
           } catch (e) {
             // Bigchunk does not exist yet, skip it
           }
@@ -363,6 +560,8 @@ async function processDirtyTiles() {
       const targetDir = path.join(tilesDir, dimension);
       const targetFileName = `x${tileBigX * 16}_z${tileBigZ * 16}.jpg`;
       const targetPath = path.join(targetDir, targetFileName);
+      const jsonFileName = `x${tileBigX * 16}_z${tileBigZ * 16}.json`;
+      const jsonPath = path.join(targetDir, jsonFileName);
 
       try {
         await fs.mkdir(targetDir, { recursive: true });
@@ -378,6 +577,18 @@ async function processDirtyTiles() {
           .composite(compositeList)
           .jpeg({ quality: 80 })
           .toFile(targetPath);
+
+        // Write bitmask metadata file
+        await fs.writeFile(jsonPath, JSON.stringify({
+          kind: 'tile',
+          dimension,
+          worldX: tileBigX * 16,
+          worldZ: tileBigZ * 16,
+          bigX: tileBigX,
+          bigZ: tileBigZ,
+          mask,
+          grid
+        }, null, 2));
 
         console.log(
           chalk.magenta('[TILE]') +
