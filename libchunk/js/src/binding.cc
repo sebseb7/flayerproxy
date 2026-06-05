@@ -1034,11 +1034,15 @@ Napi::Value HexDump(const Napi::CallbackInfo &info) {
 Napi::Value WriteMapChunkPng(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
   if (info.Length() < 2 || !info[0].IsBuffer() || !info[1].IsString()) {
-    Napi::TypeError::New(env, "writeMapChunkPng(buffer, path)").ThrowAsJavaScriptException();
+    Napi::TypeError::New(env, "writeMapChunkPng(buffer, path, dimension?)").ThrowAsJavaScriptException();
     return env.Null();
   }
   Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
   std::string path = info[1].As<Napi::String>().Utf8Value();
+  std::string dimension;
+  if (info.Length() >= 3 && info[2].IsString()) {
+    dimension = info[2].As<Napi::String>().Utf8Value();
+  }
 
   lc_map_chunk mc;
   memset(&mc, 0, sizeof(mc));
@@ -1050,7 +1054,7 @@ Napi::Value WriteMapChunkPng(const Napi::CallbackInfo &info) {
     return o;
   }
 
-  st = lc_map_chunk_write_top_png(&mc, path.c_str());
+  st = lc_map_chunk_write_top_png(&mc, path.c_str(), dimension.empty() ? NULL : dimension.c_str());
   lc_map_chunk_free(&mc);
 
   if (st != LC_OK) {

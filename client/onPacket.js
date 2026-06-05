@@ -1,15 +1,18 @@
 import chalk from 'chalk';
 import crypto from 'node:crypto';
 import https from 'node:https';
+import path from 'node:path';
 import { LOGIN, CFG, PLAY, GAME_EVENT_LEVEL_CHUNKS_LOAD_START } from './constants.js';
-import { writeVarInt, readVarInt, readString } from './wire.js';
+import { writeVarInt, readVarInt, readString, buildFrame } from './wire.js';
 import { getDownstreamClient, recordPlayJoinS2c, trackPlayPacket } from './captureStore.js';
 import {
   readI64BE,
 } from './protocol.js';
 import { getLocationFromChunkPayload, mapChunkWirePath, getChunkDataLen } from './chunk.js';
+import { formatEntityType } from './entityTypeNames.js';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
+const playS2cById = require('../libchunk/js/playS2cById.js');
 const {
   parsePlayLogin,
   parsePosition,
@@ -19,6 +22,9 @@ const {
   parseUpdateHealth,
   parseUpdateViewPosition,
   parseRespawn,
+  parseSpawnEntity,
+  parseEntityMetadata,
+  parseEntityUpdateAttributes,
 } = require('../libchunk/js/index.js');
 
 
@@ -126,12 +132,177 @@ export function createOnPacket(ctx) {
     tryFinishPlayJoin,
     notePlayJoinPacket,
     writeMapChunk,
+    postBinaryPayload,
     state,
     accessToken,
     profileId,
     enableEncryption,
     setCompressThreshold,
   } = ctx;
+
+  let inBundle = false;
+  let bundlePackets = [];
+
+  function getEntityIdOfMetadata(payload) {
+    try {
+      const meta = parseEntityMetadata(payload);
+      return meta ? meta.entityId : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function getEntityIdOfAttributes(payload) {
+    try {
+      const attrs = parseEntityUpdateAttributes(payload);
+      return attrs ? attrs.entityId : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function postSingleSpawnEntity(id, payload) {
+    try {
+      const spawn = parseSpawnEntity(payload);
+      if (!spawn) return;
+      const { x, y, z } = spawn;
+      const blockX = Math.floor(x);
+      const blockY = Math.floor(y);
+      const blockZ = Math.floor(z);
+      const chunkX = Math.floor(blockX / 16);
+      const chunkZ = Math.floor(blockZ / 16);
+      const rx = Math.floor(chunkX / 512);
+      const rz = Math.floor(chunkZ / 512);
+      const cx = Math.floor(chunkX / 32);
+      const cz = Math.floor(chunkZ / 32);
+
+      const dim = state.dimension || 'unknown';
+      const relativePath = path.join(dim, 'spawn_entity', `rx${rx}`, `rz${rz}`, `cx${cx}`, `cz${cz}`, `x${blockX}_y${blockY}_z${blockZ}.spawn_entity.wire`);
+      const fileName = `x${blockX}_y${blockY}_z${blockZ}.spawn_entity.wire`;
+
+      const packetFrame = buildFrame(id, payload);
+
+      if (postBinaryPayload) {
+        postBinaryPayload({
+          relativePath,
+          fileName,
+          payload: packetFrame,
+          headers: {
+            'X-Dimension': dim,
+            'X-Packet-Name': 'spawn_entity',
+            'X-Packet-Decode-Name': 'spawn_entity',
+          },
+          successLabel: 'spawn_entity_post',
+          errorLabel: 'spawn_entity post',
+        });
+      }
+    } catch (e) {
+      logger.error('failed to post spawn_entity', e.message);
+    }
+  }
+
+  function postSpawnWithMetadata(ent, metadataId, metadataPayload) {
+    try {
+      const { x, y, z } = ent;
+      const blockX = Math.floor(x);
+      const blockY = Math.floor(y);
+      const blockZ = Math.floor(z);
+      const chunkX = Math.floor(blockX / 16);
+      const chunkZ = Math.floor(blockZ / 16);
+      const rx = Math.floor(chunkX / 512);
+      const rz = Math.floor(chunkZ / 512);
+      const cx = Math.floor(chunkX / 32);
+      const cz = Math.floor(chunkZ / 32);
+
+      const dim = state.dimension || 'unknown';
+      const relativePath = path.join(dim, 'spawn_entity', `rx${rx}`, `rz${rz}`, `cx${cx}`, `cz${cz}`, `x${blockX}_y${blockY}_z${blockZ}.spawn_entity.wire`);
+      const fileName = `x${blockX}_y${blockY}_z${blockZ}.spawn_entity.wire`;
+
+      const spawnEntityId = playS2cById.indexOf('spawn_entity');
+      if (spawnEntityId === -1) return;
+
+      const spawnFrame = buildFrame(spawnEntityId, ent.spawnPayload);
+      const metadataFrame = buildFrame(metadataId, metadataPayload);
+      const bundlePayload = Buffer.concat([spawnFrame, metadataFrame]);
+
+      if (postBinaryPayload) {
+        postBinaryPayload({
+          relativePath,
+          fileName,
+          payload: bundlePayload,
+          headers: {
+            'X-Dimension': dim,
+            'X-Packet-Name': 'spawn_entity',
+            'X-Packet-Decode-Name': 'spawn_entity',
+          },
+          successLabel: 'spawn_entity_post_metadata_update',
+          errorLabel: 'spawn_entity post metadata update',
+        });
+      }
+      ent.metadataPosted = true;
+    } catch (e) {
+      logger.error('failed to post spawn_entity metadata update', e.message);
+    }
+  }
+
+  function handleBundle(packets) {
+    // Find spawn_entity packets
+    const spawns = packets.filter(pkt => playS2cById[pkt.id] === 'spawn_entity');
+    for (const spawnPkt of spawns) {
+      try {
+        const spawn = parseSpawnEntity(spawnPkt.payload);
+        if (!spawn) continue;
+        const { entityId, x, y, z } = spawn;
+
+        // Find matching metadata and attributes
+        const metadataPkt = packets.find(pkt => playS2cById[pkt.id] === 'entity_metadata' && getEntityIdOfMetadata(pkt.payload) === entityId);
+        const attributesPkt = packets.find(pkt => playS2cById[pkt.id] === 'entity_update_attributes' && getEntityIdOfAttributes(pkt.payload) === entityId);
+
+        const matched = [spawnPkt];
+        if (metadataPkt) {
+          matched.push(metadataPkt);
+          const ent = logger.entityTracker.get(entityId);
+          if (ent) {
+            ent.metadataPosted = true;
+          }
+        }
+        if (attributesPkt) matched.push(attributesPkt);
+
+        const blockX = Math.floor(x);
+        const blockY = Math.floor(y);
+        const blockZ = Math.floor(z);
+        const chunkX = Math.floor(blockX / 16);
+        const chunkZ = Math.floor(blockZ / 16);
+        const rx = Math.floor(chunkX / 512);
+        const rz = Math.floor(chunkZ / 512);
+        const cx = Math.floor(chunkX / 32);
+        const cz = Math.floor(chunkZ / 32);
+
+        const dim = state.dimension || 'unknown';
+        const relativePath = path.join(dim, 'spawn_entity', `rx${rx}`, `rz${rz}`, `cx${cx}`, `cz${cz}`, `x${blockX}_y${blockY}_z${blockZ}.spawn_entity.wire`);
+        const fileName = `x${blockX}_y${blockY}_z${blockZ}.spawn_entity.wire`;
+
+        const bundlePayload = Buffer.concat(matched.map(pkt => buildFrame(pkt.id, pkt.payload)));
+
+        if (postBinaryPayload) {
+          postBinaryPayload({
+            relativePath,
+            fileName,
+            payload: bundlePayload,
+            headers: {
+              'X-Dimension': dim,
+              'X-Packet-Name': 'spawn_entity',
+              'X-Packet-Decode-Name': 'spawn_entity',
+            },
+            successLabel: 'spawn_entity_post',
+            errorLabel: 'spawn_entity post',
+          });
+        }
+      } catch (e) {
+        logger.error('failed to process spawn bundle', e.message);
+      }
+    }
+  }
 
   return function onPacket(sock, id, payload) {
     const phase = getPhase();
@@ -254,10 +425,37 @@ export function createOnPacket(ctx) {
       }
       return;
     }
-
     if (phase === 'play_join' || phase === 'death' || phase === 'play') {
       if (phase === 'play_join') {
         notePlayJoinPacket();
+      }
+
+      // --- Bundle delimiters & packet accumulation ---
+      if (id === 0x00) {
+        if (!inBundle) {
+          inBundle = true;
+          bundlePackets = [];
+        } else {
+          inBundle = false;
+          const packets = [...bundlePackets];
+          bundlePackets = [];
+          handleBundle(packets);
+        }
+      } else if (inBundle) {
+        bundlePackets.push({ id, payload: Buffer.from(payload) });
+      } else if (playS2cById[id] === 'spawn_entity') {
+        postSingleSpawnEntity(id, payload);
+      } else if (playS2cById[id] === 'entity_metadata') {
+        const entityId = getEntityIdOfMetadata(payload);
+        if (entityId !== null) {
+          const ent = logger.entityTracker.get(entityId);
+          if (ent && ent.spawnPayload && !ent.metadataPosted) {
+            const typeName = formatEntityType(ent.type);
+            if (typeName === 'item' || typeName === 'item_frame' || typeName === 'glow_item_frame') {
+              postSpawnWithMetadata(ent, id, payload);
+            }
+          }
+        }
       }
 
       if (id === PLAY.RESPAWN) {

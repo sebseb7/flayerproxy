@@ -742,7 +742,8 @@ int lc_map_chunk_dump_json(FILE *f, const char *file_basename, const uint8_t *wi
 
 /** LC_MAP_CHUNK_PNG_SIZE² PNG of topmost non-air block per column (state id → color). */
 lc_status lc_chunk_write_top_png(const lc_chunk *c, const char *path);
-lc_status lc_map_chunk_write_top_png(const lc_map_chunk *mc, const char *path);
+lc_status lc_map_chunk_write_top_png(const lc_map_chunk *mc, const char *path,
+                                     const char *dimension);
 /** Fill rgb with LC_MAP_CHUNK_PNG_SIZE²×3 bytes (caller must allocate). */
 lc_status lc_chunk_render_top_rgb(const lc_chunk *c, uint8_t *rgb);
 

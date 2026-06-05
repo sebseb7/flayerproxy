@@ -77,28 +77,54 @@ static void lc_blend_rgb(uint8_t br, uint8_t bg, uint8_t bb, uint8_t wr, uint8_t
 /**
  * Column color: top-face texture RGB from minecraft-assets. Water is skipped for the
  * bed; shallow water is mostly transparent so the block below shows through.
+ *
+ * Nether special case: instead of the topmost non-air block (always the bedrock ceiling),
+ * find the topmost block that has at least 3 consecutive air blocks above it.  This skips
+ * the bedrock roof and renders the actual nether terrain below.
  */
+#define NETHER_MIN_AIR_ABOVE 3
+
 static void lc_column_map_rgb(const lc_chunk *c, int lx, int lz, int32_t *out_sid,
                               int32_t *out_world_y, uint8_t *r, uint8_t *g, uint8_t *b) {
   int32_t y_max = c->min_y + c->world_height - 1;
-  int water_depth = 0;
   int32_t top_sid = 0;
   int32_t top_y = LC_MAP_SURFACE_NO_Y;
   int32_t bed_sid = 0;
+  int water_depth = 0;
 
-  for (int32_t wy = y_max; wy >= c->min_y; wy--) {
-    int32_t sid = lc_chunk_state_at(c, lx, wy, lz);
-    if (sid == 0) continue;
-    if (top_y == LC_MAP_SURFACE_NO_Y) {
-      top_y = wy;
-      top_sid = sid;
+  int is_nether = (c->min_y == 0 && c->world_height == 128);
+
+  if (is_nether) {
+    int air_count = 0;
+    for (int32_t wy = y_max; wy >= c->min_y; wy--) {
+      int32_t sid = lc_chunk_state_at(c, lx, wy, lz);
+      if (sid == 0) {
+        air_count++;
+      } else {
+        if (air_count >= NETHER_MIN_AIR_ABOVE) {
+          top_y = wy;
+          top_sid = sid;
+          bed_sid = sid;
+          break;
+        }
+        air_count = 0;
+      }
     }
-    if (lc_state_id_is_water(sid)) {
-      water_depth++;
-      continue;
+  } else {
+    for (int32_t wy = y_max; wy >= c->min_y; wy--) {
+      int32_t sid = lc_chunk_state_at(c, lx, wy, lz);
+      if (sid == 0) continue;
+      if (top_y == LC_MAP_SURFACE_NO_Y) {
+        top_y = wy;
+        top_sid = sid;
+      }
+      if (lc_state_id_is_water(sid)) {
+        water_depth++;
+        continue;
+      }
+      bed_sid = sid;
+      break;
     }
-    bed_sid = sid;
-    break;
   }
 
   if (out_world_y) *out_world_y = top_y;
@@ -615,7 +641,8 @@ lc_status lc_chunk_write_top_png(const lc_chunk *c, const char *path) {
  * Callers: chunk_stream_receiver.c, decode_raw_dir.c.
  */
 
-lc_status lc_map_chunk_write_top_png(const lc_map_chunk *mc, const char *path) {
+lc_status lc_map_chunk_write_top_png(const lc_map_chunk *mc, const char *path,
+                                     const char *dimension) {
   if (!mc || !path) return LC_ERR_INVALID;
   lc_chunk c;
   lc_chunk_init(&c);
@@ -624,6 +651,31 @@ lc_status lc_map_chunk_write_top_png(const lc_map_chunk *mc, const char *path) {
     lc_chunk_free(&c);
     return st;
   }
+
+  /* Fix up min_y / world_height based on the dimension string.
+   * lc_chunk_from_map_chunk always uses Overworld defaults (-64 / 384), so
+   * non-Overworld chunks have wrong section Y offsets and Y scan range.
+   * We must also shift section_y values so lc_chunk_state_at() finds them. */
+  if (dimension) {
+    int32_t new_min_y = c.min_y;
+    int32_t new_world_height = c.world_height;
+    if (strstr(dimension, "nether")) {
+      new_min_y = 0;
+      new_world_height = 128;
+    } else if (strstr(dimension, "the_end")) {
+      new_min_y = 0;
+      new_world_height = 256;
+    }
+    if (new_min_y != c.min_y || new_world_height != c.world_height) {
+      int32_t shift = (new_min_y >> 4) - (c.min_y >> 4);
+      for (size_t i = 0; i < c.section_count; i++) {
+        c.sections[i].section_y += shift;
+      }
+      c.min_y = new_min_y;
+      c.world_height = new_world_height;
+    }
+  }
+
   st = lc_chunk_write_top_png(&c, path);
   lc_chunk_free(&c);
   return st;

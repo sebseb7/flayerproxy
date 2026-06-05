@@ -96,6 +96,7 @@ export function createEntityTracker() {
       data: p.objectData,
       spawnTime: Date.now(),
       statePackets: [],
+      spawnPayload: Buffer.from(payload),
     };
     updatePos(ent, p.x, p.y, p.z);
     set(p.entityId, ent);

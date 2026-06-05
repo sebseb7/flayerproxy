@@ -39,7 +39,7 @@ export interface WritePngResult {
   ok: boolean;
   error?: string;
 }
-export function writeMapChunkPng(buffer: Buffer, path: string): WritePngResult;
+export function writeMapChunkPng(buffer: Buffer, path: string, dimension?: string): WritePngResult;
 
 
 export interface PlayLoginResult {

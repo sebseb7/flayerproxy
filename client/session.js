@@ -172,6 +172,7 @@ export function createSession(config) {
   let conn = null;
   let joinBurstLogged = false;
   const chunkDirsReady = new Set();
+  let c2sMovementPostSeq = 0;
 
   let cipher = null;
   let decipher = null;
@@ -225,6 +226,7 @@ export function createSession(config) {
     sock.write(encryptedFrame);
     if (phase === 'play_join' || phase === 'play') {
       trackC2sPacket(id, payload);
+      streamC2sMovementPacket(id, payload);
     }
     logger.c2s(id, payload, detail);
   }
@@ -352,6 +354,134 @@ export function createSession(config) {
     logger.event('join burst', chalk.dim('login + chunks'));
   }
 
+  function normalizePostPath(filePath) {
+    return filePath.split(path.sep).join('/');
+  }
+
+  async function postBinaryPayload({ relativePath, fileName, payload, headers = {}, successLabel, errorLabel }) {
+    if (!postUrl) return;
+
+    const postPath = normalizePostPath(relativePath);
+    const body = Buffer.from(payload);
+
+    try {
+      const response = await fetch(postUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'X-File-Path': postPath,
+          'X-File-Name': fileName,
+          ...headers,
+        },
+        body,
+      });
+      if (!response.ok) {
+        logger.error(
+          errorLabel,
+          chalk.red(`Failed to post ${postPath}: ${response.status} ${response.statusText}`),
+        );
+      } else {
+        logger.debug(successLabel, chalk.dim(`Posted ${postPath} to ${postUrl}`));
+      }
+    } catch (e) {
+      logger.error(`${errorLabel} error`, chalk.red(`Failed to post ${postPath}: ${e.message}`));
+    }
+  }
+
+  function c2sMovementPostInfo(id, payload) {
+    if (!Buffer.isBuffer(payload)) return null;
+
+    const dim = getDimensionName() || state.dimension || 'unknown';
+    const seqNumber = ++c2sMovementPostSeq;
+    const seq = String(seqNumber).padStart(9, '0');
+    const commonHeaders = {
+      'X-Dimension': dim,
+      'X-Packet-Direction': 'C2S',
+      'X-Packet-Id': `0x${id.toString(16).padStart(2, '0')}`,
+      'X-Sequence': String(seqNumber),
+    };
+
+    if (id === PLAY.C2S_POSITION && payload.length >= 24) {
+      const x = payload.readDoubleBE(0);
+      const y = payload.readDoubleBE(8);
+      const z = payload.readDoubleBE(16);
+      const fileName = `x${Math.floor(x)}_y${Math.floor(y)}_z${Math.floor(z)}.c2s_position.wire`;
+      return {
+        dim,
+        fileName,
+        relativePath: path.join(dim, 'client', 'c2s_position', seq, fileName),
+        headers: {
+          ...commonHeaders,
+          'X-Packet-Name': 'position',
+          'X-Packet-Decode-Name': 'c2s_position',
+          'X-Player-X': String(x),
+          'X-Player-Y': String(y),
+          'X-Player-Z': String(z),
+        },
+      };
+    }
+
+    if (id === PLAY.C2S_POSITION_LOOK && payload.length >= 32) {
+      const x = payload.readDoubleBE(0);
+      const y = payload.readDoubleBE(8);
+      const z = payload.readDoubleBE(16);
+      const yaw = payload.readFloatBE(24);
+      const pitch = payload.readFloatBE(28);
+      const fileName = `x${Math.floor(x)}_y${Math.floor(y)}_z${Math.floor(z)}.c2s_position_look.wire`;
+      return {
+        dim,
+        fileName,
+        relativePath: path.join(dim, 'client', 'c2s_position_look', seq, fileName),
+        headers: {
+          ...commonHeaders,
+          'X-Packet-Name': 'position_look',
+          'X-Packet-Decode-Name': 'c2s_position_look',
+          'X-Player-X': String(x),
+          'X-Player-Y': String(y),
+          'X-Player-Z': String(z),
+          'X-Player-Yaw': String(yaw),
+          'X-Player-Pitch': String(pitch),
+        },
+      };
+    }
+
+    if (id === PLAY.C2S_MOVE_ROT && payload.length >= 8) {
+      const yaw = payload.readFloatBE(0);
+      const pitch = payload.readFloatBE(4);
+      const fileName = 'c2s_look.wire';
+      return {
+        dim,
+        fileName,
+        relativePath: path.join(dim, 'client', 'c2s_look', seq, fileName),
+        headers: {
+          ...commonHeaders,
+          'X-Packet-Name': 'move_rot',
+          'X-Packet-Decode-Name': 'c2s_look',
+          'X-Player-Yaw': String(yaw),
+          'X-Player-Pitch': String(pitch),
+        },
+      };
+    }
+
+    return null;
+  }
+
+  function streamC2sMovementPacket(id, payload) {
+    if (!postUrl) return;
+
+    const info = c2sMovementPostInfo(id, payload);
+    if (!info) return;
+
+    void postBinaryPayload({
+      relativePath: info.relativePath,
+      fileName: info.fileName,
+      payload,
+      headers: info.headers,
+      successLabel: 'c2s_movement_post',
+      errorLabel: 'c2s movement post',
+    });
+  }
+
   function writeMapChunk(file, payload) {
     const dim = getDimensionName() || state.dimension || 'unknown';
     const dir = path.dirname(file);
@@ -369,28 +499,14 @@ export function createSession(config) {
       }
       await fs.writeFile(newFile, payload);
 
-      if (postUrl) {
-        try {
-          const relativePath = path.join(dim, path.relative(chunksRoot, dir), path.basename(file));
-          const response = await fetch(postUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/octet-stream',
-              'X-File-Path': relativePath,
-              'X-File-Name': path.basename(file),
-              'X-Dimension': dim,
-            },
-            body: payload,
-          });
-          if (!response.ok) {
-            logger.error('map_chunk post', chalk.red(`Failed to post chunk ${relativePath}: ${response.status} ${response.statusText}`));
-          } else {
-            logger.debug('map_chunk_post', chalk.dim(`Posted chunk ${relativePath} to ${postUrl}`));
-          }
-        } catch (e) {
-          logger.error('map_chunk post error', chalk.red(`Failed to post chunk: ${e.message}`));
-        }
-      }
+      await postBinaryPayload({
+        relativePath: path.join(dim, path.relative(chunksRoot, dir), path.basename(file)),
+        fileName: path.basename(file),
+        payload,
+        headers: { 'X-Dimension': dim },
+        successLabel: 'map_chunk_post',
+        errorLabel: 'map_chunk post',
+      });
     })().catch((e) => logger.error('map_chunk write', chalk.red(e.message)));
   }
 
@@ -405,6 +521,7 @@ export function createSession(config) {
     tryFinishPlayJoin,
     notePlayJoinPacket,
     writeMapChunk,
+    postBinaryPayload,
     state,
     accessToken,
     profileId,

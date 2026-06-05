@@ -608,7 +608,7 @@ static int process_map_chunk(const char *png_dir, const char *raw_dir, const uin
     lc_map_chunk_free(&mc);
     return 1;
   }
-  if (lc_map_chunk_write_top_png(&mc, path) != LC_OK) {
+  if (lc_map_chunk_write_top_png(&mc, path, NULL) != LC_OK) {
     fprintf(stderr, "png error: %s\n", path);
     lc_map_chunk_free(&mc);
     return 1;

@@ -357,7 +357,7 @@ static int process_file(const char *in_path, const char *basename, const char *o
             return -1;
           }
         }
-        if (lc_map_chunk_write_top_png(&mc, out_path) != LC_OK) {
+        if (lc_map_chunk_write_top_png(&mc, out_path, NULL) != LC_OK) {
           fprintf(stderr, "png error: %s\n", out_path);
           lc_map_chunk_free(&mc);
           free(wire);

@@ -67,6 +67,9 @@ export function decodePayload(packetName, payload) {
   if (packetName === 'sound_effect' || packetName === 'entity_sound_effect') {
     oneLine = resolveSoundRefs(oneLine);
   }
+  if (packetName === 'entity_update_attributes') {
+    return oneLine;
+  }
   const maxLen = packetName === 'login' ? DECODE_MAX_LOGIN : DECODE_MAX;
   return oneLine.length > maxLen ? `${oneLine.slice(0, maxLen)}…` : oneLine;
 }

@@ -1,7 +1,6 @@
 #include "internal.h"
 
 static lc_status lc_skip_registry_entry_holder_set(lc_buf *b);
-static lc_status lc_skip_slot_component_data(lc_buf *b, int32_t comp_type);
 /* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
  * Callers: metadata.c, slot.c (same file).
  */
@@ -262,7 +261,7 @@ static lc_status lc_skip_enchantment_list(lc_buf *b) {
 /* Good for: Minecraft 1.21+ item slot / equipment component wire skipping or parsing.
  * Callers: slot.c (same file).
  */
-static lc_status lc_skip_slot_component_data(lc_buf *b, int32_t comp_type) {
+lc_status lc_skip_slot_component_data(lc_buf *b, int32_t comp_type) {
   int32_t v;
   switch (comp_type) {
     case 0:

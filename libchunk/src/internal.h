@@ -1,6 +1,10 @@
 #ifndef LIBCHUNK_INTERNAL_H
 #define LIBCHUNK_INTERNAL_H
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include "libchunk.h"
 #include <stdlib.h>
 #include <string.h>
@@ -82,6 +86,7 @@ int lc_decode_advancements(const uint8_t *payload, size_t payload_len, char *out
 lc_status lc_read_top_bit_array(lc_buf *b, lc_equipment_arr *out);
 const char *lc_slot_component_type_name(int32_t id);
 int lc_slot_fprint_equipment_entry(FILE *f, const lc_equipment *eq, const char *indent);
+lc_status lc_skip_slot_component_data(lc_buf *b, int32_t comp_type);
 lc_status lc_metadata_read_loop(lc_buf *b, lc_metadata_arr *out);
 lc_status lc_parse_spawn_info(lc_buf *b, lc_spawn_info *out);
 
