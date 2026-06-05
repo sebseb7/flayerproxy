@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Minecraft Bigchunk Map Streamer</title>
+    <!-- Premium Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  </head>
+  <body>
+    <!-- Map Canvas Viewport -->
+    <div id="map-container">
+      <div id="map-viewport"></div>
+    </div>
+
+    <!-- UI Overlay Panels -->
+    <div id="ui-overlay">
+      <!-- Title Card & Connection Status -->
+      <div class="card glass header-card">
+        <div class="header-main">
+          <h1>MAP STREAMER</h1>
+          <div class="status-badge" id="conn-status">
+            <span class="dot"></span>
+            <span class="text">CONNECTING</span>
+          </div>
+        </div>
+        <p class="subtitle">Live Bigchunk Visualizer</p>
+      </div>
+
+      <!-- Controls and Info Panel -->
+      <div class="card glass info-card">
+        <div class="info-row">
+          <span class="info-label">DIMENSION</span>
+          <select id="dimension-select" class="custom-select">
+            <option value="minecraft:overworld">Overworld</option>
+            <option value="minecraft:the_nether">The Nether</option>
+            <option value="minecraft:the_end">The End</option>
+          </select>
+        </div>
+        
+        <div class="divider"></div>
+
+        <div class="info-grid">
+          <div class="grid-item">
+            <span class="info-label">BLOCK COORDS</span>
+            <span class="info-value monospace" id="coords-display">X: 0, Z: 0</span>
+          </div>
+          <div class="grid-item">
+            <span class="info-label">CHUNK COORDS</span>
+            <span class="info-value monospace" id="chunk-coords-display">CX: 0, CZ: 0</span>
+          </div>
+          <div class="grid-item">
+            <span class="info-label">ZOOM</span>
+            <span class="info-value" id="zoom-display">100%</span>
+          </div>
+          <div class="grid-item">
+            <span class="info-label">TOTAL TILES</span>
+            <span class="info-value" id="tiles-count">0</span>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="actions">
+          <button id="center-btn" class="btn btn-primary">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+              <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+              <path d="M8 13A5 5 0 1 1 8 3a5 5 0 0 1 0 10zm0 1A6 6 0 1 0 8 2a6 6 0 0 0 0 12z"/>
+              <path d="M8 11a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm0 1a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/>
+              <path d="M9.5 8a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z"/>
+            </svg>
+            CENTER VIEW
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Notification Toast Messages -->
+    <div id="toast-container"></div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
