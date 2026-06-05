@@ -35,6 +35,13 @@ export function parseWirePath(filePath: string): WireMeta;
 export function archiveCategoryFromPath(filePath: string): 'player' | 'config' | 'misc' | null;
 export function pngPathForWire(filePath: string, pngRoot?: string): string | null;
 
+export interface WritePngResult {
+  ok: boolean;
+  error?: string;
+}
+export function writeMapChunkPng(buffer: Buffer, path: string): WritePngResult;
+
+
 export interface PlayLoginResult {
   entityId: number;
   viewDistance: number;

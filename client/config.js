@@ -4,7 +4,19 @@ import { LOG_LEVELS } from './constants.js';
 import { logPingTickFromEnv } from './logNoise.js';
 
 function positionalArgs(argv) {
-  return argv.slice(2).filter((a) => !a.startsWith('--'));
+  const result = [];
+  const args = argv.slice(2);
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg.startsWith('--')) {
+      if (arg === '--post-url' && i + 1 < args.length && !args[i + 1].startsWith('--')) {
+        i++;
+      }
+      continue;
+    }
+    result.push(arg);
+  }
+  return result;
 }
 
 export function loadConfig(argv = process.argv, env = process.env) {
@@ -13,6 +25,17 @@ export function loadConfig(argv = process.argv, env = process.env) {
   const logLevelName = env.MC_CLIENT_LOG_LEVEL;
   const logLevel = LOG_LEVELS[logLevelName] ?? (debug ? LOG_LEVELS.debug : LOG_LEVELS.info);
   const autoRespawn = argv.includes('--auto-respawn') || env.MC_CLIENT_AUTO_RESPAWN === '1';
+
+  let postUrl = env.MC_CHUNK_POST_URL || null;
+  const postUrlIdx = argv.findIndex((a) => a.startsWith('--post-url'));
+  if (postUrlIdx !== -1) {
+    const arg = argv[postUrlIdx];
+    if (arg.includes('=')) {
+      postUrl = arg.split('=')[1];
+    } else if (postUrlIdx + 1 < argv.length) {
+      postUrl = argv[postUrlIdx + 1];
+    }
+  }
 
   const logFileEnv = env.MC_CLIENT_LOG_FILE;
   const logFile =
@@ -70,6 +93,7 @@ export function loadConfig(argv = process.argv, env = process.env) {
     autoRespawn,
     accessToken,
     profileId,
+    postUrl,
   };
 }
 

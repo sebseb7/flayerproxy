@@ -1031,8 +1031,41 @@ Napi::Value HexDump(const Napi::CallbackInfo &info) {
   return Napi::String::New(env, scratch.data(), (size_t)pos);
 }
 
+Napi::Value WriteMapChunkPng(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 2 || !info[0].IsBuffer() || !info[1].IsString()) {
+    Napi::TypeError::New(env, "writeMapChunkPng(buffer, path)").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+  std::string path = info[1].As<Napi::String>().Utf8Value();
+
+  lc_map_chunk mc;
+  memset(&mc, 0, sizeof(mc));
+  lc_status st = lc_parse_map_chunk(buf.Data(), buf.Length(), &mc);
+  Napi::Object o = Napi::Object::New(env);
+  if (st != LC_OK) {
+    o.Set("ok", Napi::Boolean::New(env, false));
+    o.Set("error", Napi::String::New(env, "Failed to parse map_chunk"));
+    return o;
+  }
+
+  st = lc_map_chunk_write_top_png(&mc, path.c_str());
+  lc_map_chunk_free(&mc);
+
+  if (st != LC_OK) {
+    o.Set("ok", Napi::Boolean::New(env, false));
+    o.Set("error", Napi::String::New(env, "Failed to write PNG"));
+    return o;
+  }
+
+  o.Set("ok", Napi::Boolean::New(env, true));
+  return o;
+}
+
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
   FrameProcessor::Init(env, exports);
+  exports.Set("writeMapChunkPng", Napi::Function::New(env, WriteMapChunkPng));
   exports.Set("supportedPackets", Napi::Function::New(env, SupportedPackets));
   exports.Set("decodePayload", Napi::Function::New(env, DecodePayload));
   exports.Set("decodeWire", Napi::Function::New(env, DecodeWire));

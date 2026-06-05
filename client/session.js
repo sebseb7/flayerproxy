@@ -164,7 +164,7 @@ function rewriteSelectKnownPacks(payload) {
 }
 
 export function createSession(config) {
-  const { host, port, username, debug, logLevel, logPingTick, autoRespawn = false, accessToken, profileId } = config;
+  const { host, port, username, debug, logLevel, logPingTick, autoRespawn = false, accessToken, profileId, postUrl } = config;
 
   let phase = 'connect';
   let tickTimer = null;
@@ -368,6 +368,29 @@ export function createSession(config) {
         chunkDirsReady.add(newDir);
       }
       await fs.writeFile(newFile, payload);
+
+      if (postUrl) {
+        try {
+          const relativePath = path.join(dim, path.relative(chunksRoot, dir), path.basename(file));
+          const response = await fetch(postUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/octet-stream',
+              'X-File-Path': relativePath,
+              'X-File-Name': path.basename(file),
+              'X-Dimension': dim,
+            },
+            body: payload,
+          });
+          if (!response.ok) {
+            logger.error('map_chunk post', chalk.red(`Failed to post chunk ${relativePath}: ${response.status} ${response.statusText}`));
+          } else {
+            logger.debug('map_chunk_post', chalk.dim(`Posted chunk ${relativePath} to ${postUrl}`));
+          }
+        } catch (e) {
+          logger.error('map_chunk post error', chalk.red(`Failed to post chunk: ${e.message}`));
+        }
+      }
     })().catch((e) => logger.error('map_chunk write', chalk.red(e.message)));
   }
 

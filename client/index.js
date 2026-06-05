@@ -40,6 +40,7 @@ session.logger.info(
     (config.logFile ? chalk.dim(` logFile=${config.logFile}`) : '') +
     (isLibchunkLoaded() ? chalk.green(' libchunk=ok') : chalk.yellow(' libchunk=off')) +
     (config.autoRespawn ? chalk.yellow(' --auto-respawn') : '') +
+    (config.postUrl ? chalk.dim(` postUrl=${config.postUrl}`) : '') +
     (() => { const bp = getBlockedPacketsList(); return bp.length ? chalk.dim(` blocked=[${bp.join(',')}]`) : ''; })()
 );
 session.logger.info('upstream', chalk.white(`${config.host}:${config.port}`));

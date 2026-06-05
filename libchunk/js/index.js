@@ -245,5 +245,9 @@ module.exports = {
     if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
     return native.parseWorldEvent(buffer);
   },
+  writeMapChunkPng: (buffer, path) => {
+    if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
+    return native.writeMapChunkPng(buffer, path);
+  },
 };
 
