@@ -63,6 +63,14 @@ export function getDownstreamClient() {
   };
 }
 
+export function hasActiveDownstream() {
+  if (!downstreamSock || downstreamSock.destroyed) {
+    return false;
+  }
+  const phase = getDownstreamPhase();
+  return ['login', 'config', 'play_join', 'play', 'death'].includes(phase);
+}
+
 export function recordConfigS2c(id, payload) {
   if (ready) return;
   config.push({ id, payload: Buffer.from(payload) });

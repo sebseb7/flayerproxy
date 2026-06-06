@@ -20,6 +20,8 @@ import {
   isCaptureReady,
   getUpstreamClient,
   setDownstreamClient,
+  getDownstreamClient,
+  hasActiveDownstream,
   getEntityTracker,
   getDimensionName,
   getLoginData,
@@ -111,9 +113,14 @@ export function handleClient(sock, opts = {}) {
   let keepAliveTimer = null;
   let keepAliveId = 1000n;
   
-  setDownstreamClient(sock, () => phase, (id, payload) => {
-    send(sock, id, payload);
-  });
+  const isRejected = hasActiveDownstream();
+
+  function registerDownstream() {
+    if (isRejected) return;
+    setDownstreamClient(sock, () => phase, (id, payload) => {
+      send(sock, id, payload);
+    });
+  }
 
   const logger = createServerLogger({
     getPhase: () => phase,
@@ -358,6 +365,8 @@ export function handleClient(sock, opts = {}) {
     handleConfigC2s,
     handlePlayJoinC2s,
     handlePlayC2s,
+    registerDownstream,
+    isRejected,
   });
 
   const feed = createFrameProcessor((id, payload) => {
@@ -374,7 +383,9 @@ export function handleClient(sock, opts = {}) {
   });
   sock.on('error', (e) => logger.error('socket', chalk.red(e.message)));
   sock.on('close', () => {
-    setDownstreamClient(null, () => 'handshake', null);
+    if (getDownstreamClient().sock === sock) {
+      setDownstreamClient(null, () => 'handshake', null);
+    }
     if (keepAliveTimer) clearInterval(keepAliveTimer);
     logger.info('client disconnected', chalk.dim(username || '?'));
   });

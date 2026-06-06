@@ -1,11 +1,9 @@
 import chalk from 'chalk';
 import { HS_LOGIN, LOGIN } from '../client/constants.js';
 import { readVarInt, readString, writeString } from '../client/wire.js';
+import { hasActiveDownstream } from '../client/captureStore.js';
 
 const HS_STATUS = 1;
-
-const STATUS_JSON =
-  '{"version":{"name":"1.21.10","protocol":773},"players":{"max":20,"online":0,"sample":[]},"description":{"text":"flayerproxy capture replay"}}';
 
 /** @param {object} ctx session callbacks and methods */
 export function createOnPacket(ctx) {
@@ -20,6 +18,8 @@ export function createOnPacket(ctx) {
     handleConfigC2s,
     handlePlayJoinC2s,
     handlePlayC2s,
+    registerDownstream,
+    isRejected,
   } = ctx;
 
   return function onPacket(sock, id, payload) {
@@ -40,6 +40,9 @@ export function createOnPacket(ctx) {
         return;
       }
       if (intention.value === HS_LOGIN) {
+        if (!isRejected && registerDownstream) {
+          registerDownstream();
+        }
         setPhase('login');
         return;
       }
@@ -49,7 +52,13 @@ export function createOnPacket(ctx) {
     if (phase === 'status') {
       logger.c2s(id, payload);
       if (id === 0x00) {
-        send(sock, 0x00, writeString(STATUS_JSON));
+        const onlineCount = hasActiveDownstream() ? 1 : 0;
+        const statusJson = JSON.stringify({
+          version: { name: '1.21.10', protocol: 773 },
+          players: { max: 1, online: onlineCount, sample: [] },
+          description: { text: 'flayerproxy capture replay' },
+        });
+        send(sock, 0x00, writeString(statusJson));
         return;
       }
       if (id === 0x01 && payload.length >= 8) {
@@ -63,6 +72,13 @@ export function createOnPacket(ctx) {
     if (phase === 'login') {
       logger.c2s(id, payload);
       if (id === LOGIN.C2S_START) {
+        if (isRejected) {
+          const reason = JSON.stringify({ text: "Server is full (1/1 slots occupied)." });
+          send(sock, LOGIN.DISCONNECT, writeString(reason));
+          sock.end();
+          logger.warn('login rejected: server occupied');
+          return;
+        }
         const name = readString(payload, 0);
         const username = name?.value ?? 'Player';
         setUsername(username);
